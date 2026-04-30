@@ -437,15 +437,22 @@ class SimpleOrderBook(
         if (!preventSelfTrade) {
             return false
         }
-        val makerOrder = if (orderCommand.direction == OrderDirection.BID) bestAskOrder else bestBidOrder
-        if (makerOrder == null || makerOrder.uuid != orderCommand.uuid) {
-            return false
+        var makerOrder = if (orderCommand.direction == OrderDirection.BID) bestAskOrder else bestBidOrder
+        while (makerOrder != null && isPriceMatched(orderCommand, makerOrder.price)) {
+            if (makerOrder.uuid == orderCommand.uuid) {
+                return true
+            }
+            makerOrder = makerOrder.worse
         }
+        return false
+    }
+
+    private fun isPriceMatched(orderCommand: OrderCreateCommand, makerPrice: Long): Boolean {
         return orderCommand.orderType == OrderType.MARKET_ORDER ||
             if (orderCommand.direction == OrderDirection.BID) {
-                makerOrder.price <= orderCommand.price
+                makerPrice <= orderCommand.price
             } else {
-                makerOrder.price >= orderCommand.price
+                makerPrice >= orderCommand.price
             }
     }
 

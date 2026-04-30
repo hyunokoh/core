@@ -67,6 +67,64 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenOwnOrderBehindExternalLiquidity_whenGtcLimitOrderCreated_thenOrderIsRejectedBeforeAnyTrade() {
+        val orderBook = SimpleOrderBook(pair, false, preventSelfTrade = true)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        val tradeEvents = mutableListOf<TradeEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        EventDispatcher.register(TradeEvent::class.java) { tradeEvents.add(it) }
+        val externalOwner = UUID.randomUUID().toString()
+        val externalAsk = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                externalOwner,
+                pair,
+                9,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+        val ownAsk = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                10,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+
+        val rejectedBidOuid = UUID.randomUUID().toString()
+        val rejectedBid = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                rejectedBidOuid,
+                uuid,
+                pair,
+                10,
+                2,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+
+        Assertions.assertNull(rejectedBid)
+        Assertions.assertEquals(1, rejectEvents.count { it.ouid == rejectedBidOuid && it.reason == RejectReason.SELF_TRADE_PREVENTION })
+        Assertions.assertEquals(0, tradeEvents.count { it.takerOuid == rejectedBidOuid || it.makerOuid == rejectedBidOuid })
+        Assertions.assertEquals(2, orderBook.orders.size)
+        Assertions.assertEquals(externalAsk, orderBook.bestAskOrder)
+        Assertions.assertEquals(ownAsk, externalAsk.worse)
+        Assertions.assertNull(orderBook.bestBidOrder)
+        Assertions.assertEquals(1, externalAsk.remainedQuantity())
+        Assertions.assertEquals(1, ownAsk.remainedQuantity())
+    }
+
+    @Test
     fun givenDuplicateOuid_whenGtcBidLimitOrderCreatedTwice_thenSecondCreateIsIgnored() {
         val orderBook = SimpleOrderBook(pair, false)
         val ouid = UUID.randomUUID().toString()
