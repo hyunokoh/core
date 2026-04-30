@@ -770,6 +770,22 @@ wait_query_eq() {
   done
 }
 
+wait_wallet_type_balance() {
+  local label="$1"
+  local owner="$2"
+  local wallet_type="$3"
+  local currency="$4"
+  local expected="$5"
+  wait_query_eq "$label" "postgres-wallet" "$expected" "
+    select to_char(coalesce(sum(w.balance), 0), 'FM9999999990.00000000')
+    from wallet w
+    join wallet_owner wo on wo.id = w.owner
+    where wo.uuid = '$owner'
+      and w.wallet_type = '$wallet_type'
+      and w.currency = '$currency';
+  "
+}
+
 try_wallet_balance() {
   local owner="$1"
   local symbol="$2"
@@ -2389,6 +2405,8 @@ main() {
   expect_2xx_retry "concurrent resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$concurrent_ask' '$concurrent_seller'" >/tmp/opex-e2e-concurrent-ask.json
   wait_user_open_order "$concurrent_seller" "BTC_USDT" "21000" "0.003" /tmp/opex-e2e-concurrent-open-orders.json
   wait_order_book_level "BTC_USDT" "ASK" "21000" "0.003"
+  wait_wallet_type_balance "concurrent seller MAIN BTC fully reserved" "$concurrent_seller" "MAIN" "BTC" "0.00000000"
+  wait_wallet_type_balance "concurrent seller EXCHANGE BTC reservation" "$concurrent_seller" "EXCHANGE" "BTC" "0.00300000"
 
   expect_2xx_retry "concurrent buyer one bid" "curl_json POST 'http://127.0.0.1:8093/order' '$concurrent_bid' '$concurrent_buyer_one'" >/tmp/opex-e2e-concurrent-bid-1.json &
   local concurrent_bid_pid_one=$!
@@ -2407,6 +2425,10 @@ main() {
   wait_user_trade_price "$concurrent_buyer_three" "BTC_USDT" "21000" "0.001"
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
+  wait_wallet_type_balance "concurrent seller EXCHANGE BTC fully settled" "$concurrent_seller" "EXCHANGE" "BTC" "0.00000000"
+  wait_wallet_type_balance "concurrent buyer one EXCHANGE USDT fully settled" "$concurrent_buyer_one" "EXCHANGE" "USDT" "0.00000000"
+  wait_wallet_type_balance "concurrent buyer two EXCHANGE USDT fully settled" "$concurrent_buyer_two" "EXCHANGE" "USDT" "0.00000000"
+  wait_wallet_type_balance "concurrent buyer three EXCHANGE USDT fully settled" "$concurrent_buyer_three" "EXCHANGE" "USDT" "0.00000000"
 
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$concurrent_seller" "BTC" "0" &&
@@ -2467,6 +2489,8 @@ main() {
   expect_2xx_retry "overfill resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$overfill_ask' '$overfill_seller'" >/tmp/opex-e2e-overfill-ask.json
   wait_user_open_order "$overfill_seller" "BTC_USDT" "22000" "0.002" /tmp/opex-e2e-overfill-open-orders.json
   wait_order_book_level "BTC_USDT" "ASK" "22000" "0.002"
+  wait_wallet_type_balance "overfill seller MAIN BTC fully reserved" "$overfill_seller" "MAIN" "BTC" "0.00000000"
+  wait_wallet_type_balance "overfill seller EXCHANGE BTC reservation" "$overfill_seller" "EXCHANGE" "BTC" "0.00200000"
 
   expect_2xx_retry "overfill buyer one bid" "curl_json POST 'http://127.0.0.1:8093/order' '$overfill_bid' '$overfill_buyer_one'" >/tmp/opex-e2e-overfill-bid-1.json &
   local overfill_bid_pid_one=$!
@@ -2517,14 +2541,19 @@ main() {
     echo "openOwner=$overfill_open_owner filledCount=${#overfill_filled_buyers[@]}" >&2
     exit 1
   fi
+  wait_wallet_type_balance "overfill seller EXCHANGE BTC fully settled" "$overfill_seller" "EXCHANGE" "BTC" "0.00000000"
+  wait_wallet_type_balance "overfill residual buyer MAIN USDT reserved" "$overfill_open_owner" "MAIN" "USDT" "8.00000000"
+  wait_wallet_type_balance "overfill residual buyer EXCHANGE USDT reservation" "$overfill_open_owner" "EXCHANGE" "USDT" "22.00000000"
   for overfill_filled_buyer in "${overfill_filled_buyers[@]}"; do
     wait_user_trade_price "$overfill_filled_buyer" "BTC_USDT" "22000" "0.001"
+    wait_wallet_type_balance "overfill filled buyer EXCHANGE USDT fully settled" "$overfill_filled_buyer" "EXCHANGE" "USDT" "0.00000000"
   done
   local overfill_cancel_request
   overfill_cancel_request="$(jq -nc --arg ouid "$overfill_open_ouid" --arg uuid "$overfill_open_owner" --argjson orderId "$overfill_open_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"BTC_USDT"}')"
   expect_2xx_retry "cancel overfill residual bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$overfill_cancel_request' '$overfill_open_owner'" >/tmp/opex-e2e-overfill-cancel.json
   wait_no_user_open_orders "$overfill_open_owner" "BTC_USDT"
   wait_order_book_empty "BTC_USDT" "BID"
+  wait_wallet_type_balance "overfill residual buyer EXCHANGE USDT released" "$overfill_open_owner" "EXCHANGE" "USDT" "0.00000000"
 
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$overfill_seller" "BTC" "0" &&

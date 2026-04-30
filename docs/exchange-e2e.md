@@ -46,6 +46,9 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Restarting all core exchange services together still allows fresh deposits, order submission, matching, market visibility, and wallet settlement.
 - Restarting the Kafka broker still allows producers/consumers to reconnect and settle a fresh trade.
 - Restarting Wallet, Accountant, and Market Postgres datastores still allows services to reconnect and settle a fresh trade.
+- `BTC_USDT` is exercised independently from `ETH_USDT`, including persisted trade visibility and empty final books.
+- Concurrent `BTC_USDT` takers against one resting ask fully settle all takers and leave no reserved `EXCHANGE` balance.
+- Concurrent overfill is bounded: only available maker quantity fills, exactly one residual taker bid remains open, its `EXCHANGE` reservation matches the open quantity, and cancel releases it.
 
 For the default `1 ETH @ 100 USDT` flow, the final balances are:
 
