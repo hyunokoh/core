@@ -37,8 +37,15 @@ services:
     profiles:
       - full-stack
   matching-engine-duo:
-    profiles:
-      - full-stack
+    depends_on: !override
+      - kafka-1
+      - redis-duo
+    environment:
+      - KAFKA_IP_PORT=kafka-1:29092
+      - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - OPEX_KAFKA_TOPIC_PARTITIONS=1
+      - OPEX_KAFKA_TOPIC_REPLICAS=1
+      - OPEX_KAFKA_TOPIC_MIN_INSYNC_REPLICAS=1
   auth:
     profiles:
       - full-stack

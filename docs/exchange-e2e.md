@@ -48,6 +48,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Restarting the Kafka broker still allows producers/consumers to reconnect and settle a fresh trade.
 - Restarting Wallet, Accountant, and Market Postgres datastores still allows services to reconnect and settle a fresh trade.
 - `BTC_USDT` is exercised independently from `ETH_USDT`, including persisted trade visibility and empty final books.
+- `DOGE_USDT` is exercised through the secondary `matching-engine-duo` shard so configured non-primary markets are not silently accepted without engine coverage.
 - Concurrent `BTC_USDT` takers against one resting ask fully settle all takers and leave no reserved `EXCHANGE` balance.
 - Concurrent overfill is bounded: only available maker quantity fills, exactly one residual taker bid remains open, its `EXCHANGE` reservation matches the open quantity, and cancel releases it.
 - BTC-specific Wallet, Accountant, and Market tables contain the expected ledger counts, final wallet-type balances, processed actions, and total matched quantity.
@@ -92,6 +93,7 @@ For the default `1 ETH @ 100 USDT` flow, the final balances are:
 - Invalid order owner keeps `1 ETH` and `100 USDT` after malformed, non-positive, and precision-mismatched orders, with no user-visible market orders.
 - Duplicate deposit owner keeps `5 USDT` after the first deposit succeeds and the second deposit with the same `transferRef` is rejected.
 - Withdraw owner keeps `6 USDT` after one canceled, one accepted, and one rejected withdrawal; intruder cancel, processing cancel, duplicate accept, and terminal-state admin/user transitions are rejected without additional wallet movement.
+- DOGE seller ends with `0 DOGE`, `9.9 USDT`; DOGE buyer ends with `9.9 DOGE`, `10 USDT` after a `10 DOGE @ 1 USDT` trade on the secondary engine shard.
 - Final public order book state has `0` ask levels and `0` bid levels.
 - Final public recent-trades state has `16` trades with aggregate quantities: `90 -> 0.1`, `100 -> 1.2`, `111 -> 0.5`, `112 -> 0.4`, `113 -> 0.3`, `114 -> 0.2`, `115 -> 0.2`, `116 -> 0.2`, `117 -> 0.2`, `120 -> 0.4`, `125 -> 0.2`, `130 -> 0.2`, `140 -> 0.4`, `150 -> 0.1`.
 - Final database state has zero E2E `EXCHANGE` wallet balances, wallet transaction counts of `41 DEPOSIT`, `38 ORDER_CREATE`, `12 ORDER_CANCEL`, `32 TRADE`, `32 FEE`, and `1 ORDER_FINALIZED`, processed Accountant financial action counts of `38 SubmitOrderEvent`, `12 RejectOrderEvent`, and `65 TradeEvent`, no pending/given-up Accountant retries, zero Market `open_orders`, internally consistent Market trade rows, and the same persisted trade distribution as the public recent-trades API.
@@ -106,6 +108,6 @@ For the default `1 ETH @ 100 USDT` flow, the final balances are:
 - Matching Engine creates E2E topics with `partitions=1`, `replicas=1`, and `min.insync.replicas=1`.
 - Accountant and Market create `richOrder`/`richTrade` E2E topics with the same single-broker-safe settings.
 - Consumers use `auto.offset.reset=earliest` so startup timing does not drop orders published just before assignment.
-- The script waits for accountant, matching-engine, and market Kafka assignments before submitting orders.
+- The script waits for accountant, matching-engine, matching-engine-duo, and market Kafka assignments before submitting orders.
 
 These overrides are E2E-specific and do not change the default production compose topology.
