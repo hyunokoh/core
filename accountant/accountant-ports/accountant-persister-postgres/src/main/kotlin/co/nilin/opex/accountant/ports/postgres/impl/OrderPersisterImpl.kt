@@ -13,29 +13,38 @@ class OrderPersisterImpl(private val orderRepository: OrderRepository) : OrderPe
 
     override suspend fun load(ouid: String): Order? {
         val model = orderRepository.findByOuid(ouid).awaitFirstOrNull() ?: return null
+        return model.toOrder()
+    }
+
+    override suspend fun loadForUpdate(ouid: String): Order? {
+        val model = orderRepository.findByOuidForUpdate(ouid).awaitFirstOrNull() ?: return null
+        return model.toOrder()
+    }
+
+    private fun OrderModel.toOrder(): Order {
         return Order(
-            model.pair,
-            model.ouid,
-            model.matchingEngineId,
-            model.makerFee,
-            model.takerFee,
-            model.leftSideFraction,
-            model.rightSideFraction,
-            model.uuid,
-            model.userLevel,
-            model.direction,
-            model.matchConstraint,
-            model.orderType,
-            model.price,
-            model.quantity,
-            model.filledQuantity,
-            model.origPrice,
-            model.origQuantity,
-            model.filledOrigQuantity,
-            model.firstTransferAmount,
-            model.remainedTransferAmount,
-            model.status,
-            model.id
+            pair,
+            ouid,
+            matchingEngineId,
+            makerFee,
+            takerFee,
+            leftSideFraction,
+            rightSideFraction,
+            uuid,
+            userLevel,
+            direction,
+            matchConstraint,
+            orderType,
+            price,
+            quantity,
+            filledQuantity,
+            origPrice,
+            origQuantity,
+            filledOrigQuantity,
+            firstTransferAmount,
+            remainedTransferAmount,
+            status,
+            id
         )
     }
 

@@ -9,7 +9,7 @@ import org.springframework.kafka.config.TopicBuilder
 import java.util.function.Supplier
 
 @Configuration
-@Profile("!otc")
+@Profile("!otc & !localbridge")
 class KafkaTopicConfig {
 
     @Autowired

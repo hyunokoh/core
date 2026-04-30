@@ -1,466 +1,157 @@
 package co.nilin.opex.wallet.ports.postgres.impl
 
+import co.nilin.opex.utility.error.data.OpexException
+import co.nilin.opex.wallet.core.model.Wallet
 import co.nilin.opex.wallet.core.model.WalletLimitAction
+import co.nilin.opex.wallet.core.model.WalletOwner
 import co.nilin.opex.wallet.core.model.WalletType
-import co.nilin.opex.wallet.ports.postgres.dao.*
+import co.nilin.opex.wallet.ports.postgres.WalletPostgresIntegrationTest
+import co.nilin.opex.wallet.ports.postgres.dao.CurrencyRepository
+import co.nilin.opex.wallet.ports.postgres.dao.TransactionRepository
+import co.nilin.opex.wallet.ports.postgres.dao.WalletLimitsRepository
+import co.nilin.opex.wallet.ports.postgres.dao.WalletOwnerRepository
+import co.nilin.opex.wallet.ports.postgres.dao.WalletRepository
 import co.nilin.opex.wallet.ports.postgres.dto.toModel
+import co.nilin.opex.wallet.ports.postgres.dto.toPlainObject
 import co.nilin.opex.wallet.ports.postgres.impl.sample.VALID
-import io.mockk.MockKException
-import io.mockk.every
-import io.mockk.mockk
+import co.nilin.opex.wallet.ports.postgres.model.TransactionModel
+import co.nilin.opex.wallet.ports.postgres.model.WalletLimitsModel
+import co.nilin.opex.wallet.ports.postgres.model.WalletModel
+import kotlinx.coroutines.reactor.awaitSingle
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import kotlinx.coroutines.runBlocking
-import org.assertj.core.api.Assertions.*
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import reactor.core.publisher.Mono
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.r2dbc.core.DatabaseClient
 import java.math.BigDecimal
 
-@Suppress("ReactiveStreamsUnusedPublisher")
-private class WalletManagerTest {
-    private val walletLimitsRepository: WalletLimitsRepository = mockk()
-    private val walletRepository: WalletRepository = mockk()
-    private val walletOwnerRepository: WalletOwnerRepository = mockk()
-    private val currencyRepository: CurrencyRepository = mockk()
+private class WalletManagerTest : WalletPostgresIntegrationTest() {
+    @Autowired
+    private lateinit var databaseClient: DatabaseClient
 
-    private var transactionRepository: TransactionRepository = mockk {
-        every {
-            calculateWithdrawStatistics(
-                eq(VALID.WALLET_OWNER.id!!),
-                eq(VALID.WALLET.id!!),
-                any(),
-                any()
-            )
-        } returns Mono.empty()
-        every {
-            calculateDepositStatistics(
-                eq(VALID.WALLET_OWNER.id!!),
-                eq(VALID.WALLET.id!!),
-                any(),
-                any()
-            )
-        } returns Mono.empty()
+    @Autowired
+    private lateinit var walletLimitsRepository: WalletLimitsRepository
+
+    @Autowired
+    private lateinit var transactionRepository: TransactionRepository
+
+    @Autowired
+    private lateinit var walletRepository: WalletRepository
+
+    @Autowired
+    private lateinit var walletOwnerRepository: WalletOwnerRepository
+
+    @Autowired
+    private lateinit var currencyRepository: CurrencyRepository
+
+    private val walletManager by lazy {
+        WalletManagerImpl(walletLimitsRepository, transactionRepository, walletRepository, walletOwnerRepository, currencyRepository)
     }
 
-    private val walletManagerImpl: WalletManagerImpl = WalletManagerImpl(
-        walletLimitsRepository, transactionRepository, walletRepository, walletOwnerRepository, currencyRepository
-    )
-
-    private fun stubNoWalletLimit(action: WalletLimitAction) = runBlocking {
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndWalletAndAction(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                VALID.WALLET.id!!,
-                action
-            )
-        } returns Mono.empty()
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndActionAndWalletType(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                action,
-                WalletType.MAIN
-            )
-        } returns Mono.empty()
-        every {
-            walletLimitsRepository.findByLevelAndCurrencyAndActionAndWalletType(
-                VALID.USER_LEVEL_REGISTERED,
-                VALID.CURRENCY.symbol,
-                action,
-                WalletType.MAIN
-            )
-        } returns Mono.empty()
-    }
-
-    private fun stubAllWalletLimit(action: WalletLimitAction) = runBlocking {
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndWalletAndAction(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                VALID.WALLET.id!!,
-                action
-            )
-        } returns Mono.just(VALID.WALLET_LIMITS_MODEL_WITHDRAW.copy(action = action))
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndActionAndWalletType(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                action,
-                WalletType.MAIN
-            )
-        } returns Mono.just(VALID.WALLET_LIMITS_MODEL_WITHDRAW.copy(action = action))
-        every {
-            walletLimitsRepository.findByLevelAndCurrencyAndActionAndWalletType(
-                VALID.USER_LEVEL_REGISTERED,
-                VALID.CURRENCY.symbol,
-                action,
-                WalletType.MAIN
-            )
-        } returns Mono.just(VALID.WALLET_LIMITS_MODEL_WITHDRAW.copy(action = action))
+    @BeforeEach
+    fun cleanDb(): Unit = runBlocking {
+        databaseClient.executeSql("truncate table transaction, wallet_limits, wallet_config, wallet, wallet_owner, currency restart identity cascade")
     }
 
     @Test
     fun givenWalletWithNoLimit_whenIsWithdrawAllowed_thenReturnTrue(): Unit = runBlocking {
-        stubNoWalletLimit(WalletLimitAction.WITHDRAW)
+        val wallet = seedWallet(balance = BigDecimal.valueOf(1.5))
 
-        val isAllowed = walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(0.5))
+        val isAllowed = walletManager.isWithdrawAllowed(wallet, BigDecimal.valueOf(0.5))
 
         assertThat(isAllowed).isTrue()
     }
 
     @Test
     fun givenEmptyWallet_whenIsWithdrawAllowed_thenReturnFalse(): Unit = runBlocking {
-        val isAllowed = walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(5))
+        val wallet = seedWallet(balance = BigDecimal.valueOf(1.5))
+
+        val isAllowed = walletManager.isWithdrawAllowed(wallet, BigDecimal.valueOf(5))
 
         assertThat(isAllowed).isFalse()
     }
 
     @Test
     fun givenWrongAmount_whenIsWithdrawAllowed_thenThrow(): Unit = runBlocking {
+        val wallet = seedWallet(balance = BigDecimal.valueOf(1.5))
+
         assertThatThrownBy {
-            runBlocking {
-                walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(-1))
-            }
-        }.isNotInstanceOf(MockKException::class.java)
+            runBlocking { walletManager.isWithdrawAllowed(wallet, BigDecimal.valueOf(-1)) }
+        }.isInstanceOf(OpexException::class.java)
     }
 
     @Test
-    fun givenOwnerAndWalletTypeLimit_whenIsWithdrawAllowed_thenReturnTrue(): Unit = runBlocking {
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndWalletAndAction(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                VALID.WALLET.id!!,
-                WalletLimitAction.WITHDRAW
-            )
-        } returns Mono.empty()
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndActionAndWalletType(
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.owner!!,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.currency!!,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.action!!,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.walletType
-            )
-        } returns Mono.just(VALID.WALLET_LIMITS_MODEL_WITHDRAW)
-        every {
-            walletLimitsRepository.findByLevelAndCurrencyAndActionAndWalletType(
-                VALID.USER_LEVEL_REGISTERED,
-                VALID.CURRENCY.symbol,
-                WalletLimitAction.WITHDRAW,
-                WalletType.MAIN
-            )
-        } returns Mono.empty()
+    fun givenOwnerAndWalletLimit_whenWithdrawStatisticsCrossLimit_thenReturnFalse(): Unit = runBlocking {
+        val wallet = seedWallet(balance = BigDecimal.valueOf(10))
+        seedWalletLimit(wallet, WalletLimitAction.WITHDRAW, dailyTotal = BigDecimal.ONE)
+        seedWithdrawTransaction(wallet, BigDecimal.valueOf(2))
 
-        val isAllowed = walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(1))
-
-        assertThat(isAllowed).isTrue()
-    }
-
-    @Test
-    fun givenOwnerAndWalletLimit_whenIsWithdrawAllowed_thenReturnTrue(): Unit = runBlocking {
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndWalletAndAction(
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.owner!!,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.currency!!,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.walletId!!,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.action!!
-            )
-        } returns Mono.just(VALID.WALLET_LIMITS_MODEL_WITHDRAW)
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndActionAndWalletType(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                WalletLimitAction.WITHDRAW,
-                WalletType.MAIN
-            )
-        } returns Mono.empty()
-        every {
-            walletLimitsRepository.findByLevelAndCurrencyAndActionAndWalletType(
-                VALID.USER_LEVEL_REGISTERED,
-                VALID.CURRENCY.symbol,
-                WalletLimitAction.WITHDRAW,
-                WalletType.MAIN
-            )
-        } returns Mono.empty()
-
-        val isAllowed = walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(1))
-
-        assertThat(isAllowed).isTrue()
-    }
-
-    @Test
-    fun givenLevelAndWalletTypeLimit_whenIsWithdrawAllowed_thenReturnTrue(): Unit = runBlocking {
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndWalletAndAction(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                VALID.WALLET.id!!,
-                WalletLimitAction.WITHDRAW
-            )
-        } returns Mono.empty()
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndActionAndWalletType(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                WalletLimitAction.WITHDRAW,
-                WalletType.MAIN
-            )
-        } returns Mono.empty()
-        every {
-            walletLimitsRepository.findByLevelAndCurrencyAndActionAndWalletType(
-                VALID.USER_LEVEL_REGISTERED,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.currency!!,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.action!!,
-                VALID.WALLET_LIMITS_MODEL_WITHDRAW.walletType
-            )
-        } returns Mono.just(VALID.WALLET_LIMITS_MODEL_WITHDRAW)
-
-        val isAllowed = walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(1))
-
-        assertThat(isAllowed).isTrue()
-    }
-
-    @Test
-    fun givenAllLimits_whenIsWithdrawAllowedWithValidAmount_thenReturnTrue(): Unit = runBlocking {
-        stubAllWalletLimit(WalletLimitAction.WITHDRAW)
-
-        val isAllowed = walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(1))
-
-        assertThat(isAllowed).isTrue()
-    }
-
-    @Test
-    fun givenAllLimits_whenIsWithdrawAllowedWithInvalidAmount_thenReturnFalse(): Unit = runBlocking {
-        stubAllWalletLimit(WalletLimitAction.WITHDRAW)
-
-        val isAllowed = walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(30))
+        val isAllowed = walletManager.isWithdrawAllowed(wallet, BigDecimal.ONE)
 
         assertThat(isAllowed).isFalse()
     }
 
     @Test
-    fun givenEmptyWalletWithNoLimit_whenIsWithdrawAllowed_thenReturnFalse(): Unit = runBlocking {
-        stubNoWalletLimit(WalletLimitAction.WITHDRAW)
+    fun givenOwnerAndWalletTypeLimit_whenDepositStatisticsCrossLimit_thenReturnFalse(): Unit = runBlocking {
+        val wallet = seedWallet(balance = BigDecimal.valueOf(10))
+        seedWalletLimit(wallet, WalletLimitAction.DEPOSIT, walletId = null, dailyTotal = BigDecimal.ONE)
+        seedDepositTransaction(wallet, BigDecimal.valueOf(2))
 
-        val isAllowed = walletManagerImpl.isWithdrawAllowed(VALID.WALLET, BigDecimal.valueOf(5))
-
-        assertThat(isAllowed).isFalse()
-    }
-
-    @Test
-    fun givenWalletWithNoLimit_whenIsDepositAllowed_thenReturnTrue(): Unit = runBlocking {
-        stubNoWalletLimit(WalletLimitAction.DEPOSIT)
-
-        val isAllowed = walletManagerImpl.isDepositAllowed(VALID.WALLET, BigDecimal.valueOf(0.5))
-
-        assertThat(isAllowed).isTrue()
-    }
-
-    @Test
-    fun givenWrongAmount_whenIsDepositAllowed_thenThrow(): Unit = runBlocking {
-        assertThatThrownBy {
-            runBlocking {
-                walletManagerImpl.isDepositAllowed(VALID.WALLET, BigDecimal.valueOf(-1))
-            }
-        }
-    }
-
-    @Test
-    fun givenAllLimits_whenIsDepositAllowedWithValidAmount_thenReturnTrue(): Unit = runBlocking {
-        stubAllWalletLimit(WalletLimitAction.DEPOSIT)
-
-        val isAllowed = walletManagerImpl.isDepositAllowed(VALID.WALLET, BigDecimal.valueOf(1))
-
-        assertThat(isAllowed).isTrue()
-    }
-
-    @Test
-    fun givenWalletWithWalletLimit_whenIsDepositAllowed_thenReturnFalse(): Unit = runBlocking {
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndWalletAndAction(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                VALID.WALLET.id!!,
-                WalletLimitAction.DEPOSIT
-            )
-        } returns Mono.just(VALID.WALLET_LIMITS_MODEL_DEPOSIT)
-        every {
-            walletLimitsRepository.findByOwnerAndCurrencyAndActionAndWalletType(
-                VALID.WALLET_OWNER.id!!,
-                VALID.CURRENCY.symbol,
-                WalletLimitAction.DEPOSIT,
-                WalletType.MAIN
-            )
-        } returns Mono.empty()
-        every {
-            walletLimitsRepository.findByLevelAndCurrencyAndActionAndWalletType(
-                VALID.USER_LEVEL_REGISTERED,
-                VALID.CURRENCY.symbol,
-                WalletLimitAction.DEPOSIT,
-                WalletType.MAIN
-            )
-        } returns Mono.empty()
-
-        val isAllowed = walletManagerImpl.isDepositAllowed(VALID.WALLET, BigDecimal.valueOf(30))
+        val isAllowed = walletManager.isDepositAllowed(wallet, BigDecimal.ONE)
 
         assertThat(isAllowed).isFalse()
     }
 
-    @Test
-    fun givenWallet_whenFindWalletByOwnerAndCurrencyAndType_thenReturnWallet(): Unit = runBlocking {
-        every { walletOwnerRepository.findById(VALID.WALLET_OWNER.id!!) } returns Mono.just(VALID.WALLET_OWNER.toModel())
-        every {
-            walletRepository.findByOwnerAndTypeAndCurrency(
-                VALID.WALLET_OWNER.id!!,
-                WalletType.MAIN,
-                VALID.CURRENCY.symbol
-            )
-        } returns Mono.just(VALID.WALLET.toModel())
-        every {
-            currencyRepository.findBySymbol(VALID.CURRENCY.symbol)
-        } returns Mono.just(VALID.CURRENCY.toModel())
+    private suspend fun seedWallet(balance: BigDecimal): Wallet {
+        databaseClient.executeSql("insert into currency(symbol, name, precision) values ('${VALID.CURRENCY.symbol}', '${VALID.CURRENCY.name}', ${VALID.CURRENCY.precision})")
+        val currency = currencyRepository.findBySymbol(VALID.CURRENCY.symbol)!!.awaitSingle().toPlainObject()
+        val owner = walletOwnerRepository.save(VALID.WALLET_OWNER.copy(id = null).toModel()).awaitSingle().toPlainObject()
+        val wallet = walletRepository.save(WalletModel(owner.id!!, WalletType.MAIN, currency.symbol, balance)).awaitSingle()
+        return Wallet(wallet.id!!, owner, co.nilin.opex.wallet.core.model.Amount(currency, wallet.balance), currency, wallet.type, wallet.version)
+    }
 
-        val wallet = walletManagerImpl.findWalletByOwnerAndCurrencyAndType(
-            VALID.WALLET_OWNER,
-            WalletType.MAIN,
-            VALID.CURRENCY
+    private suspend fun seedWalletLimit(
+        wallet: Wallet,
+        action: WalletLimitAction,
+        walletId: Long? = wallet.id,
+        dailyTotal: BigDecimal
+    ) {
+        walletLimitsRepository.save(
+            WalletLimitsModel(
+                id = null,
+                level = null,
+                owner = wallet.owner.id,
+                action = action,
+                currency = wallet.currency.symbol,
+                walletType = wallet.type,
+                walletId = walletId,
+                dailyTotal = dailyTotal,
+                dailyCount = null,
+                monthlyTotal = null,
+                monthlyCount = null
+            )
+        ).awaitSingleOrNull()
+    }
+
+    private suspend fun seedWithdrawTransaction(wallet: Wallet, amount: BigDecimal) {
+        transactionRepository.save(transaction(wallet.owner, wallet.id!!, wallet.id!!, amount, BigDecimal.ZERO)).awaitSingle()
+    }
+
+    private suspend fun seedDepositTransaction(wallet: Wallet, amount: BigDecimal) {
+        transactionRepository.save(transaction(wallet.owner, wallet.id!!, wallet.id!!, BigDecimal.ZERO, amount)).awaitSingle()
+    }
+
+    private fun transaction(owner: WalletOwner, sourceWallet: Long, destWallet: Long, sourceAmount: BigDecimal, destAmount: BigDecimal) =
+        TransactionModel(
+            id = null,
+            sourceWallet = sourceWallet,
+            destWallet = destWallet,
+            sourceAmount = sourceAmount,
+            destAmount = destAmount,
+            description = "limit test for ${owner.uuid}",
+            transferRef = "limit-${owner.uuid}-${System.nanoTime()}"
         )
-
-        assertThat(wallet).isNotNull
-        assertThat(wallet!!.owner.id).isEqualTo(VALID.WALLET_OWNER.id)
-        assertThat(wallet.currency.symbol).isEqualTo(VALID.CURRENCY.symbol)
-        assertThat(wallet.type).isEqualTo(WalletType.MAIN)
-    }
-
-    @Test
-    fun givenEmptyWalletWithNoLimit_whenCreateWallet_thenReturnWallet(): Unit = runBlocking {
-        every {
-            walletRepository.save(VALID.WALLET.copy(id = null).toModel())
-        } returns Mono.just(VALID.WALLET.toModel())
-
-        val wallet = walletManagerImpl.createWallet(
-            VALID.WALLET_OWNER,
-            VALID.WALLET.balance,
-            VALID.WALLET.currency,
-            VALID.WALLET.type
-        )
-
-        assertThat(wallet).isNotNull
-        assertThat(wallet.owner.id).isEqualTo(VALID.WALLET_OWNER.id)
-        assertThat(wallet.currency.symbol).isEqualTo(VALID.CURRENCY.symbol)
-        assertThat(wallet.type).isEqualTo(WalletType.MAIN)
-    }
-
-    @Test
-    fun givenWallet_whenIncreaseBalance_thenSuccess(): Unit = runBlocking {
-        every {
-            walletRepository.updateBalance(eq(VALID.WALLET.id!!), eq(BigDecimal.valueOf(1)))
-        } returns Mono.just(1)
-
-        assertThatNoException().isThrownBy {
-            runBlocking {
-                walletManagerImpl.increaseBalance(
-                    VALID.WALLET,
-                    BigDecimal.valueOf(1)
-                )
-            }
-        }
-    }
-
-    @Test
-    fun givenNoWallet_whenIncreaseBalance_thenThrow(): Unit = runBlocking {
-        every {
-            walletRepository.updateBalance(any(), eq(BigDecimal.valueOf(1)))
-        } returns Mono.just(0)
-
-        assertThatThrownBy {
-            runBlocking {
-                walletManagerImpl.increaseBalance(
-                    VALID.WALLET,
-                    BigDecimal.valueOf(1)
-                )
-            }
-        }.isNotInstanceOf(MockKException::class.java)
-    }
-
-    @Test
-    fun givenWrongAmount_whenIncreaseBalance_thenThrow(): Unit = runBlocking {
-        every {
-            walletRepository.updateBalance(eq(20), any(), any())
-        } returns Mono.just(0)
-
-        assertThatThrownBy {
-            runBlocking {
-                walletManagerImpl.increaseBalance(
-                    VALID.WALLET,
-                    BigDecimal.valueOf(-1)
-                )
-            }
-        }.isNotInstanceOf(MockKException::class.java)
-    }
-
-    @Test
-    fun givenWallet_whenDecreaseBalance_thenSuccess(): Unit = runBlocking {
-        every {
-            walletRepository.updateBalance(eq(VALID.WALLET.id!!), eq(BigDecimal.valueOf(-1)), any())
-        } returns Mono.just(1)
-
-        assertThatNoException().isThrownBy {
-            runBlocking {
-                walletManagerImpl.decreaseBalance(
-                    VALID.WALLET,
-                    BigDecimal.valueOf(1)
-                )
-            }
-        }
-    }
-
-    @Test
-    fun givenNoWallet_whenDecreaseBalance_thenThrow(): Unit = runBlocking {
-        every {
-            walletRepository.updateBalance(any(), eq(BigDecimal.valueOf(-1)), any())
-        } returns Mono.just(0)
-
-        assertThatThrownBy {
-            runBlocking {
-                walletManagerImpl.decreaseBalance(
-                    VALID.WALLET,
-                    BigDecimal.valueOf(1)
-                )
-            }
-        }.isNotInstanceOf(MockKException::class.java)
-    }
-
-    @Test
-    fun givenWrongAmount_whenDecreaseBalance_thenThrow(): Unit = runBlocking {
-        every {
-            walletRepository.updateBalance(eq(VALID.WALLET_OWNER.id!!), eq(BigDecimal.valueOf(-1)), any())
-        } returns Mono.just(0)
-
-        assertThatThrownBy {
-            runBlocking {
-                walletManagerImpl.decreaseBalance(
-                    VALID.WALLET,
-                    BigDecimal.valueOf(-1)
-                )
-            }
-        }.isNotInstanceOf(MockKException::class.java)
-    }
-
-    @Test
-    fun givenWallet_whenFindWalletById_thenReturnWallet(): Unit = runBlocking {
-        every { walletRepository.findById(VALID.WALLET.id!!) } returns Mono.just(VALID.WALLET.toModel())
-        every {
-            walletOwnerRepository.findById(VALID.WALLET_OWNER.id!!)
-        } returns Mono.just(VALID.WALLET_OWNER.toModel())
-        every {
-            currencyRepository.findById(VALID.CURRENCY.symbol)
-        } returns Mono.just(VALID.CURRENCY.toModel())
-
-        val wallet = walletManagerImpl.findWalletById(VALID.WALLET.id!!)
-
-        assertThat(wallet).isNotNull
-        assertThat(wallet!!.id).isEqualTo(VALID.WALLET.id)
-        assertThat(wallet.balance).isEqualTo(VALID.WALLET.balance)
-        assertThat(wallet.currency.symbol).isEqualTo(VALID.CURRENCY.symbol)
-    }
 }

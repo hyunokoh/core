@@ -52,7 +52,8 @@ class AppConfig {
         tempEventRepublisher: TempEventRepublisher,
         richOrderPublisher: RichOrderPublisher,
         financialActionPublisher: FinancialActionPublisher,
-        jsonMapper: JsonMapper
+        jsonMapper: JsonMapper,
+        processedEventPersister: ProcessedEventPersister
     ): OrderManager {
         return OrderManagerImpl(
             pairConfigLoader,
@@ -63,7 +64,8 @@ class AppConfig {
             tempEventPersister,
             richOrderPublisher,
             financialActionPublisher,
-            jsonMapper
+            jsonMapper,
+            processedEventPersister
         )
     }
 
@@ -77,7 +79,8 @@ class AppConfig {
         richOrderPublisher: RichOrderPublisher,
         feeCalculator: FeeCalculator,
         financialActionPublisher: FinancialActionPublisher,
-        jsonMapper: JsonMapper
+        jsonMapper: JsonMapper,
+        processedEventPersister: ProcessedEventPersister
     ): TradeManager {
         return TradeManagerImpl(
             financeActionPersister,
@@ -88,7 +91,8 @@ class AppConfig {
             richOrderPublisher,
             feeCalculator,
             financialActionPublisher,
-            jsonMapper
+            jsonMapper,
+            processedEventPersister
         )
     }
 

@@ -106,9 +106,16 @@ app:
     client-secret: none
   wallet:
     url: lb://opex-wallet
+  zkaml:
+    enabled: ${ZKAML_ENABLED:false}
+    fail-closed: ${ZKAML_FAIL_CLOSED:false}
+    url: ${ZKAML_URL:http://localhost:8000}
+    api-key: ${ZKAML_API_KEY:}
+    review-risk-score: ${ZKAML_REVIEW_RISK_SCORE:50}
+    case-recording:
+      enabled: ${ZKAML_CASE_RECORDING_ENABLED:true}
   address:
     life-time:
       value: ${ADDRESS_EXP_TIME}  # second
 swagger:
   authUrl: ${SWAGGER_AUTH_URL:https://api.opex.dev/auth}/realms/opex/protocol/openid-connect/token}
-

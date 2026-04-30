@@ -1,17 +1,19 @@
 package co.nilin.opex.accountant.ports.kafka.listener.consumer
 
 import co.nilin.opex.accountant.ports.kafka.listener.spi.Listener
-import org.slf4j.LoggerFactory
 
 class ListenerObject : Listener<Any> {
 
-    private val logger = LoggerFactory.getLogger(ListenerObject::class.java)
+    val receivedEvents = mutableListOf<ReceivedEvent>()
+    var listenerId = "AnyListener"
 
     override fun id(): String {
-        return "AnyListener"
+        return listenerId
     }
 
     override fun onEvent(event: Any, partition: Int, offset: Long, timestamp: Long) {
-        logger.info("event called")
+        receivedEvents.add(ReceivedEvent(event, partition, offset, timestamp))
     }
 }
+
+data class ReceivedEvent(val event: Any, val partition: Int, val offset: Long, val timestamp: Long)

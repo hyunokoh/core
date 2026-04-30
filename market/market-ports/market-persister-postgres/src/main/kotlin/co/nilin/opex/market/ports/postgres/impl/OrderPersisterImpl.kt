@@ -53,8 +53,31 @@ class OrderPersisterImpl(
             LocalDateTime.now(),
             LocalDateTime.now()
         )
-        orderRepository.save(orderModel).awaitFirstOrNull()
-        logger.info("order ${order.ouid} saved")
+        val savedOrder: OrderModel? = orderRepository.insertIfAbsent(
+            orderModel.ouid,
+            orderModel.uuid,
+            orderModel.clientOrderId,
+            orderModel.symbol,
+            orderModel.orderId,
+            orderModel.makerFee,
+            orderModel.takerFee,
+            orderModel.leftSideFraction,
+            orderModel.rightSideFraction,
+            orderModel.userLevel,
+            orderModel.direction!!,
+            orderModel.constraint,
+            orderModel.type,
+            orderModel.price,
+            orderModel.quantity,
+            orderModel.quoteQuantity,
+            orderModel.createDate!!,
+            orderModel.updateDate
+        ).awaitSingleOrNull()
+        if (savedOrder == null) {
+            logger.info("Duplicate RichOrder ${order.ouid} ignored")
+        } else {
+            logger.info("order ${order.ouid} saved")
+        }
 
         orderStatusRepository.insert(
             order.ouid,

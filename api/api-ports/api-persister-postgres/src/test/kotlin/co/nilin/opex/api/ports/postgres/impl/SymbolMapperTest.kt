@@ -1,43 +1,39 @@
 package co.nilin.opex.api.ports.postgres.impl
 
+import co.nilin.opex.api.ports.postgres.ApiPostgresIntegrationTest
 import co.nilin.opex.api.ports.postgres.dao.SymbolMapRepository
 import co.nilin.opex.api.ports.postgres.impl.sample.VALID
-import io.mockk.every
-import io.mockk.mockk
+import co.nilin.opex.api.ports.postgres.model.SymbolMapModel
+import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
-import reactor.core.publisher.Flux
-import reactor.core.publisher.Mono
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.r2dbc.core.DatabaseClient
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SymbolMapperTest {
-    private val symbolMapRepository: SymbolMapRepository = mockk()
-    private val symbolMapper = SymbolMapperImpl(symbolMapRepository)
+private class SymbolMapperTest : ApiPostgresIntegrationTest() {
+    @Autowired
+    private lateinit var databaseClient: DatabaseClient
 
-    @BeforeAll
-    fun setUp() {
-        every {
-            symbolMapRepository.findByAliasKeyAndAlias("binance", "ETHUSDT")
-        } returns Mono.just(VALID.SYMBOL_MAP_MODEL)
-        every {
-            symbolMapRepository.findByAliasKeyAndSymbol("binance", VALID.ETH_USDT)
-        } returns Mono.just(VALID.SYMBOL_MAP_MODEL)
-        every {
-            symbolMapRepository.findAllByAliasKey("binance")
-        } returns Flux.just(VALID.SYMBOL_MAP_MODEL)
-        every {
-            symbolMapRepository.findAll()
-        } returns Flux.just(VALID.SYMBOL_MAP_MODEL)
+    @Autowired
+    private lateinit var symbolMapRepository: SymbolMapRepository
+
+    private val symbolMapper by lazy {
+        SymbolMapperImpl(symbolMapRepository)
+    }
+
+    @BeforeEach
+    fun seedDb(): Unit = runBlocking {
+        databaseClient.executeSql("truncate table symbol_maps restart identity cascade")
+        symbolMapRepository.save(SymbolMapModel(null, VALID.ETH_USDT, "binance", "ETHUSDT")).awaitSingle()
     }
 
     @Test
     fun givenSymbolAlias_whenMapSymbol_thenReturnAlias(): Unit = runBlocking {
-        val alis = symbolMapper.fromInternalSymbol(VALID.ETH_USDT)
+        val alias = symbolMapper.fromInternalSymbol(VALID.ETH_USDT)
 
-        assertThat(alis).isEqualTo("ETHUSDT")
+        assertThat(alias).isEqualTo("ETHUSDT")
     }
 
     @Test
@@ -51,8 +47,7 @@ class SymbolMapperTest {
     fun givenSymbolAlias_whenSymbolToAliasMap_thenReturnMap(): Unit = runBlocking {
         val map = symbolMapper.symbolToAliasMap()
 
-        assertThat(map).isNotNull
-        assertThat(map.size).isEqualTo(1)
-        assertThat(map[VALID.ETH_USDT]).isNotNull()
+        assertThat(map).hasSize(1)
+        assertThat(map[VALID.ETH_USDT]).isEqualTo("ETHUSDT")
     }
 }

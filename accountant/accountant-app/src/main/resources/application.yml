@@ -6,6 +6,7 @@ spring:
   main:
     allow-bean-definition-overriding: true
     allow-circular-references: true
+    web-application-type: reactive
   kafka:
     bootstrap-servers: ${KAFKA_IP_PORT:localhost:9092}
     consumer:

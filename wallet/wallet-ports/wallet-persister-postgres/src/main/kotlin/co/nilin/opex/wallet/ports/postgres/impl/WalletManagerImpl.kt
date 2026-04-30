@@ -53,8 +53,8 @@ class WalletManagerImpl(
                         .withHour(0).withMinute(0).withSecond(0), LocalDateTime.now()
                 ).awaitFirstOrNull()
                 evaluate = if (ts != null) {
-                    ((limit.dailyCount != null && ts.cnt!! >= limit.dailyCount!!)
-                            || (limit.dailyTotal != null && ts.total!! >= limit.dailyTotal))
+                    !((limit.dailyCount != null && ts.cnt!! + 1L > limit.dailyCount!!.toLong())
+                            || (limit.dailyTotal != null && ts.total!!.add(amount) > limit.dailyTotal))
                 } else {
                     limit.dailyTotal?.let { it >= amount } ?: true
                 }
@@ -67,10 +67,10 @@ class WalletManagerImpl(
                         .withHour(0).withMinute(0).withSecond(0), LocalDateTime.now()
                 ).awaitFirstOrNull()
                 evaluate = if (ts != null) {
-                    ((limit.dailyCount != null && ts.cnt!! >= limit.dailyCount!!)
-                            || (limit.dailyTotal != null && ts.total!! >= limit.dailyTotal))
+                    !((limit.monthlyCount != null && ts.cnt!! + 1L > limit.monthlyCount!!.toLong())
+                            || (limit.monthlyTotal != null && ts.total!!.add(amount) > limit.monthlyTotal))
                 } else {
-                    limit.dailyTotal?.let { it >= amount } ?: true
+                    limit.monthlyTotal?.let { it >= amount } ?: true
                 }
             }
         }
@@ -105,8 +105,8 @@ class WalletManagerImpl(
                         .withHour(0).withMinute(0).withSecond(0), LocalDateTime.now()
                 ).awaitFirstOrNull()
                 if (ts != null) {
-                    evaluate = (limit.dailyCount != null && ts.cnt!! >= limit.dailyCount!!)
-                            || (limit.dailyTotal != null && ts.total!! >= limit.dailyTotal)
+                    evaluate = !((limit.dailyCount != null && ts.cnt!! + 1L > limit.dailyCount!!.toLong())
+                            || (limit.dailyTotal != null && ts.total!!.add(amount) > limit.dailyTotal))
                 }
             }
 
@@ -117,8 +117,8 @@ class WalletManagerImpl(
                         .withHour(0).withMinute(0).withSecond(0), LocalDateTime.now()
                 ).awaitFirstOrNull()
                 if (ts != null) {
-                    evaluate = (limit.dailyCount != null && ts.cnt!! >= limit.dailyCount!!)
-                            || (limit.dailyTotal != null && ts.total!! >= limit.dailyTotal)
+                    evaluate = !((limit.monthlyCount != null && ts.cnt!! + 1L > limit.monthlyCount!!.toLong())
+                            || (limit.monthlyTotal != null && ts.total!!.add(amount) > limit.monthlyTotal))
                 }
             }
         }

@@ -94,8 +94,8 @@ class WalletOwnerManagerImpl(
                 )
             }.awaitFirstOrNull()
             evaluate = if (ts != null) {
-                !((limit.dailyCount != null && ts.cnt!! >= limit.dailyCount)
-                        || (limit.dailyTotal != null && ts.total!! >= limit.dailyTotal))
+                !((limit.dailyCount != null && ts.cnt!! + 1L > limit.dailyCount.toLong())
+                        || (limit.dailyTotal != null && ts.total!!.add(amount) > limit.dailyTotal))
             } else {
                 limit.dailyTotal?.let { it >= amount } ?: true
             }
@@ -115,8 +115,8 @@ class WalletOwnerManagerImpl(
                     )
                 }.awaitFirstOrNull()
                 evaluate = if (ts != null) {
-                    !((limit.monthlyCount != null && ts.cnt!! >= limit.monthlyCount)
-                            || (limit.monthlyTotal != null && ts.total!! >= limit.monthlyTotal))
+                    !((limit.monthlyCount != null && ts.cnt!! + 1L > limit.monthlyCount.toLong())
+                            || (limit.monthlyTotal != null && ts.total!!.add(amount) > limit.monthlyTotal))
                 } else {
                     limit.monthlyTotal?.let { it >= amount } ?: true
                 }

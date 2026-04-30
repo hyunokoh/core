@@ -1,5 +1,6 @@
 package co.nilin.opex.wallet.ports.postgres.impl
 
+import co.nilin.opex.common.OpexError
 import co.nilin.opex.wallet.core.model.Transaction
 import co.nilin.opex.wallet.core.model.TransactionHistory
 import co.nilin.opex.wallet.core.model.TransactionWithDetailHistory
@@ -7,10 +8,9 @@ import co.nilin.opex.wallet.core.model.TransferCategory
 import co.nilin.opex.wallet.core.spi.TransactionManager
 import co.nilin.opex.wallet.ports.postgres.dao.TransactionRepository
 import co.nilin.opex.wallet.ports.postgres.model.TransactionModel
-import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.coroutines.reactive.awaitFirstOrElse
 import kotlinx.coroutines.reactive.awaitSingle
-import org.slf4j.LoggerFactory
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -19,18 +19,30 @@ import java.time.ZoneId
 class TransactionManagerImpl(private val transactionRepository: TransactionRepository) : TransactionManager {
 
     override suspend fun save(transaction: Transaction): Long {
-        return transactionRepository.save(
-            TransactionModel(
-                null,
-                transaction.sourceWallet.id!!,
-                transaction.destWallet.id!!,
-                transaction.sourceAmount,
-                transaction.destAmount,
-                transaction.description,
-                transaction.transferRef,
-                transaction.transferCategory
-            )
-        ).awaitSingle().id!!
+        try {
+            return transactionRepository.save(
+                TransactionModel(
+                    null,
+                    transaction.sourceWallet.id!!,
+                    transaction.destWallet.id!!,
+                    transaction.sourceAmount,
+                    transaction.destAmount,
+                    transaction.description,
+                    transaction.transferRef,
+                    transaction.transferCategory
+                )
+            ).awaitSingle().id!!
+        } catch (e: DataIntegrityViolationException) {
+            if (e.isDuplicateTransferRefViolation())
+                throw OpexError.BadRequest.exception("transferRef already exists")
+            throw e
+        }
+    }
+
+    private fun DataIntegrityViolationException.isDuplicateTransferRefViolation(): Boolean {
+        return generateSequence(this as Throwable?) { it.cause }
+            .mapNotNull { it.message }
+            .any { it.contains("transaction_transfer_ref_key") || it.contains("transfer_ref") }
     }
 
     override suspend fun findDepositTransactions(

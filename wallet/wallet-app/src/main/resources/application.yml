@@ -56,7 +56,7 @@ spring:
         healthCheckInterval: 20s
         prefer-ip-address: true
   config:
-    import: vault://secret/${spring.application.name}
+    import: optional:vault://secret/${spring.application.name}
 logbook:
   secure-filter:
     enabled: true
@@ -125,6 +125,20 @@ app:
       folder: ${DRIVE_FOLDER_ID:-}
   bc-gateway:
     url: lb://opex-bc-gateway
+  zkaml:
+    enabled: ${ZKAML_ENABLED:false}
+    fail-closed: ${ZKAML_FAIL_CLOSED:false}
+    url: ${ZKAML_URL:http://localhost:8000}
+    api-key: ${ZKAML_API_KEY:}
+    review-risk-score: ${ZKAML_REVIEW_RISK_SCORE:50}
+    case-recording:
+      enabled: ${ZKAML_CASE_RECORDING_ENABLED:true}
+  zkpol:
+    export:
+      enabled: ${ZKPOL_EXPORT_ENABLED:false}
+      path: ${ZKPOL_EXPORT_PATH:}
+    outbox:
+      enabled: ${ZKPOL_OUTBOX_ENABLED:false}
   reserved-transfer:
     life-time: 15 #minutes
 swagger:

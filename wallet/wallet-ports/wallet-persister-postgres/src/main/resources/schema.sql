@@ -211,3 +211,46 @@ CREATE TABLE IF NOT EXISTS deposits
     deposit_type    VARCHAR(255),
     create_date     TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS zkaml_withdraw_case
+(
+    id                  SERIAL PRIMARY KEY,
+    owner_uuid          VARCHAR(36)  NOT NULL,
+    currency            VARCHAR(25)  NOT NULL REFERENCES currency (symbol),
+    amount              DECIMAL      NOT NULL,
+    destination_symbol  VARCHAR(25)  NOT NULL,
+    destination_network VARCHAR(80)  NOT NULL,
+    destination_address VARCHAR(255) NOT NULL,
+    destination_note    TEXT,
+    decision            VARCHAR(20)  NOT NULL,
+    reason              TEXT,
+    external_ref        VARCHAR(255),
+    created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_zkaml_withdraw_case_owner_uuid ON zkaml_withdraw_case (owner_uuid);
+CREATE INDEX IF NOT EXISTS idx_zkaml_withdraw_case_decision ON zkaml_withdraw_case (decision);
+
+CREATE TABLE IF NOT EXISTS zkpol_liability_outbox
+(
+    id            SERIAL PRIMARY KEY,
+    token_id      VARCHAR(25)  NOT NULL REFERENCES currency (symbol),
+    account_id    VARCHAR(36)  NOT NULL,
+    balance       DECIMAL      NOT NULL,
+    delta         DECIMAL      NOT NULL,
+    event_type    VARCHAR(128) NOT NULL,
+    occurred_at   TIMESTAMP    NOT NULL,
+    reference_id  VARCHAR(36)  NOT NULL UNIQUE,
+    source_system VARCHAR(64)  NOT NULL,
+    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_zkpol_liability_outbox_account_id ON zkpol_liability_outbox (account_id);
+CREATE INDEX IF NOT EXISTS idx_zkpol_liability_outbox_occurred_at ON zkpol_liability_outbox (occurred_at);
+
+CREATE TABLE IF NOT EXISTS zkpol_bridge_state
+(
+    bridge_name    VARCHAR(100) PRIMARY KEY,
+    last_outbox_id BIGINT      NOT NULL DEFAULT 0,
+    updated_at     TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

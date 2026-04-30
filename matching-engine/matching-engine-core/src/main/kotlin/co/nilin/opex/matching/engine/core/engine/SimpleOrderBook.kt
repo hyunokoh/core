@@ -22,11 +22,17 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
 
     val orderCounter = AtomicLong()
     val tradeCounter = AtomicLong()
+    private val processedOrderOuids = mutableSetOf<String>()
+    private val processedCancelOuids = mutableSetOf<String>()
 
     var lastOrder: SimpleOrder? = null
 
     override fun handleNewOrderCommand(orderCommand: OrderCreateCommand): Order? {
         logNewOrder(orderCommand)
+        if (!processedOrderOuids.add(orderCommand.ouid)) {
+            logger.warn("Duplicate order create command ignored: ouid=${orderCommand.ouid}")
+            return orders.values.find { it.ouid == orderCommand.ouid }
+        }
         val order = when (orderCommand.matchConstraint) {
             MatchConstraint.GTC -> {
                 if (orderCommand.orderType == OrderType.MARKET_ORDER) {
@@ -171,9 +177,17 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
         """.trimIndent()
         )
 
-        val simpleOrder = orders.entries.find { it.value.ouid == orderCommand.ouid }
+        val simpleOrder = orders.entries.find {
+            it.value.ouid == orderCommand.ouid &&
+                it.value.uuid == orderCommand.uuid &&
+                it.value.id == orderCommand.orderId
+        }
         val order = simpleOrder?.value
         if (order == null /*check for userid*/) {
+            if (processedCancelOuids.contains(orderCommand.ouid)) {
+                logger.warn("Duplicate order cancel command ignored: ouid=${orderCommand.ouid}")
+                return
+            }
             if (!replayMode) {
                 EventDispatcher.emit(
                     RejectOrderEvent(
@@ -211,12 +225,18 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
                 )
             )
         }
+        processedCancelOuids.add(orderCommand.ouid)
         EventDispatcher.emit(OrderBookPublishedEvent(persistent()))
         logCurrentState()
     }
 
     override fun handleEditCommand(orderCommand: OrderEditCommand): Order? {
-        val order = orders.remove(orderCommand.orderId)
+        val simpleOrder = orders.entries.find {
+            it.value.ouid == orderCommand.ouid &&
+                it.value.uuid == orderCommand.uuid &&
+                it.value.id == orderCommand.orderId
+        }
+        val order = simpleOrder?.value
         if (order == null /*check for userid*/) {
             if (!replayMode) {
                 EventDispatcher.emit(
@@ -231,6 +251,8 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
                 )
             }
             return order
+        } else {
+            orders.remove(simpleOrder.key)
         }
         if (order.direction == OrderDirection.BID) {
             handleCancelOrder(order, bidOrders, bestBidOrder) { newBestOrder: SimpleOrder? ->
@@ -557,10 +579,16 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
         persistent.lastOrder = lastOrder?.persistent()
         persistent.orders = orders.values.map { order -> order.persistent() }
         persistent.tradeCounter = tradeCounter.get()
+        persistent.processedOrderOuids = processedOrderOuids.toSet()
+        persistent.processedCancelOuids = processedCancelOuids.toSet()
         return persistent
     }
 
     fun rebuild(persistentOrderBook: PersistentOrderBook) {
+        processedOrderOuids.clear()
+        processedOrderOuids.addAll(persistentOrderBook.processedOrderOuids)
+        processedCancelOuids.clear()
+        processedCancelOuids.addAll(persistentOrderBook.processedCancelOuids)
         persistentOrderBook.orders?.map { order ->
             SimpleOrder(
                 order.id,
@@ -578,7 +606,10 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
             )
         }?.filter { order ->
             order.matchConstraint == MatchConstraint.GTC
-        }?.forEach { order -> putGtcInQueue(order) }
+        }?.forEach { order ->
+            processedOrderOuids.add(order.ouid)
+            putGtcInQueue(order)
+        }
 
         orderCounter.set(persistentOrderBook.lastOrder?.id ?: 0)
         tradeCounter.set(persistentOrderBook.tradeCounter)

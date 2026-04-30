@@ -1,8 +1,8 @@
 package co.nilin.opex.accountant.app
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
-import org.springframework.boot.context.properties.ConfigurationPropertiesScan
-import org.springframework.boot.runApplication
+import org.springframework.boot.WebApplicationType
+import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.annotation.ComponentScan
 
 @SpringBootApplication
@@ -10,5 +10,7 @@ import org.springframework.context.annotation.ComponentScan
 class AccountantApp
 
 fun main(args: Array<String>) {
-    runApplication<AccountantApp>(*args)
+    SpringApplicationBuilder(AccountantApp::class.java)
+        .web(WebApplicationType.REACTIVE)
+        .run(*args)
 }

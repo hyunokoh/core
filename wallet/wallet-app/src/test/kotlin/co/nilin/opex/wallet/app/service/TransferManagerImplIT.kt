@@ -1,17 +1,24 @@
 package co.nilin.opex.wallet.app.service
 
+import co.nilin.opex.common.OpexError
 import co.nilin.opex.wallet.app.KafkaEnabledTest
 import co.nilin.opex.wallet.core.exc.ConcurrentBalanceChangException
 import co.nilin.opex.wallet.core.inout.TransferCommand
 import co.nilin.opex.wallet.core.model.Amount
 import co.nilin.opex.wallet.core.model.TransferCategory
+import co.nilin.opex.wallet.core.model.WalletLimitAction
 import co.nilin.opex.wallet.core.model.WalletType
 import co.nilin.opex.wallet.core.spi.*
+import co.nilin.opex.wallet.ports.postgres.dao.WalletLimitsRepository
+import co.nilin.opex.wallet.ports.postgres.model.WalletLimitsModel
+import co.nilin.opex.utility.error.data.OpexException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.reactive.awaitFirst
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -37,15 +44,70 @@ class TransferManagerImplIT : KafkaEnabledTest() {
     @Autowired
     lateinit var transactionManager: TransactionManager
 
-    val cc = "CC"
+    @Autowired
+    lateinit var walletLimitsRepository: WalletLimitsRepository
+
+    lateinit var cc: String
     val amount = BigDecimal.valueOf(10)
     var sourceUuid: String? = null
     var destUuid: String? = null
 
     @BeforeEach
     fun setup() {
+        cc = "CC${UUID.randomUUID().toString().take(8).uppercase()}"
         sourceUuid = UUID.randomUUID().toString()
         setupWallets(sourceUuid!!)
+    }
+
+    @Test
+    fun givenDuplicateTransferRef_whenTransfer_thenRejectAsBadRequestAndRollbackBalances() {
+        runBlocking {
+            val currency = currencyService.getCurrency(cc)!!
+            val owner = walletOwnerManager.findWalletOwner(sourceUuid!!)!!
+            val sourceWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+            val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+            val transferRef = "duplicate-ref-${UUID.randomUUID()}"
+
+            transferManager.transfer(
+                TransferCommand(
+                    sourceWallet,
+                    receiverWallet,
+                    Amount(sourceWallet.currency, BigDecimal.ONE),
+                    "first transfer",
+                    transferRef,
+                    TransferCategory.NORMAL
+                )
+            )
+            val sourceBalanceAfterFirstTransfer =
+                walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!.balance.amount
+            val receiverBalanceAfterFirstTransfer =
+                walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!.balance.amount
+
+            val exception = assertThrows(OpexException::class.java) {
+                runBlocking {
+                    val refreshedSourceWallet =
+                        walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+                    val refreshedReceiverWallet =
+                        walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+                    transferManager.transfer(
+                        TransferCommand(
+                            refreshedSourceWallet,
+                            refreshedReceiverWallet,
+                            Amount(refreshedSourceWallet.currency, BigDecimal.ONE),
+                            "duplicate transfer",
+                            transferRef,
+                            TransferCategory.NORMAL
+                        )
+                    )
+                }
+            }
+
+            assertEquals(OpexError.BadRequest, exception.error)
+            val updatedSourceWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+            val updatedReceiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+            assertEquals(sourceBalanceAfterFirstTransfer, updatedSourceWallet.balance.amount)
+            assertEquals(receiverBalanceAfterFirstTransfer, updatedReceiverWallet.balance.amount)
+        }
     }
 
     @Test
@@ -193,6 +255,80 @@ class TransferManagerImplIT : KafkaEnabledTest() {
     }
 
     @Test
+    fun givenDailyWithdrawLimitBelowTransferAmount_whenTransfer_thenTransferFailsAndBalancesAreUnchanged() {
+        runBlocking {
+            val currency = currencyService.getCurrency(cc)!!
+            val owner = walletOwnerManager.findWalletOwner(sourceUuid!!)!!
+            val sourceWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+            val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+
+            walletLimitsRepository.save(
+                WalletLimitsModel(
+                    id = null,
+                    level = null,
+                    owner = owner.id,
+                    action = WalletLimitAction.WITHDRAW,
+                    currency = currency.symbol,
+                    walletType = WalletType.MAIN,
+                    walletId = sourceWallet.id,
+                    dailyTotal = amount.subtract(BigDecimal.ONE),
+                    dailyCount = null,
+                    monthlyTotal = null,
+                    monthlyCount = null
+                )
+            ).awaitFirst()
+
+            assertThrows(OpexException::class.java) {
+                runBlocking {
+                    transferManager.transfer(newTransferCommand(sourceWallet, receiverWallet, "withdraw-limit"))
+                }
+            }
+
+            val refreshedSource = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+            val refreshedReceiver = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+            assertEquals(amount.multiply(BigDecimal.valueOf(2)), refreshedSource.balance.amount)
+            assertEquals(BigDecimal.ZERO, refreshedReceiver.balance.amount)
+        }
+    }
+
+    @Test
+    fun givenDailyDepositLimitBelowTransferAmount_whenTransfer_thenTransferFailsAndBalancesAreUnchanged() {
+        runBlocking {
+            val currency = currencyService.getCurrency(cc)!!
+            val owner = walletOwnerManager.findWalletOwner(sourceUuid!!)!!
+            val sourceWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+            val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+
+            walletLimitsRepository.save(
+                WalletLimitsModel(
+                    id = null,
+                    level = null,
+                    owner = owner.id,
+                    action = WalletLimitAction.DEPOSIT,
+                    currency = currency.symbol,
+                    walletType = WalletType.EXCHANGE,
+                    walletId = receiverWallet.id,
+                    dailyTotal = amount.subtract(BigDecimal.ONE),
+                    dailyCount = null,
+                    monthlyTotal = null,
+                    monthlyCount = null
+                )
+            ).awaitFirst()
+
+            assertThrows(OpexException::class.java) {
+                runBlocking {
+                    transferManager.transfer(newTransferCommand(sourceWallet, receiverWallet, "deposit-limit"))
+                }
+            }
+
+            val refreshedSource = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+            val refreshedReceiver = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+            assertEquals(amount.multiply(BigDecimal.valueOf(2)), refreshedSource.balance.amount)
+            assertEquals(BigDecimal.ZERO, refreshedReceiver.balance.amount)
+        }
+    }
+
+    @Test
     fun dwhenTransferWithAdditionalData_thenDataIsPersistedAndRetrievable() {
         runBlocking {
             val currency = currencyService.getCurrency(cc)!!
@@ -318,7 +454,7 @@ class TransferManagerImplIT : KafkaEnabledTest() {
         runBlocking {
             try {
                 currencyService.deleteCurrency(cc)
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
 
             }
             currencyService.addCurrency(cc, cc, BigDecimal.ONE)
@@ -341,6 +477,19 @@ class TransferManagerImplIT : KafkaEnabledTest() {
         }
     }
 
+    private fun newTransferCommand(
+        sourceWallet: co.nilin.opex.wallet.core.model.Wallet,
+        receiverWallet: co.nilin.opex.wallet.core.model.Wallet,
+        label: String
+    ): TransferCommand {
+        return TransferCommand(
+            sourceWallet,
+            receiverWallet,
+            Amount(sourceWallet.currency, amount),
+            "$label ${System.currentTimeMillis()}",
+            "$label-ref ${UUID.randomUUID()}",
+            TransferCategory.NORMAL
+        )
+    }
 
 }
-

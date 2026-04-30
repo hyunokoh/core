@@ -68,7 +68,7 @@ spring:
 #        prefer-ip-address: true
 
   config:
-    import: vault://secret/${spring.application.name}
+    import: optional:vault://secret/${spring.application.name}
 app:
   auth:
     url: ${auth_url}

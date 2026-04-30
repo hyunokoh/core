@@ -15,7 +15,7 @@ import org.springframework.security.web.server.SecurityWebFilterChain
 import org.springframework.web.reactive.function.client.WebClient
 
 @EnableWebFluxSecurity
-@Profile("!test")
+@Profile("!test & !e2e")
 class SecurityConfig(private val webClient: WebClient) {
 
     @Value("\${app.auth.cert-url}")

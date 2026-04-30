@@ -21,6 +21,8 @@ target/
 
 ### Other files ###
 .env
+.env.e2e
+preferences.yml
 docker-compose-otc.local.yml
 
 docker-compose.legacy.yml
@@ -44,3 +46,7 @@ build/
 !/.mvn/
 
 .DS_Store
+.local-tools/
+.m2/
+.zkcoder/
+tools/zkpol_bridge/.venv/

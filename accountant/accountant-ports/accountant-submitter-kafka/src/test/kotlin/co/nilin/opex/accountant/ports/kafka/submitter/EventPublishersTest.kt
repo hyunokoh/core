@@ -6,93 +6,99 @@ import co.nilin.opex.accountant.ports.kafka.submitter.service.RichOrderSubmitter
 import co.nilin.opex.accountant.ports.kafka.submitter.service.RichTradeSubmitter
 import co.nilin.opex.accountant.ports.kafka.submitter.service.TempEventSubmitter
 import co.nilin.opex.matching.engine.core.eventh.events.CoreEvent
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.runBlocking
-import org.assertj.core.api.Assertions
+import org.apache.kafka.clients.consumer.Consumer
+import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.producer.ProducerConfig
+import org.apache.kafka.common.serialization.ByteArrayDeserializer
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.kafka.common.serialization.StringSerializer
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.springframework.kafka.core.DefaultKafkaProducerFactory
 import org.springframework.kafka.core.KafkaTemplate
-import org.springframework.kafka.support.SendResult
-import org.springframework.util.concurrent.SettableListenableFuture
+import org.springframework.kafka.support.serializer.JsonSerializer
+import org.springframework.kafka.test.EmbeddedKafkaBroker
+import org.springframework.kafka.test.utils.KafkaTestUtils
+import java.util.UUID
 
 class EventPublishersTest {
 
-    private val richOrderTemplate = mockk<KafkaTemplate<String, RichOrderEvent>>()
-    private val richOrderSubmitter = RichOrderSubmitter(richOrderTemplate)
+    private val embeddedKafka = EmbeddedKafkaBroker(1, true, 1, "richOrder", "richTrade", "tempevents")
+    private val templates = mutableListOf<KafkaTemplate<*, *>>()
 
-    private val richTradeTemplate = mockk<KafkaTemplate<String, RichTrade>>()
-    private val richTradeSubmitter = RichTradeSubmitter(richTradeTemplate)
+    @BeforeEach
+    fun startKafka() {
+        embeddedKafka.afterPropertiesSet()
+    }
 
-    private val tempEventTemplate = mockk<KafkaTemplate<String, CoreEvent>>()
-    private val tempEventSubmitter = TempEventSubmitter(tempEventTemplate)
-
-    init {
-        every { richOrderTemplate.send(any(), any()) } returns Valid.kafkaSendFuture<RichOrderEvent>()
-        every { richTradeTemplate.send(any(), any()) } returns Valid.kafkaSendFuture<RichTrade>()
-        every { tempEventTemplate.send(any(), any()) } returns Valid.kafkaSendFuture<CoreEvent>()
+    @AfterEach
+    fun stopKafka() {
+        templates.forEach { it.destroy() }
+        templates.clear()
+        embeddedKafka.destroy()
     }
 
     @Test
-    fun givenSubmitters_validateTopics(): Unit = runBlocking {
-        assertThat(richOrderSubmitter.topic).isEqualTo("richOrder")
-        assertThat(richTradeSubmitter.topic).isEqualTo("richTrade")
-        assertThat(tempEventSubmitter.topic).isEqualTo("tempevents")
+    fun givenSubmitters_validateTopics() {
+        assertThat(RichOrderSubmitter(kafkaTemplate<RichOrderEvent>()).topic).isEqualTo("richOrder")
+        assertThat(RichTradeSubmitter(kafkaTemplate<RichTrade>()).topic).isEqualTo("richTrade")
+        assertThat(TempEventSubmitter(kafkaTemplate<CoreEvent>()).topic).isEqualTo("tempevents")
     }
 
     @Test
-    fun givenRichOrderSubmitter_whenKafkaFailsToSend_throwException(): Unit = runBlocking {
-        val future = SettableListenableFuture<SendResult<String, RichOrderEvent>>()
-        every { richOrderTemplate.send(any(), any()) } returns future
+    fun givenRichOrderSubmitter_whenPublish_writesToKafkaTopic(): Unit = runBlocking {
+        val consumer = byteConsumer("richOrder")
+        val submitter = RichOrderSubmitter(kafkaTemplate())
 
-        future.setException(IllegalStateException("mock"))
+        submitter.publish(Valid.testRichOrder)
 
-        Assertions.assertThatThrownBy {
-            runBlocking { richOrderSubmitter.publish(Valid.testRichOrder) }
-        }.isInstanceOfAny(Throwable::class.java)
+        val record = KafkaTestUtils.getSingleRecord(consumer, submitter.topic, 5_000L)
+        assertThat(record.value()).isNotEmpty
+        consumer.close()
     }
 
     @Test
-    fun givenRichTradeSubmitter_whenKafkaFailsToSend_throwException(): Unit = runBlocking {
-        val future = SettableListenableFuture<SendResult<String, RichTrade>>()
-        every { richTradeTemplate.send(any(), any()) } returns future
+    fun givenTradeOrderSubmitter_whenPublish_writesToKafkaTopic(): Unit = runBlocking {
+        val consumer = byteConsumer("richTrade")
+        val submitter = RichTradeSubmitter(kafkaTemplate())
 
-        future.setException(IllegalStateException("mock"))
+        submitter.publish(Valid.richTrade)
 
-        Assertions.assertThatThrownBy {
-            runBlocking { richTradeSubmitter.publish(Valid.richTrade) }
-        }.isInstanceOfAny(Throwable::class.java)
+        val record = KafkaTestUtils.getSingleRecord(consumer, submitter.topic, 5_000L)
+        assertThat(record.value()).isNotEmpty
+        consumer.close()
     }
 
     @Test
-    fun givenTempEventSubmitter_whenKafkaFailsToSend_throwException(): Unit = runBlocking {
-        val future = SettableListenableFuture<SendResult<String, CoreEvent>>()
-        every { tempEventTemplate.send(any(), any()) } returns future
+    fun givenTempEventSubmitter_whenRepublish_writesEveryEventToKafkaTopic(): Unit = runBlocking {
+        val consumer = byteConsumer("tempevents")
+        val submitter = TempEventSubmitter(kafkaTemplate())
 
-        future.setException(IllegalStateException("mock"))
+        submitter.republish(listOf(Valid.testCoreEvent, Valid.testCoreEvent))
 
-        Assertions.assertThatThrownBy {
-            runBlocking { tempEventSubmitter.republish(listOf(Valid.testCoreEvent)) }
-        }.isInstanceOfAny(Throwable::class.java)
+        val records = KafkaTestUtils.getRecords(consumer, 5_000L).records(submitter.topic)
+        assertThat(records).hasSize(2)
+        records.forEach { assertThat(it.value()).isNotEmpty }
+        consumer.close()
     }
 
-    @Test
-    fun givenRichOrderSubmitter_whenPublish_callSendWithCorrectTopic(): Unit = runBlocking {
-        richOrderSubmitter.publish(Valid.testRichOrder)
-        verify { richOrderTemplate.send(eq(richOrderSubmitter.topic), eq(Valid.testRichOrder)) }
+    private fun <T> kafkaTemplate(): KafkaTemplate<String, T> {
+        val props = KafkaTestUtils.producerProps(embeddedKafka)
+        props[ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG] = StringSerializer::class.java
+        props[ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG] = JsonSerializer::class.java
+        return KafkaTemplate(DefaultKafkaProducerFactory<String, T>(props)).also { templates.add(it) }
     }
 
-    @Test
-    fun givenTradeOrderSubmitter_whenPublish_callSendWithCorrectTopic(): Unit = runBlocking {
-        richTradeSubmitter.publish(Valid.richTrade)
-        verify { richTradeTemplate.send(eq(richTradeSubmitter.topic), eq(Valid.richTrade)) }
+    private fun byteConsumer(topic: String): Consumer<String, ByteArray> {
+        val props = KafkaTestUtils.consumerProps(UUID.randomUUID().toString(), "true", embeddedKafka)
+        props[ConsumerConfig.AUTO_OFFSET_RESET_CONFIG] = "earliest"
+        props[ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG] = StringDeserializer::class.java
+        props[ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG] = ByteArrayDeserializer::class.java
+        val consumer = org.springframework.kafka.core.DefaultKafkaConsumerFactory<String, ByteArray>(props).createConsumer()
+        embeddedKafka.consumeFromAnEmbeddedTopic(consumer, topic)
+        return consumer
     }
-
-    @Test
-    fun givenTempEventSubmitter_whenRepublish_callSendForEachEventWithCorrectTopic(): Unit = runBlocking {
-        tempEventSubmitter.republish(listOf(Valid.testCoreEvent, Valid.testCoreEvent))
-        verify(exactly = 2) { tempEventTemplate.send(eq(tempEventSubmitter.topic), eq(Valid.testCoreEvent)) }
-    }
-
 }

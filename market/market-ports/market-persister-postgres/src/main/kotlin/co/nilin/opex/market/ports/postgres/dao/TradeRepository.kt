@@ -22,6 +22,73 @@ import java.util.*
 @Repository
 interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
 
+    @Query(
+        """
+        insert into trades (
+            trade_id,
+            symbol,
+            base_asset,
+            quote_asset,
+            matched_price,
+            matched_quantity,
+            taker_price,
+            maker_price,
+            taker_commission,
+            maker_commission,
+            taker_commission_asset,
+            maker_commission_asset,
+            trade_date,
+            maker_ouid,
+            taker_ouid,
+            maker_uuid,
+            taker_uuid,
+            create_date
+        )
+        values (
+            :tradeId,
+            :symbol,
+            :baseAsset,
+            :quoteAsset,
+            :matchedPrice,
+            :matchedQuantity,
+            :takerPrice,
+            :makerPrice,
+            :takerCommission,
+            :makerCommission,
+            :takerCommissionAsset,
+            :makerCommissionAsset,
+            :tradeDate,
+            :makerOuid,
+            :takerOuid,
+            :makerUuid,
+            :takerUuid,
+            :createDate
+        )
+        on conflict (symbol, trade_id, taker_ouid, maker_ouid, matched_quantity, maker_price) do nothing
+        returning *
+        """
+    )
+    fun insertIfAbsent(
+        tradeId: Long,
+        symbol: String,
+        baseAsset: String,
+        quoteAsset: String,
+        matchedPrice: java.math.BigDecimal,
+        matchedQuantity: java.math.BigDecimal,
+        takerPrice: java.math.BigDecimal,
+        makerPrice: java.math.BigDecimal,
+        takerCommission: java.math.BigDecimal?,
+        makerCommission: java.math.BigDecimal?,
+        takerCommissionAsset: String?,
+        makerCommissionAsset: String?,
+        tradeDate: LocalDateTime,
+        makerOuid: String,
+        takerOuid: String,
+        makerUuid: String,
+        takerUuid: String,
+        createDate: LocalDateTime
+    ): Mono<TradeModel>
+
     @Query("select * from trades where :ouid in (taker_ouid, maker_ouid)")
     fun findByOuid(@Param("ouid") ouid: String): Flow<TradeModel>
 

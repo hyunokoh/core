@@ -18,7 +18,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder
 
 @Configuration
-@Profile("!otc")
+@Profile("!otc & !localbridge")
 class AppConfig {
 
     @Autowired

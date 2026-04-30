@@ -11,17 +11,16 @@ import co.nilin.opex.accountant.core.spi.FinancialActionPersister
 import co.nilin.opex.accountant.core.spi.WalletProxy
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.mockito.InOrder
-import org.mockito.Mockito
-import org.mockito.Mockito.any
-import org.mockito.Mockito.`when`
-import org.mockito.kotlin.eq
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.mock.mockito.MockBean
+import org.springframework.boot.test.context.TestConfiguration
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Primary
 import java.math.BigDecimal
 import java.time.LocalDateTime
-import java.util.*
+import java.util.Collections
+import java.util.UUID
 
 class FinancialActionJobManagerIT : KafkaEnabledTest() {
 
@@ -34,69 +33,12 @@ class FinancialActionJobManagerIT : KafkaEnabledTest() {
     @Autowired
     lateinit var financialActionPersister: FinancialActionPersister
 
-    @MockBean
-    lateinit var walletProxy: WalletProxy
+    @Autowired
+    lateinit var walletProxy: RecordingWalletProxy
 
-    //@Test
-    fun givenCreatedParentChildActions_whenProcessFinancialActions_thenProcessAllKeepOrder() {
-        val uuid = UUID.randomUUID().toString()
-        val ouid = UUID.randomUUID().toString()
-        val symbol = "SY"
-        val parent1 = FinancialAction(
-            null,
-            "Parent",
-            ouid,
-            symbol,
-            BigDecimal.TEN,
-            uuid,
-            WalletType.MAIN,
-            uuid,
-            WalletType.EXCHANGE,
-            LocalDateTime.now(),
-            FinancialActionCategory.ORDER_CREATE
-        )
-
-        runBlocking {
-            financialActionPersister.persist(listOf(parent1))
-            val parent1Saved = financialActionLoader.findLast(uuid, ouid)!!
-            val child1 = FinancialAction(
-                parent1Saved,
-                "Child",
-                ouid,
-                symbol,
-                BigDecimal.TEN,
-                uuid,
-                WalletType.EXCHANGE,
-                uuid,
-                WalletType.MAIN,
-                LocalDateTime.now(),
-                FinancialActionCategory.TRADE
-            )
-            val parent2 = FinancialAction(
-                null,
-                "Parent",
-                UUID.randomUUID().toString(),
-                symbol,
-                BigDecimal.ONE,
-                uuid,
-                WalletType.MAIN,
-                uuid,
-                WalletType.EXCHANGE,
-                LocalDateTime.now(),
-                FinancialActionCategory.FEE
-            )
-
-            financialActionPersister.persist(listOf(child1, parent2))
-
-            financialActionJobManager.processFinancialActions(0, 100)
-
-            assertEquals(0, financialActionLoader.countUnprocessed(uuid, symbol, child1.eventType))
-            val orderVerifier = Mockito.inOrder(walletProxy)
-            verifyTransfer(orderVerifier, parent1)
-            verifyTransfer(orderVerifier, child1)
-            verifyTransfer(orderVerifier, parent2)
-        }
-
+    @BeforeEach
+    fun resetWalletProxy() {
+        walletProxy.reset()
     }
 
     @Test
@@ -104,152 +46,145 @@ class FinancialActionJobManagerIT : KafkaEnabledTest() {
         val uuid = UUID.randomUUID().toString()
         val ouid = UUID.randomUUID().toString()
         val symbol = "SY"
-        val parent1 = FinancialAction(
-            null,
-            "Parent",
-            ouid,
-            symbol,
-            BigDecimal.TEN,
-            uuid,
-            WalletType.MAIN,
-            uuid,
-            WalletType.EXCHANGE,
-            LocalDateTime.now(),
-            FinancialActionCategory.ORDER_CREATE
+        val parent1 = financialAction(
+            name = "Parent",
+            ouid = ouid,
+            symbol = symbol,
+            amount = BigDecimal.TEN,
+            uuid = uuid,
+            category = FinancialActionCategory.ORDER_CREATE
         )
 
         runBlocking {
-            financialActionPersister.persist(
-                listOf(parent1)
-            )
+            financialActionPersister.persist(listOf(parent1))
             val parent1Saved = financialActionLoader.findLast(uuid, ouid)!!
             financialActionPersister.updateStatus(parent1Saved, FinancialActionStatus.ERROR)
 
-            val child1 = FinancialAction(
-                parent1Saved,
-                "Child",
-                ouid,
-                symbol,
-                BigDecimal.TEN,
-                uuid,
-                WalletType.EXCHANGE,
-                uuid,
-                WalletType.MAIN,
-                LocalDateTime.now(),
-                FinancialActionCategory.TRADE
+            val child1 = financialAction(
+                parent = parent1Saved,
+                name = "Child",
+                ouid = ouid,
+                symbol = symbol,
+                amount = BigDecimal.TEN,
+                uuid = uuid,
+                senderWalletType = WalletType.EXCHANGE,
+                receiverWalletType = WalletType.MAIN,
+                category = FinancialActionCategory.TRADE
             )
-            val parent2 = FinancialAction(
-                null,
-                "Parent",
-                UUID.randomUUID().toString(),
-                symbol,
-                BigDecimal.ONE,
-                uuid,
-                WalletType.MAIN,
-                uuid,
-                WalletType.EXCHANGE,
-                LocalDateTime.now(),
-                FinancialActionCategory.ORDER_CREATE
+            val parent2 = financialAction(
+                name = "Parent",
+                ouid = UUID.randomUUID().toString(),
+                symbol = symbol,
+                amount = BigDecimal.ONE,
+                uuid = uuid,
+                category = FinancialActionCategory.ORDER_CREATE
             )
 
             financialActionPersister.persist(listOf(child1, parent2))
             financialActionJobManager.processFinancialActions(0, 100)
 
             assertEquals(1, financialActionLoader.countUnprocessed(uuid, symbol, child1.eventType))
-            val orderVerifier = Mockito.inOrder(walletProxy)
-            verifyTransfer(orderVerifier, parent2)
+            assertEquals(listOf(TransferCall.from(parent2, "accountant:fiActions:${parent2.uuid}")), walletProxy.transfers())
         }
-
     }
 
-    //@Test
-    fun givenCreatedParentChildActions_whenProcessFinancialActionsParentFail_thenSkipChild() {
-        val uuid = UUID.randomUUID().toString()
-        val ouid = UUID.randomUUID().toString()
-        val symbol = "SY"
-        val parent1 = FinancialAction(
-            null,
-            "Parent",
+    private fun financialAction(
+        parent: FinancialAction? = null,
+        name: String,
+        ouid: String,
+        symbol: String,
+        amount: BigDecimal,
+        uuid: String,
+        senderWalletType: WalletType = WalletType.MAIN,
+        receiverWalletType: WalletType = WalletType.EXCHANGE,
+        category: FinancialActionCategory
+    ): FinancialAction {
+        return FinancialAction(
+            parent,
+            name,
             ouid,
             symbol,
-            BigDecimal.TEN,
+            amount,
             uuid,
-            WalletType.MAIN,
+            senderWalletType,
             uuid,
-            WalletType.EXCHANGE,
+            receiverWalletType,
             LocalDateTime.now(),
-            FinancialActionCategory.ORDER_CREATE
+            category
         )
-
-        runBlocking {
-            financialActionPersister.persist(
-                listOf(parent1)
-            )
-            val parent1Saved = financialActionLoader.findLast(uuid, ouid)!!
-            val child1 = FinancialAction(
-                parent1Saved,
-                "Child",
-                ouid,
-                symbol,
-                BigDecimal.TEN,
-                uuid,
-                WalletType.EXCHANGE,
-                uuid,
-                WalletType.MAIN,
-                LocalDateTime.now(),
-                FinancialActionCategory.TRADE
-            )
-            val parent2 = FinancialAction(
-                null,
-                "Parent",
-                UUID.randomUUID().toString(),
-                symbol,
-                BigDecimal.ONE,
-                uuid,
-                WalletType.MAIN,
-                uuid,
-                WalletType.EXCHANGE,
-                LocalDateTime.now(),
-                FinancialActionCategory.ORDER_CREATE
-            )
-
-            financialActionPersister.persist(listOf(child1, parent2))
-
-            `when`(
-                walletProxy.transfer(
-                    parent1.symbol,
-                    parent1.senderWalletType,
-                    parent1.sender,
-                    parent1.receiverWalletType,
-                    parent1.receiver,
-                    parent1.amount,
-                    parent1.eventType + parent1.pointer,
-                    parent1Saved.id.toString(),
-                    parent1.category.toString()
-                )
-            ).thenAnswer { throw Exception("transfer failed") }
-            financialActionJobManager.processFinancialActions(0, 100)
-
-            assertEquals(1, financialActionLoader.countUnprocessed(uuid, symbol, child1.eventType))
-            val orderVerifier = Mockito.inOrder(walletProxy)
-            verifyTransfer(orderVerifier, parent1)
-            verifyTransfer(orderVerifier, parent2)
-        }
-
     }
 
+    @TestConfiguration
+    class WalletProxyTestConfig {
+        @Bean
+        @Primary
+        fun walletProxy(): RecordingWalletProxy = RecordingWalletProxy()
+    }
+}
 
-    private suspend fun verifyTransfer(orderVerifier: InOrder, fi: FinancialAction) {
-        orderVerifier.verify(walletProxy).transfer(
-            eq(fi.symbol),
-            eq(fi.senderWalletType),
-            eq(fi.sender),
-            eq(fi.receiverWalletType),
-            eq(fi.receiver),
-            eq(fi.amount),
-            eq(fi.eventType + fi.pointer),
-            any(),
-            eq(fi.category.toString()),
+data class TransferCall(
+    val symbol: String,
+    val senderWalletType: WalletType,
+    val senderUuid: String,
+    val receiverWalletType: WalletType,
+    val receiverUuid: String,
+    val amount: BigDecimal,
+    val description: String?,
+    val transferRef: String?,
+    val transferCategory: String
+) {
+    companion object {
+        fun from(financialAction: FinancialAction, transferRef: String): TransferCall {
+            return TransferCall(
+                financialAction.symbol,
+                financialAction.senderWalletType,
+                financialAction.sender,
+                financialAction.receiverWalletType,
+                financialAction.receiver,
+                financialAction.amount,
+                financialAction.eventType + financialAction.pointer,
+                transferRef,
+                financialAction.category.toString()
+            )
+        }
+    }
+}
+
+class RecordingWalletProxy : WalletProxy {
+
+    private val transferCalls = Collections.synchronizedList(mutableListOf<TransferCall>())
+
+    override suspend fun transfer(
+        symbol: String,
+        senderWalletType: WalletType,
+        senderUuid: String,
+        receiverWalletType: WalletType,
+        receiverUuid: String,
+        amount: BigDecimal,
+        description: String?,
+        transferRef: String?,
+        transferCategory: String
+    ) {
+        transferCalls.add(
+            TransferCall(
+                symbol,
+                senderWalletType,
+                senderUuid,
+                receiverWalletType,
+                receiverUuid,
+                amount,
+                description,
+                transferRef,
+                transferCategory
+            )
         )
+    }
+
+    override suspend fun canFulfil(symbol: String, walletType: WalletType, uuid: String, amount: BigDecimal): Boolean = true
+
+    fun transfers(): List<TransferCall> = transferCalls.toList()
+
+    fun reset() {
+        transferCalls.clear()
     }
 }

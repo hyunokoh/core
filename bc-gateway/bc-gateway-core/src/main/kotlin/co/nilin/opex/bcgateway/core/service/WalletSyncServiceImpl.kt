@@ -2,12 +2,17 @@ package co.nilin.opex.bcgateway.core.service
 
 import co.nilin.opex.bcgateway.core.api.WalletSyncService
 import co.nilin.opex.bcgateway.core.model.CurrencyImplementation
+import co.nilin.opex.bcgateway.core.model.DepositScreeningRequest
 import co.nilin.opex.bcgateway.core.model.Deposit
+import co.nilin.opex.bcgateway.core.model.ZkAmlDepositCaseRecord
+import co.nilin.opex.bcgateway.core.model.ZkScreeningDecision
 import co.nilin.opex.bcgateway.core.model.Transfer
 import co.nilin.opex.bcgateway.core.spi.AssignedAddressHandler
 import co.nilin.opex.bcgateway.core.spi.CurrencyHandler
 import co.nilin.opex.bcgateway.core.spi.DepositHandler
 import co.nilin.opex.bcgateway.core.spi.WalletProxy
+import co.nilin.opex.bcgateway.core.spi.ZkAmlDepositCaseRecorder
+import co.nilin.opex.bcgateway.core.spi.ZkAmlDepositScreeningService
 import co.nilin.opex.bcgateway.core.utils.LoggerDelegate
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -21,7 +26,9 @@ class WalletSyncServiceImpl(
     private val walletProxy: WalletProxy,
     private val assignedAddressHandler: AssignedAddressHandler,
     private val currencyHandler: CurrencyHandler,
-    private val depositHandler: DepositHandler
+    private val depositHandler: DepositHandler,
+    private val zkAmlDepositScreeningService: ZkAmlDepositScreeningService,
+    private val zkAmlDepositCaseRecorder: ZkAmlDepositCaseRecorder
 ) : WalletSyncService {
 
     private val logger: Logger by LoggerDelegate()
@@ -35,8 +42,45 @@ class WalletSyncServiceImpl(
                     ?: throw IllegalStateException("Currency implementation not found")
                 assignedAddressHandler.findUuid(it.receiver.address, it.receiver.memo)?.let { it to currencyImpl }
             }?.let { (uuid, currencyImpl) ->
-                sendDeposit(uuid, currencyImpl, it)
-                logger.info("Deposit synced for $uuid on ${currencyImpl.currency.symbol} - to ${it.receiver.address}")
+                val screening = zkAmlDepositScreeningService.screenDeposit(
+                    DepositScreeningRequest(
+                        ownerUuid = uuid,
+                        chain = it.chain,
+                        txHash = it.txHash,
+                        amount = it.amount.toPlainString(),
+                        receiverAddress = it.receiver.address,
+                        receiverMemo = it.receiver.memo,
+                        tokenAddress = it.tokenAddress
+                    )
+                )
+                if (screening.decision == ZkScreeningDecision.ALLOW) {
+                    sendDeposit(uuid, currencyImpl, it)
+                    logger.info("Deposit synced for $uuid on ${currencyImpl.currency.symbol} - to ${it.receiver.address}")
+                } else {
+                    zkAmlDepositCaseRecorder.record(
+                        ZkAmlDepositCaseRecord(
+                            ownerUuid = uuid,
+                            chain = it.chain,
+                            txHash = it.txHash,
+                            amount = it.amount.toPlainString(),
+                            receiverAddress = it.receiver.address,
+                            receiverMemo = it.receiver.memo,
+                            tokenAddress = it.tokenAddress,
+                            decision = screening.decision,
+                            reason = screening.reason,
+                            externalRef = screening.externalRef
+                        )
+                    )
+                    logger.warn(
+                        "zkAML held deposit owner={} chain={} txHash={} decision={} reason={} ref={}",
+                        uuid,
+                        it.chain,
+                        it.txHash,
+                        screening.decision,
+                        screening.reason,
+                        screening.externalRef
+                    )
+                }
                 it
             }
         }.map {

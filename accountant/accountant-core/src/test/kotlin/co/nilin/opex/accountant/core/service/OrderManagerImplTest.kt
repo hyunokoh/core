@@ -1,62 +1,47 @@
 package co.nilin.opex.accountant.core.service
 
 import co.nilin.opex.accountant.core.inout.OrderStatus
+import co.nilin.opex.accountant.core.inout.RichOrder
 import co.nilin.opex.accountant.core.model.*
-import co.nilin.opex.accountant.core.spi.*
 import co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.CreateOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.RejectOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.SubmitOrderEvent
+import co.nilin.opex.matching.engine.core.eventh.events.UpdatedOrderEvent
 import co.nilin.opex.matching.engine.core.inout.RejectReason
 import co.nilin.opex.matching.engine.core.inout.RequestedOperation
 import co.nilin.opex.matching.engine.core.model.MatchConstraint
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.engine.core.model.Pair
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.mockito.kotlin.any
 import java.math.BigDecimal
 
 internal class OrderManagerImplTest {
 
-    private val financialActionPersister = mockk<FinancialActionPersister>()
-    private val financialActionLoader = mockk<FinancialActionLoader>()
-    private val orderPersister = mockk<OrderPersister>()
-    private val tempEventPersister = mockk<TempEventPersister>()
-    private val pairConfigLoader = mockk<PairConfigLoader>()
-    private val richOrderPublisher = mockk<RichOrderPublisher>()
-    private val userLevelLoader = mockk<UserLevelLoader>()
-    private val financialActionPublisher = mockk<FinancialActionPublisher>()
+    private val financialActionStore = RecordingFinancialActionStore()
+    private val orderPersister = InMemoryOrderPersister()
+    private val tempEventPersister = InMemoryTempEventPersister()
+    private val pairConfigLoader = MapPairConfigLoader()
+    private val richOrderPublisher = RecordingRichOrderPublisher()
+    private val userLevelLoader = StaticUserLevelLoader()
+    private val financialActionPublisher = RecordingFinancialActionPublisher()
+    private val processedEventPersister = RecordingProcessedEventPersister()
 
     private val orderManager = OrderManagerImpl(
         pairConfigLoader,
         userLevelLoader,
-        financialActionPersister,
-        financialActionLoader,
+        financialActionStore,
+        financialActionStore,
         orderPersister,
         tempEventPersister,
         richOrderPublisher,
         financialActionPublisher,
-        JsonMapperTestImpl()
+        JsonMapperTestImpl(),
+        processedEventPersister
     )
-
-    init {
-        coEvery { tempEventPersister.loadTempEvents(any()) } returns emptyList()
-        coEvery { orderPersister.save(any()) } returnsArgument (0)
-        coEvery { richOrderPublisher.publish(any()) } returnsArgument (0)
-        coEvery { tempEventPersister.saveTempEvent(any(), any()) } returns any()
-        coEvery { financialActionLoader.findLast(any(), any()) } returns null
-        coEvery { financialActionPersister.persist(any()) } returnsArgument (0)
-        coEvery { financialActionPersister.updateStatus(any<FinancialAction>(), any()) } returns Unit
-        coEvery { financialActionPersister.updateStatus(any<String>(), any()) } returns Unit
-        coEvery { userLevelLoader.load(any()) } returns "*"
-        coEvery { financialActionPublisher.publish(any()) } returns Unit
-    }
 
     @Test
     fun givenAskOrder_whenHandleRequestOrder_thenFAMatch(): Unit = runBlocking {
@@ -73,17 +58,13 @@ internal class OrderManagerImplTest {
             "ouid", "uuid", null, pair, 30, 60, 0, OrderDirection.ASK, MatchConstraint.GTC, OrderType.LIMIT_ORDER
         )
 
-        coEvery {
-            pairConfigLoader.load(pair.toString(), submitOrderEvent.direction, any())
-        } returns PairFeeConfig(
+        pairConfigLoader.put(
             pairConfig,
-            submitOrderEvent.direction.toString(),
+            submitOrderEvent.direction,
             "",
             BigDecimal.valueOf(0.1),
             BigDecimal.valueOf(0.12)
         )
-
-        coEvery { financialActionPersister.persist(any()) } returnsArgument (0)
 
         //when
         val financialActions = orderManager.handleRequestOrder(submitOrderEvent)
@@ -130,17 +111,13 @@ internal class OrderManagerImplTest {
             "ouid", "uuid", null, pair, 35, 14, 0, OrderDirection.BID, MatchConstraint.GTC, OrderType.LIMIT_ORDER
         )
 
-        coEvery {
-            pairConfigLoader.load(pair.toString(), submitOrderEvent.direction, any())
-        } returns PairFeeConfig(
+        pairConfigLoader.put(
             pairConfig,
-            submitOrderEvent.direction.toString(),
+            submitOrderEvent.direction,
             "",
             BigDecimal.valueOf(0.08),
             BigDecimal.valueOf(0.1)
         )
-
-        coEvery { financialActionPersister.persist(any()) } returnsArgument (0)
 
         //when
         val financialActions = orderManager.handleRequestOrder(submitOrderEvent)
@@ -176,6 +153,22 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenDuplicateSubmitOrderEvent_whenHandleRequestOrder_thenReturnNoFinancialActions(): Unit = runBlocking {
+        val pair = Pair("ETH", "BTC")
+        val submitOrderEvent = SubmitOrderEvent(
+            "duplicate_ouid", "uuid", null, pair, 30, 60, 0, OrderDirection.ASK, MatchConstraint.GTC, OrderType.LIMIT_ORDER
+        )
+        val existingOrder = Valid.order.copy(ouid = submitOrderEvent.ouid, uuid = submitOrderEvent.uuid)
+        orderPersister.orders[submitOrderEvent.ouid] = existingOrder
+
+        val financialActions = orderManager.handleRequestOrder(submitOrderEvent)
+
+        assertThat(financialActions).isEmpty()
+        assertThat(orderPersister.orders).hasSize(1)
+        assertThat(financialActionStore.persisted).isEmpty()
+    }
+
+    @Test
     fun givenNewOrderEventReceived_whenUpdatingOrder_matchingEngineIdMatch(): Unit = runBlocking {
         val orderEvent = CreateOrderEvent(
             "order_ouid",
@@ -188,13 +181,65 @@ internal class OrderManagerImplTest {
             OrderDirection.BID
         )
 
-        coEvery { orderPersister.load(any()) } returns Valid.order
+        val order = Valid.order.copy(ouid = orderEvent.ouid)
+        orderPersister.orders[orderEvent.ouid] = order
 
         val fa = orderManager.handleNewOrder(orderEvent)
 
         assertThat(fa.size).isEqualTo(0)
-        assertThat(Valid.order.matchingEngineId).isEqualTo(55)
-        coVerify(exactly = 1) { richOrderPublisher.publish(any()) }
+        assertThat(order.matchingEngineId).isEqualTo(55)
+        assertThat(richOrderPublisher.published).hasSize(1)
+        assertThat((richOrderPublisher.published.single() as RichOrder).orderId).isEqualTo(55)
+    }
+
+    @Test
+    fun givenNewOrderEventDeferred_whenRequestOrderArrives_thenReplayTempEvent(): Unit = runBlocking {
+        val pair = Pair("BTC", "USDT")
+        val pairConfig = PairConfig(
+            pair.toString(),
+            pair.leftSideName,
+            pair.rightSideName,
+            BigDecimal.valueOf(1.0),
+            BigDecimal.valueOf(0.01)
+        )
+        val submitOrderEvent = SubmitOrderEvent(
+            "deferred_ouid",
+            "user_1",
+            null,
+            pair,
+            100000,
+            1000,
+            1000,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        val createOrderEvent = CreateOrderEvent(
+            submitOrderEvent.ouid,
+            submitOrderEvent.uuid,
+            77,
+            pair,
+            submitOrderEvent.price,
+            submitOrderEvent.quantity,
+            submitOrderEvent.remainedQuantity,
+            submitOrderEvent.direction
+        )
+        pairConfigLoader.put(
+            pairConfig,
+            submitOrderEvent.direction,
+            "",
+            BigDecimal.valueOf(0.1),
+            BigDecimal.valueOf(0.12)
+        )
+        tempEventPersister.saveTempEvent(createOrderEvent.ouid, createOrderEvent)
+
+        val financialActions = orderManager.handleRequestOrder(submitOrderEvent)
+
+        assertThat(financialActions).hasSize(1)
+        assertThat(orderPersister.orders.getValue(submitOrderEvent.ouid).matchingEngineId).isEqualTo(77)
+        assertThat(richOrderPublisher.published).hasSize(1)
+        assertThat((richOrderPublisher.published.single() as RichOrder).orderId).isEqualTo(77)
+        assertThat(tempEventPersister.loadTempEvents(submitOrderEvent.ouid)).isEmpty()
     }
 
     @Test
@@ -210,12 +255,110 @@ internal class OrderManagerImplTest {
             OrderDirection.BID
         )
 
-        coEvery { orderPersister.load(any()) } returns null
-
         val fa = orderManager.handleNewOrder(orderEvent)
 
         assertThat(fa.size).isEqualTo(0)
-        coVerify(exactly = 1) { tempEventPersister.saveTempEvent(any(), any()) }
+        assertThat(tempEventPersister.saved).hasSize(1)
+        assertThat(tempEventPersister.saved[0].ouid).isEqualTo(orderEvent.ouid)
+    }
+
+    @Test
+    fun givenUpdateOrderIncreasesBidReserve_whenLocalFound_persistAdditionalReserveFA(): Unit = runBlocking {
+        val orderEvent = UpdatedOrderEvent(
+            "order_ouid",
+            "user_id",
+            88,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            120000,
+            1000,
+            1000,
+            OrderDirection.BID
+        )
+        val order = Valid.order.copy(
+            ouid = orderEvent.ouid,
+            uuid = orderEvent.uuid,
+            matchingEngineId = orderEvent.orderId,
+            price = orderEvent.oldPrice,
+            quantity = orderEvent.oldQuantity,
+            remainedTransferAmount = BigDecimal("1.000000000"),
+            firstTransferAmount = BigDecimal("1.000000000")
+        )
+        orderPersister.orders[orderEvent.ouid] = order
+
+        val financialActions = orderManager.handleUpdateOrder(orderEvent)
+
+        val updatedOrder = orderPersister.orders.getValue(orderEvent.ouid)
+        assertThat(updatedOrder.price).isEqualTo(120000)
+        assertThat(updatedOrder.quantity).isEqualTo(1000)
+        assertThat(updatedOrder.remainedTransferAmount).isEqualByComparingTo(BigDecimal("1.200000000"))
+        assertThat(financialActions).hasSize(1)
+        assertThat(financialActions.single().amount).isEqualByComparingTo(BigDecimal("0.200000000"))
+        assertThat(financialActions.single().senderWalletType).isEqualTo(WalletType.MAIN)
+        assertThat(financialActions.single().receiverWalletType).isEqualTo(WalletType.EXCHANGE)
+        assertThat(financialActions.single().category).isEqualTo(FinancialActionCategory.ORDER_CREATE)
+        assertThat(richOrderPublisher.published).hasSize(1)
+    }
+
+    @Test
+    fun givenUpdateOrderDecreasesAskReserve_whenLocalFound_releaseReserveFA(): Unit = runBlocking {
+        val orderEvent = UpdatedOrderEvent(
+            "ask_ouid",
+            "user_id",
+            89,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            100000,
+            700,
+            1000,
+            OrderDirection.ASK
+        )
+        val order = Valid.order.copy(
+            ouid = orderEvent.ouid,
+            uuid = orderEvent.uuid,
+            matchingEngineId = orderEvent.orderId,
+            direction = OrderDirection.ASK,
+            price = orderEvent.oldPrice,
+            quantity = orderEvent.oldQuantity,
+            remainedTransferAmount = BigDecimal("0.001000"),
+            firstTransferAmount = BigDecimal("0.001000")
+        )
+        orderPersister.orders[orderEvent.ouid] = order
+
+        val financialActions = orderManager.handleUpdateOrder(orderEvent)
+
+        val updatedOrder = orderPersister.orders.getValue(orderEvent.ouid)
+        assertThat(updatedOrder.quantity).isEqualTo(700)
+        assertThat(updatedOrder.remainedTransferAmount).isEqualByComparingTo(BigDecimal("0.000700"))
+        assertThat(financialActions).hasSize(1)
+        assertThat(financialActions.single().amount).isEqualByComparingTo(BigDecimal("0.000300"))
+        assertThat(financialActions.single().senderWalletType).isEqualTo(WalletType.EXCHANGE)
+        assertThat(financialActions.single().receiverWalletType).isEqualTo(WalletType.MAIN)
+        assertThat(financialActions.single().category).isEqualTo(FinancialActionCategory.ORDER_CANCEL)
+    }
+
+    @Test
+    fun givenUpdateOrderEventReceived_whenLocalOrderNull_saveTempEvent(): Unit = runBlocking {
+        val orderEvent = UpdatedOrderEvent(
+            "missing_ouid",
+            "user_id",
+            90,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            120000,
+            1000,
+            1000,
+            OrderDirection.BID
+        )
+
+        val financialActions = orderManager.handleUpdateOrder(orderEvent)
+
+        assertThat(financialActions).isEmpty()
+        assertThat(tempEventPersister.saved).hasSize(1)
+        assertThat(tempEventPersister.saved.single().ouid).isEqualTo(orderEvent.ouid)
     }
 
     @Test
@@ -229,12 +372,11 @@ internal class OrderManagerImplTest {
             RejectReason.ORDER_NOT_FOUND
         )
 
-        coEvery { orderPersister.load(any()) } returns null
-
         val fa = orderManager.handleRejectOrder(orderEvent)
 
         assertThat(fa.size).isEqualTo(0)
-        coVerify(exactly = 1) { tempEventPersister.saveTempEvent(any(), any()) }
+        assertThat(tempEventPersister.saved).hasSize(1)
+        assertThat(tempEventPersister.saved[0].ouid).isEqualTo(orderEvent.ouid)
     }
 
     @Test
@@ -267,18 +409,19 @@ internal class OrderManagerImplTest {
             RequestedOperation.PLACE_ORDER,
             RejectReason.ORDER_NOT_FOUND,
         )
-        coEvery { orderPersister.load(any()) } returns Valid.order
+        val order = Valid.order.copy(ouid = orderEvent.ouid)
+        orderPersister.orders[orderEvent.ouid] = order
 
         val fa = orderManager.handleRejectOrder(orderEvent)[0]
 
-        assertThat(fa.amount).isEqualTo(Valid.order.remainedTransferAmount)
+        assertThat(fa.amount).isEqualTo(order.remainedTransferAmount)
         assertThat(fa.symbol).isEqualTo(orderEvent.pair.rightSideName)
         assertThat(fa.category).isEqualTo(FinancialActionCategory.ORDER_CANCEL)
 
-        assertThat(Valid.order.status).isEqualTo(OrderStatus.REJECTED.code)
+        assertThat(order.status).isEqualTo(OrderStatus.REJECTED.code)
 
-        coVerify(exactly = 1) { richOrderPublisher.publish(any()) }
-        coVerify(exactly = 1) { orderPersister.save(any()) }
+        assertThat(richOrderPublisher.published).hasSize(1)
+        assertThat(orderPersister.saved).hasSize(1)
     }
 
     @Test
@@ -294,12 +437,11 @@ internal class OrderManagerImplTest {
             OrderDirection.BID
         )
 
-        coEvery { orderPersister.load(any()) } returns null
-
         val fa = orderManager.handleCancelOrder(orderEvent)
 
         assertThat(fa.size).isEqualTo(0)
-        coVerify(exactly = 1) { tempEventPersister.saveTempEvent(any(), any()) }
+        assertThat(tempEventPersister.saved).hasSize(1)
+        assertThat(tempEventPersister.saved[0].ouid).isEqualTo(orderEvent.ouid)
     }
 
     @Test
@@ -314,20 +456,70 @@ internal class OrderManagerImplTest {
             500,
             OrderDirection.BID
         )
-        coEvery { orderPersister.load(any()) } returns Valid.order
+        val order = Valid.order.copy(ouid = orderEvent.ouid)
+        orderPersister.orders[orderEvent.ouid] = order
 
         val fa = orderManager.handleCancelOrder(orderEvent)[0]
 
-        assertThat(fa.amount).isEqualTo(Valid.order.remainedTransferAmount)
+        assertThat(fa.amount).isEqualTo(order.remainedTransferAmount)
         assertThat(fa.symbol).isEqualTo(orderEvent.pair.rightSideName)
         assertThat(fa.category).isEqualTo(FinancialActionCategory.ORDER_CANCEL)
-        assertThat(Valid.order.status).isEqualTo(OrderStatus.CANCELED.code)
+        assertThat(order.status).isEqualTo(OrderStatus.CANCELED.code)
 
-        coVerify(exactly = 1) { richOrderPublisher.publish(any()) }
-        coVerify(exactly = 1) { orderPersister.save(any()) }
+        assertThat(richOrderPublisher.published).hasSize(1)
+        assertThat(orderPersister.saved).hasSize(1)
+    }
+
+    @Test
+    fun givenCancelOrderReceivedTwice_whenLocalFound_ignoreDuplicate(): Unit = runBlocking {
+        val orderEvent = CancelOrderEvent(
+            "duplicate_cancel_ouid",
+            "user_id",
+            88,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            500,
+            OrderDirection.BID
+        )
+        orderPersister.orders[orderEvent.ouid] = Valid.order.copy(ouid = orderEvent.ouid)
+
+        val first = orderManager.handleCancelOrder(orderEvent)
+        val second = orderManager.handleCancelOrder(orderEvent)
+
+        assertThat(first).hasSize(1)
+        assertThat(second).isEmpty()
+        assertThat(financialActionStore.persisted).hasSize(1)
+        assertThat(richOrderPublisher.published).hasSize(1)
+        assertThat(orderPersister.saved).hasSize(1)
+    }
+
+    @Test
+    fun givenRejectOrderReceivedTwice_whenLocalFound_ignoreDuplicate(): Unit = runBlocking {
+        val orderEvent = RejectOrderEvent(
+            "duplicate_reject_ouid",
+            "user_1",
+            56,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER,
+            RequestedOperation.PLACE_ORDER,
+            RejectReason.ORDER_NOT_FOUND,
+        )
+        orderPersister.orders[orderEvent.ouid] = Valid.order.copy(ouid = orderEvent.ouid)
+
+        val first = orderManager.handleRejectOrder(orderEvent)
+        val second = orderManager.handleRejectOrder(orderEvent)
+
+        assertThat(first).hasSize(1)
+        assertThat(second).isEmpty()
+        assertThat(financialActionStore.persisted).hasSize(1)
+        assertThat(richOrderPublisher.published).hasSize(1)
+        assertThat(orderPersister.saved).hasSize(1)
     }
 
 
 }
-
-

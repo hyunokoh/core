@@ -1,6 +1,8 @@
 package co.nilin.opex.market.ports.postgres.dao
 
 import co.nilin.opex.market.core.inout.AggregatedOrderPriceModel
+import co.nilin.opex.market.core.inout.MatchConstraint
+import co.nilin.opex.market.core.inout.MatchingOrderType
 import co.nilin.opex.market.core.inout.OrderDirection
 import co.nilin.opex.market.ports.postgres.model.OrderModel
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +17,73 @@ import java.util.*
 
 @Repository
 interface OrderRepository : ReactiveCrudRepository<OrderModel, Long> {
+
+    @Query(
+        """
+        insert into orders (
+            ouid,
+            uuid,
+            client_order_id,
+            symbol,
+            order_id,
+            maker_fee,
+            taker_fee,
+            left_side_fraction,
+            right_side_fraction,
+            user_level,
+            side,
+            match_constraint,
+            order_type,
+            price,
+            quantity,
+            quote_quantity,
+            create_date,
+            update_date
+        )
+        values (
+            :ouid,
+            :uuid,
+            :clientOrderId,
+            :symbol,
+            :orderId,
+            :makerFee,
+            :takerFee,
+            :leftSideFraction,
+            :rightSideFraction,
+            :userLevel,
+            :side,
+            :matchConstraint,
+            :orderType,
+            :price,
+            :quantity,
+            :quoteQuantity,
+            :createDate,
+            :updateDate
+        )
+        on conflict (ouid) do nothing
+        returning *
+        """
+    )
+    fun insertIfAbsent(
+        ouid: String,
+        uuid: String,
+        clientOrderId: String?,
+        symbol: String,
+        orderId: Long?,
+        makerFee: java.math.BigDecimal?,
+        takerFee: java.math.BigDecimal?,
+        leftSideFraction: java.math.BigDecimal?,
+        rightSideFraction: java.math.BigDecimal?,
+        userLevel: String?,
+        side: OrderDirection,
+        matchConstraint: MatchConstraint?,
+        orderType: MatchingOrderType?,
+        price: java.math.BigDecimal?,
+        quantity: java.math.BigDecimal?,
+        quoteQuantity: java.math.BigDecimal?,
+        createDate: LocalDateTime,
+        updateDate: LocalDateTime
+    ): Mono<OrderModel>
 
     @Query("select * from orders where ouid = :ouid")
     fun findByOuid(@Param("ouid") ouid: String): Mono<OrderModel>

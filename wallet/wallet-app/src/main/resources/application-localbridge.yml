@@ -1,0 +1,44 @@
+server:
+  port: 18080
+
+spring:
+  cloud:
+    bootstrap:
+      enabled: false
+    bus:
+      enabled: false
+    stream:
+      enabled: false
+    vault:
+      enabled: false
+      fail-fast: false
+      kv:
+        enabled: false
+    consul:
+      enabled: false
+  config:
+    import: ""
+  kafka:
+    bootstrap-servers: ${KAFKA_IP_PORT:localhost:9092}
+    consumer:
+      group-id: wallet-localbridge
+
+app:
+  auth:
+    url: http://localhost:18081
+    cert-url: http://localhost:18081/.well-known/jwks.json
+    client-id: localbridge
+    client-secret: localbridge
+  system:
+    uuid: localbridge-system
+  bc-gateway:
+    url: http://localhost:18082
+
+dbusername: opex
+dbpassword: hiopex
+DB_IP_PORT: localhost:5435
+
+logging:
+  level:
+    root: INFO
+    co.nilin: INFO

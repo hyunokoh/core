@@ -4,5 +4,6 @@ import co.nilin.opex.accountant.core.model.Order
 
 interface OrderPersister {
     suspend fun load(ouid: String): Order?
+    suspend fun loadForUpdate(ouid: String): Order? = load(ouid)
     suspend fun save(order: Order): Order
 }

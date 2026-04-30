@@ -1,177 +1,310 @@
 package co.nilin.opex.matching.gateway.app.service
 
+import co.nilin.opex.common.OpexError
 import co.nilin.opex.matching.engine.core.model.OrderDirection
+import co.nilin.opex.matching.engine.core.model.OrderType
+import co.nilin.opex.matching.gateway.app.inout.CancelOrderRequest
+import co.nilin.opex.matching.gateway.app.inout.PairConfig
 import co.nilin.opex.matching.gateway.app.service.sample.VALID
 import co.nilin.opex.matching.gateway.app.spi.AccountantApiProxy
 import co.nilin.opex.matching.gateway.app.spi.PairConfigLoader
-import co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderSubmitResult
-import co.nilin.opex.matching.gateway.ports.kafka.submitter.service.EventSubmitter
+import co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderRequestEvent
 import co.nilin.opex.matching.gateway.ports.kafka.submitter.service.KafkaHealthIndicator
 import co.nilin.opex.matching.gateway.ports.kafka.submitter.service.OrderRequestEventSubmitter
-import io.mockk.*
+import co.nilin.opex.utility.error.data.OpexException
 import kotlinx.coroutines.runBlocking
+import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.admin.AdminClientConfig
+import org.apache.kafka.clients.admin.NewTopic
+import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.kafka.common.serialization.StringSerializer
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import org.springframework.kafka.core.DefaultKafkaProducerFactory
+import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.kafka.support.serializer.JsonSerializer
+import org.testcontainers.containers.KafkaContainer
+import org.testcontainers.utility.DockerImageName
 import java.math.BigDecimal
+import java.time.Duration
 
 private class OrderServiceTest {
-    private val accountantApiProxy: AccountantApiProxy = mockk()
-    private val orderRequestEventSubmitter: OrderRequestEventSubmitter = mockk()
-    private val eventSubmitter: OrderRequestEventSubmitter = mockk()
-    private val pairConfigLoader: PairConfigLoader = mockk()
-    private val kafkaHealthIndicator: KafkaHealthIndicator = mockk()
-    private val orderService: OrderService = OrderService(
-        accountantApiProxy,
-        orderRequestEventSubmitter,
-        pairConfigLoader,
-        kafkaHealthIndicator
-    )
 
-    private fun stubASK() {
-        coEvery {
-            pairConfigLoader.load(
-                VALID.ETH_USDT,
-                OrderDirection.ASK
-            )
-        } returns VALID.PAIR_CONFIG
-        coEvery {
-            accountantApiProxy.canCreateOrder(
-                VALID.CREATE_ORDER_REQUEST_ASK.uuid!!,
-                VALID.ETH,
-                VALID.CREATE_ORDER_REQUEST_ASK.quantity
-            )
-        } returns true
-        coEvery {
-            orderRequestEventSubmitter.submit(any())
-        } returns OrderSubmitResult(null)
-        coEvery {
-            kafkaHealthIndicator.isHealthy
-        } returns true
-    }
+    @Test
+    fun givenPair_whenSubmitNewAskOrder_thenPublishesOrderToKafka(): Unit = runBlocking {
+        val service = orderService()
 
-    private fun stubBID() {
-        coEvery {
-            pairConfigLoader.load(
-                VALID.ETH_USDT,
-                OrderDirection.BID
-            )
-        } returns VALID.PAIR_CONFIG
-        coEvery {
-            accountantApiProxy.canCreateOrder(
-                VALID.CREATE_ORDER_REQUEST_BID.uuid!!,
-                VALID.USDT,
-                VALID.CREATE_ORDER_REQUEST_BID.quantity * VALID.CREATE_ORDER_REQUEST_BID.price
-            )
-        } returns true
-        coEvery {
-            orderRequestEventSubmitter.submit(any())
-        } returns OrderSubmitResult(null)
-        coEvery {
-            kafkaHealthIndicator.isHealthy
-        } returns true
+        val result = consumer().use { kafkaConsumer ->
+            val result = service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK)
+            val recordValue = nextRecordValue(kafkaConsumer)
+
+            assertThat(recordValue).contains("\"direction\":\"ASK\"")
+            assertThat(recordValue).contains("\"price\":10000000")
+            assertThat(recordValue).contains("\"quantity\":10")
+            result
+        }
+
+        assertThat(result).isNotNull
     }
 
     @Test
-    fun givenPair_whenSubmitNewOrder_thenOrderSubmitResult(): Unit = runBlocking {
-        stubASK()
+    fun givenMarketAskWithZeroPrice_whenSubmitNewOrder_thenPublishesOrderToKafka(): Unit = runBlocking {
+        val service = orderService()
 
-        val orderSubmitResult = orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK)
+        consumer().use { kafkaConsumer ->
+            service.submitNewOrder(
+                VALID.CREATE_ORDER_REQUEST_ASK.copy(
+                    price = BigDecimal.ZERO,
+                    orderType = OrderType.MARKET_ORDER
+                )
+            )
+            val recordValue = nextRecordValue(kafkaConsumer)
 
-        assertThat(orderSubmitResult).isNotNull
+            assertThat(recordValue).contains("\"orderType\":\"MARKET_ORDER\"")
+            assertThat(recordValue).contains("\"price\":0")
+        }
+    }
+
+    @Test
+    fun givenPair_whenSubmitNewBidOrder_thenChecksRightSideAmountAndPublishesOrderToKafka(): Unit = runBlocking {
+        val accountant = RecordingAccountantApiProxy()
+        val service = orderService(accountant)
+
+        consumer().use { kafkaConsumer ->
+            service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_BID)
+            val recordValue = nextRecordValue(kafkaConsumer)
+
+            assertThat(recordValue).contains("\"direction\":\"BID\"")
+        }
+
+        assertThat(accountant.lastSymbol).isEqualTo(VALID.USDT)
+        assertThat(accountant.lastValue).isEqualByComparingTo(BigDecimal("100.000"))
     }
 
     @Test
     fun givenPair_whenSubmitNewOrderByInvalidSymbol_thenThrow(): Unit = runBlocking {
-        stubASK()
-        clearMocks(pairConfigLoader)
-        coEvery {
-            pairConfigLoader.load("BTC_ETH", OrderDirection.ASK)
-        } throws Exception()
+        val service = orderService(pairConfigLoader = RecordingPairConfigLoader(allowPair = false))
 
         assertThatThrownBy {
-            runBlocking {
-                orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(pair = "BTC_ETH"))
-            }
-        }.isNotInstanceOf(MockKException::class.java)
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(pair = "BTC_ETH")) }
+        }.isInstanceOf(IllegalStateException::class.java)
     }
 
     @Test
     fun givenPair_whenSubmitNewOrderByASKAndInvalidPrice_thenThrow(): Unit = runBlocking {
-        stubASK()
+        val service = orderService()
 
         assertThatThrownBy {
-            runBlocking {
-                orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(price = BigDecimal.valueOf(-100000)))
-            }
-        }.isNotInstanceOf(MockKException::class.java)
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(price = BigDecimal.valueOf(-100000))) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(price = BigDecimal.ZERO)) }
+        }.isBadRequest()
     }
 
     @Test
     fun givenPair_whenSubmitNewOrderByASKAndInvalidQuantity_thenThrow(): Unit = runBlocking {
-        stubASK()
+        val service = orderService()
 
         assertThatThrownBy {
-            runBlocking {
-                orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(quantity = BigDecimal.valueOf(-0.001)))
-            }
-        }.isNotInstanceOf(MockKException::class.java)
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(quantity = BigDecimal.valueOf(-0.001))) }
+        }.isBadRequest()
     }
 
     @Test
-    fun givenPair_whenSubmitNewOrderByBID_thenOrderSubmitResult(): Unit = runBlocking {
-        stubBID()
+    fun givenPair_whenSubmitNewOrderByBIDAndNotAllowed_thenThrow(): Unit = runBlocking {
+        val service = orderService(RecordingAccountantApiProxy(allowed = false))
 
-        val orderSubmitResult = orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_BID)
-
-        assertThat(orderSubmitResult).isNotNull
+        assertThatThrownBy {
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_BID) }
+        }.isOpexError(OpexError.SubmitOrderForbiddenByAccountant)
     }
 
     @Test
-    fun givenPair_whenSubmitNewOrderByBIDAndInvalidSymbol_thenThrow(): Unit = runBlocking {
-        stubBID()
-        clearMocks(pairConfigLoader)
-        coEvery {
-            pairConfigLoader.load("BTC_USDT", OrderDirection.BID)
-        } throws Exception()
+    fun givenAccountantUnavailable_whenSubmitNewOrder_thenThrowServiceUnavailable(): Unit = runBlocking {
+        val service = orderService(RecordingAccountantApiProxy(error = RuntimeException("accountant unavailable")))
 
         assertThatThrownBy {
-            runBlocking {
-                orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_BID.copy(pair = "BTC_USDT"))
-            }
-        }.isNotInstanceOf(MockKException::class.java)
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_BID) }
+        }.isOpexError(OpexError.ServiceUnavailable)
     }
 
     @Test
-    fun givenPair_whenSubmitNewOrderByBIDAndNotExistOwner_thenThrow(): Unit = runBlocking {
-        stubBID()
+    fun givenMalformedPairOrMissingUser_whenSubmitNewOrder_thenThrowBeforeKafkaPublish(): Unit = runBlocking {
+        val service = orderService()
 
         assertThatThrownBy {
-            runBlocking {
-                orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_BID.copy(uuid = "55408c0a-ed53-42d1-b5ee-b2edf531b9d5"))
-            }
-        }.isNotInstanceOf(MockKException::class.java)
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(pair = "ETHUSDT")) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(pair = "_USDT")) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(uuid = " ")) }
+        }.isBadRequest()
     }
 
     @Test
-    fun givenPair_whenSubmitNewOrderByBIDAndInvalidPrice_thenThrow(): Unit = runBlocking {
-        stubBID()
+    fun givenOrder_whenCancelOrder_thenPublishesCancelToKafka(): Unit = runBlocking {
+        val service = orderService()
 
-        assertThatThrownBy {
-            runBlocking {
-                orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_BID.copy(price = BigDecimal.valueOf(-100000)))
-            }
-        }.isNotInstanceOf(MockKException::class.java)
+        consumer().use { kafkaConsumer ->
+            service.cancelOrder(VALID.CANCEL_ORDER_REQUEST)
+            val recordValue = nextRecordValue(kafkaConsumer)
+
+            assertThat(recordValue).contains("\"orderId\":1")
+            assertThat(recordValue).contains(VALID.OUID)
+        }
     }
 
     @Test
-    fun givenPair_whenSubmitNewOrderByBIDAndInvalidQuantity_thenThrow(): Unit = runBlocking {
-        stubBID()
+    fun givenKafkaUnhealthy_whenCancelOrder_thenThrowServiceUnavailable(): Unit = runBlocking {
+        val unhealthyIndicator = KafkaHealthIndicator(adminClient, healthyNodeSize = 2)
+        unhealthyIndicator.check()
+        val service = orderService(healthIndicator = unhealthyIndicator)
 
         assertThatThrownBy {
-            runBlocking {
-                orderService.submitNewOrder(VALID.CREATE_ORDER_REQUEST_BID.copy(quantity = BigDecimal.valueOf(-0.001)))
-            }
-        }.isNotInstanceOf(MockKException::class.java)
+            runBlocking { service.cancelOrder(VALID.CANCEL_ORDER_REQUEST) }
+        }.isInstanceOf(OpexException::class.java)
+            .extracting("error")
+            .isEqualTo(OpexError.ServiceUnavailable)
+    }
+
+    @Test
+    fun givenInvalidCancelRequest_whenCancelOrder_thenThrowBeforeKafkaPublish(): Unit = runBlocking {
+        val service = orderService()
+
+        assertThatThrownBy {
+            runBlocking { service.cancelOrder(CancelOrderRequest(VALID.OUID, VALID.UUID, 1, "ETHUSDT")) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.cancelOrder(CancelOrderRequest(VALID.OUID, VALID.UUID, -1, VALID.ETH_USDT)) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.cancelOrder(CancelOrderRequest("", VALID.UUID, 1, VALID.ETH_USDT)) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.cancelOrder(CancelOrderRequest(VALID.OUID, " ", 1, VALID.ETH_USDT)) }
+        }.isBadRequest()
+    }
+
+    private fun orderService(
+        accountantApiProxy: RecordingAccountantApiProxy = RecordingAccountantApiProxy(),
+        pairConfigLoader: PairConfigLoader = RecordingPairConfigLoader(),
+        healthIndicator: KafkaHealthIndicator = Companion.healthIndicator
+    ): OrderService {
+        healthIndicator.check()
+        return OrderService(accountantApiProxy, orderSubmitter, pairConfigLoader, healthIndicator)
+    }
+
+    private fun consumer(): KafkaConsumer<String, String> =
+        KafkaConsumer<String, String>(
+            mapOf(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+                ConsumerConfig.GROUP_ID_CONFIG to "matching-gateway-test-${System.nanoTime()}",
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "latest",
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java
+            )
+        ).apply {
+            assign(listOf(ordersTopicPartition))
+            seekToEnd(listOf(ordersTopicPartition))
+            position(ordersTopicPartition)
+        }
+
+    private fun nextRecordValue(kafkaConsumer: KafkaConsumer<String, String>): String {
+        val deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos()
+        while (System.nanoTime() < deadline) {
+            val records = kafkaConsumer.poll(Duration.ofMillis(250)).records(ordersTopicPartition)
+            if (!records.isEmpty())
+                return records.first().value()
+        }
+        error("No records found for $ORDERS_TOPIC at offset ${kafkaConsumer.position(ordersTopicPartition)}")
+    }
+
+    private fun org.assertj.core.api.AbstractThrowableAssert<*, out Throwable>.isBadRequest() {
+        isOpexError(OpexError.BadRequest)
+    }
+
+    private fun org.assertj.core.api.AbstractThrowableAssert<*, out Throwable>.isOpexError(error: OpexError) {
+        isInstanceOf(OpexException::class.java)
+            .extracting("error")
+            .isEqualTo(error)
+    }
+
+    private class RecordingAccountantApiProxy(
+        private val allowed: Boolean = true,
+        private val error: RuntimeException? = null
+    ) : AccountantApiProxy {
+        var lastSymbol: String? = null
+        var lastValue: BigDecimal? = null
+
+        override suspend fun canCreateOrder(uuid: String, symbol: String, value: BigDecimal): Boolean {
+            error?.let { throw it }
+            lastSymbol = symbol
+            lastValue = value
+            return allowed
+        }
+
+        override suspend fun fetchPairConfig(pair: String, direction: OrderDirection): PairConfig = VALID.PAIR_CONFIG
+    }
+
+    private class RecordingPairConfigLoader(private val allowPair: Boolean = true) : PairConfigLoader {
+        override suspend fun load(pair: String, direction: OrderDirection): PairConfig {
+            check(allowPair && pair == VALID.ETH_USDT) { "Unknown pair: $pair" }
+            return VALID.PAIR_CONFIG
+        }
+    }
+
+    companion object {
+        private val kafka = KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.3.3"))
+        private lateinit var kafkaTemplate: KafkaTemplate<String, OrderRequestEvent>
+        private lateinit var adminClient: AdminClient
+        private lateinit var orderSubmitter: OrderRequestEventSubmitter
+        private lateinit var healthIndicator: KafkaHealthIndicator
+
+        @JvmStatic
+        @BeforeAll
+        fun startKafka() {
+            kafka.start()
+            kafkaTemplate = KafkaTemplate(
+                DefaultKafkaProducerFactory(
+                    mapOf(
+                        org.apache.kafka.clients.producer.ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers,
+                        org.apache.kafka.clients.producer.ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+                        org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to JsonSerializer::class.java,
+                        org.apache.kafka.clients.producer.ProducerConfig.ACKS_CONFIG to "all",
+                    )
+                )
+            )
+            adminClient = AdminClient.create(mapOf(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG to kafka.bootstrapServers))
+            adminClient.createTopics(listOf(NewTopic(ORDERS_TOPIC, 1, 1))).all().get()
+            orderSubmitter = OrderRequestEventSubmitter(kafkaTemplate)
+            healthIndicator = KafkaHealthIndicator(adminClient, healthyNodeSize = 1)
+        }
+
+        @JvmStatic
+        @AfterAll
+        fun stopKafka() {
+            kafkaTemplate.destroy()
+            adminClient.close()
+            kafka.stop()
+        }
+
+        private const val ORDERS_TOPIC = "orders_ETH_USDT"
+        private val ordersTopicPartition = TopicPartition(ORDERS_TOPIC, 0)
     }
 }

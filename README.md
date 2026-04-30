@@ -30,6 +30,7 @@ microservice project work as a vanilla core for running cryptocurrency exchanges
 ## Contents
 
 - [Build and Run](#build-and-run)
+- [Exchange E2E](#exchange-e2e)
 - [Environment Variables](#environment-variables)
 - [Live Demo](#live-demo)
 - [Architecture Overview](#overview)
@@ -48,6 +49,15 @@ You need to have [Maven](https://maven.apache.org) and [Docker](https://www.dock
 6. Run the project using `docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.build.yml -f docker-compose.local.yml up -d`.
 7. Now run `docker ps` command to see if services are healthy.
 
+## <a name="exchange-e2e"></a>Exchange E2E
+
+To verify the real deposit, order, matching, and market propagation flow, run:
+
+```bash
+tools/e2e/run_exchange_e2e.sh --reset --keep-running
+```
+
+See [docs/exchange-e2e.md](docs/exchange-e2e.md) for the full runbook.
 
 ## <a name="environment-variables"></a>Environment Variables
 ```

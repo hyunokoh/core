@@ -21,6 +21,8 @@ class WithdrawService(
     private val transferManager: TransferManager,
     private val meterRegistry: MeterRegistry,
     private val bcGatewayProxy: BcGatewayProxy,
+    private val zkAmlScreeningService: ZkAmlScreeningService,
+    private val zkAmlWithdrawCaseRecorder: ZkAmlWithdrawCaseRecorder,
     @Value("\${app.system.uuid}") private val systemUuid: String
 ) {
     private val logger = LoggerFactory.getLogger(WithdrawService::class.java)
@@ -48,6 +50,43 @@ class WithdrawService(
 
         if (withdrawCommand.amount < withdrawData.minimum)
             throw OpexError.WithdrawAmountLessThanMinimum.exception()
+
+        val screening = zkAmlScreeningService.screenWithdraw(
+            WithdrawScreeningRequest(
+                ownerUuid = owner.uuid,
+                currency = currency.symbol,
+                amount = withdrawCommand.amount,
+                destinationSymbol = withdrawCommand.destSymbol,
+                destinationNetwork = withdrawCommand.destNetwork,
+                destinationAddress = withdrawCommand.destAddress,
+                destinationNote = withdrawCommand.destNote
+            )
+        )
+        if (screening.decision != ZkScreeningDecision.ALLOW) {
+            zkAmlWithdrawCaseRecorder.record(
+                ZkAmlWithdrawCaseRecord(
+                    ownerUuid = owner.uuid,
+                    currency = currency.symbol,
+                    amount = withdrawCommand.amount,
+                    destinationSymbol = withdrawCommand.destSymbol,
+                    destinationNetwork = withdrawCommand.destNetwork,
+                    destinationAddress = withdrawCommand.destAddress,
+                    destinationNote = withdrawCommand.destNote,
+                    decision = screening.decision,
+                    reason = screening.reason,
+                    externalRef = screening.externalRef
+                )
+            )
+            logger.warn(
+                "zkAML rejected withdraw request owner={} currency={} decision={} reason={} ref={}",
+                owner.uuid,
+                currency.symbol,
+                screening.decision,
+                screening.reason,
+                screening.externalRef
+            )
+            throw OpexError.WithdrawNotAllowed.exception()
+        }
 
         val transferResultDetailed = transferManager.transfer(
             TransferCommand(

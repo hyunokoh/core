@@ -1,0 +1,111 @@
+services:
+  zookeeper:
+    platform: linux/amd64
+  kafka-1:
+    platform: linux/amd64
+    environment:
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_LISTENERS=CLIENT://kafka-1:29092,EXTERNAL://kafka-1:9092
+      - KAFKA_ADVERTISED_LISTENERS=CLIENT://kafka-1:29092,EXTERNAL://kafka-1:9092
+      - KAFKA_INTER_BROKER_LISTENER_NAME=CLIENT
+      - KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE=false
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=1
+      - KAFKA_MIN_INSYNC_REPLICAS=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_AUTO_LEADER_REBALANCE_ENABLE=false
+      - KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS=60000
+      - KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS=60000
+      - KAFKA_HEAP_OPTS=-Xms256m -Xmx768m
+  kafka-2:
+    profiles:
+      - full-stack
+    platform: linux/amd64
+  kafka-3:
+    profiles:
+      - full-stack
+    platform: linux/amd64
+  akhq:
+    profiles:
+      - full-stack
+  eventlog:
+    profiles:
+      - full-stack
+  matching-engine-duo:
+    profiles:
+      - full-stack
+  auth:
+    profiles:
+      - full-stack
+  api:
+    profiles:
+      - full-stack
+  bc-gateway:
+    profiles:
+      - full-stack
+  redis:
+    ports: !override
+      - "127.0.0.1:16379:6379"
+  wallet:
+    depends_on: !override
+      - kafka-1
+      - consul
+      - vault
+      - postgres-wallet
+    environment:
+      - KAFKA_IP_PORT=kafka-1:29092
+      - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - SPRING_CLOUD_STREAM_DEFAULT_BINDER=kafka
+      - SPRING_PROFILES_ACTIVE=e2e
+  accountant:
+    depends_on: !override
+      - kafka-1
+      - wallet
+      - consul
+      - vault
+      - postgres-accountant
+    environment:
+      - KAFKA_IP_PORT=kafka-1:29092
+      - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - SPRING_MAIN_WEB_APPLICATION_TYPE=reactive
+      - SPRING_CLOUD_STREAM_DEFAULT_BINDER=kafka
+      - SPRING_KAFKA_PARTITIONS=1
+      - SPRING_KAFKA_REPLICA=1
+      - SPRING_KAFKA_MIN_SYNC_REPLICA=1
+  matching-engine:
+    depends_on: !override
+      - kafka-1
+      - redis
+    environment:
+      - KAFKA_IP_PORT=kafka-1:29092
+      - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - OPEX_KAFKA_TOPIC_PARTITIONS=1
+      - OPEX_KAFKA_TOPIC_REPLICAS=1
+      - OPEX_KAFKA_TOPIC_MIN_INSYNC_REPLICAS=1
+  matching-gateway:
+    depends_on: !override
+      - kafka-1
+      - consul
+      - matching-engine
+    environment:
+      - KAFKA_IP_PORT=kafka-1:29092
+      - SPRING_PROFILES_ACTIVE=e2e
+      - APP_KAFKA_HEALTH_MIN_NODES=1
+  market:
+    depends_on: !override
+      - kafka-1
+      - consul
+      - vault
+      - postgres-market
+      - redis-cache
+    environment:
+      - KAFKA_IP_PORT=kafka-1:29092
+      - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - OPEX_KAFKA_TOPIC_PARTITIONS=1
+      - OPEX_KAFKA_TOPIC_REPLICAS=1
+      - OPEX_KAFKA_TOPIC_MIN_INSYNC_REPLICAS=1

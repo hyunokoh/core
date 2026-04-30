@@ -1,5 +1,8 @@
 package co.nilin.opex.matching.engine.core
 
+import co.nilin.opex.matching.engine.core.eventh.EventDispatcher
+import co.nilin.opex.matching.engine.core.eventh.events.OrderBookPublishedEvent
+import co.nilin.opex.matching.engine.core.eventh.events.RejectOrderEvent
 import co.nilin.opex.matching.engine.core.engine.SimpleOrderBook
 import co.nilin.opex.matching.engine.core.inout.OrderCancelCommand
 import co.nilin.opex.matching.engine.core.inout.OrderCreateCommand
@@ -17,6 +20,128 @@ class SimpleOrderBookUnitTest {
     private val pair = co.nilin.opex.matching.engine.core.model.Pair("BTC", "USDT")
     private val ETH_BTC_PAIR = co.nilin.opex.matching.engine.core.model.Pair("ETH", "BTC")
     private val uuid = UUID.randomUUID().toString()
+
+    @Test
+    fun givenDuplicateOuid_whenGtcBidLimitOrderCreatedTwice_thenSecondCreateIsIgnored() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val ouid = UUID.randomUUID().toString()
+        val command = OrderCreateCommand(
+            ouid,
+            uuid,
+            pair,
+            1,
+            1,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+
+        val firstOrder = orderBook.handleNewOrderCommand(command)
+        val secondOrder = orderBook.handleNewOrderCommand(command)
+
+        Assertions.assertEquals(firstOrder, secondOrder)
+        Assertions.assertEquals(1, orderBook.orders.size)
+        Assertions.assertEquals(1, orderBook.bidOrders.get(1).ordersCount)
+        Assertions.assertEquals(1, orderBook.bidOrders.get(1).totalQuantity)
+    }
+
+    @Test
+    fun givenDuplicateOuidAfterFullMatch_whenCreateReplayed_thenNoResidualOrderIsCreated() {
+        val orderBook = SimpleOrderBook(pair, false)
+        orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                1,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+        val takerOuid = UUID.randomUUID().toString()
+        val takerCommand = OrderCreateCommand(
+            takerOuid,
+            uuid,
+            pair,
+            1,
+            1,
+            OrderDirection.ASK,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+
+        orderBook.handleNewOrderCommand(takerCommand)
+        val replayedOrder = orderBook.handleNewOrderCommand(takerCommand)
+
+        Assertions.assertNull(replayedOrder)
+        Assertions.assertEquals(0, orderBook.orders.size)
+        Assertions.assertEquals(0, orderBook.askOrders.entriesList().size)
+        Assertions.assertEquals(0, orderBook.bidOrders.entriesList().size)
+        Assertions.assertNull(orderBook.bestAskOrder)
+        Assertions.assertNull(orderBook.bestBidOrder)
+    }
+
+    @Test
+    fun givenCanceledOrder_whenCancelCommandReplayed_thenDuplicateCancelIsIgnored() {
+        val orderBook = SimpleOrderBook(pair, false)
+        var rejectedEvents = 0
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectedEvents++ }
+        val ouid = UUID.randomUUID().toString()
+        val order = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                ouid,
+                uuid,
+                pair,
+                1,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+        val cancelCommand = OrderCancelCommand(ouid, uuid, order!!.id()!!, pair)
+
+        orderBook.handleCancelCommand(cancelCommand)
+        orderBook.handleCancelCommand(cancelCommand)
+
+        Assertions.assertEquals(0, rejectedEvents)
+        Assertions.assertEquals(0, orderBook.orders.size)
+        Assertions.assertNull(orderBook.bestBidOrder)
+    }
+
+    @Test
+    fun givenCanceledOrderSnapshot_whenCancelCommandReplayedAfterRebuild_thenDuplicateCancelIsIgnored() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val snapshots = mutableListOf<OrderBookPublishedEvent>()
+        var rejectedEvents = 0
+        EventDispatcher.register(OrderBookPublishedEvent::class.java) { snapshots.add(it) }
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectedEvents++ }
+        val ouid = UUID.randomUUID().toString()
+        val order = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                ouid,
+                uuid,
+                pair,
+                1,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+        val cancelCommand = OrderCancelCommand(ouid, uuid, order!!.id()!!, pair)
+
+        orderBook.handleCancelCommand(cancelCommand)
+        val rebuiltOrderBook = SimpleOrderBook(pair, false)
+        rebuiltOrderBook.rebuild(snapshots.last().persistentOrderBook)
+        rebuiltOrderBook.handleCancelCommand(cancelCommand)
+
+        Assertions.assertEquals(0, rejectedEvents)
+        Assertions.assertEquals(0, rebuiltOrderBook.orders.size)
+        Assertions.assertNull(rebuiltOrderBook.bestBidOrder)
+    }
 
     @Test
     fun givenEmptyOrderBook_whenGtcBidLimitOrderCreated_then1BucketWithSize1() {
@@ -448,6 +573,73 @@ class SimpleOrderBookUnitTest {
         Assertions.assertEquals(orderBook.bidOrders.entriesList().size, 2)
     }
 
+    @Test
+    fun givenOrderBookWithBidOrder_whenDifferentUserCancels_thenOrderRemainsOpen() {
+        //given
+        val orderBook = SimpleOrderBook(pair, false)
+        val ownerOrderId = UUID.randomUUID().toString()
+        val intruderUuid = UUID.randomUUID().toString()
+
+        val order = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                ownerOrderId,
+                uuid,
+                pair,
+                2,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+
+        //when
+        orderBook.handleCancelCommand(OrderCancelCommand(ownerOrderId, intruderUuid, order!!.id()!!, pair))
+
+        //then
+        Assertions.assertEquals(orderBook.bestBidOrder, order)
+        Assertions.assertEquals(orderBook.bidOrders.entriesList().size, 1)
+    }
+
+    @Test
+    fun givenOrderBookWithBidOrder_whenDifferentUserEdits_thenOrderRemainsOpen() {
+        //given
+        val orderBook = SimpleOrderBook(pair, false)
+        val ownerOrderId = UUID.randomUUID().toString()
+        val intruderUuid = UUID.randomUUID().toString()
+
+        val order = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                ownerOrderId,
+                uuid,
+                pair,
+                2,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+
+        //when
+        val editedOrder = orderBook.handleEditCommand(
+            OrderEditCommand(
+                ownerOrderId,
+                intruderUuid,
+                order!!.id()!!,
+                pair,
+                3,
+                2
+            )
+        )
+
+        //then
+        Assertions.assertNull(editedOrder)
+        Assertions.assertEquals(orderBook.bestBidOrder, order)
+        Assertions.assertEquals(orderBook.bidOrders.entriesList().size, 1)
+        Assertions.assertEquals(orderBook.orders.size, 1)
+    }
+
 
     @Test
     fun givenOrderBookWithMoreBids_whenEditABidOrder_thenBestBidOrderChange() {
@@ -465,9 +657,10 @@ class SimpleOrderBookUnitTest {
                 OrderType.LIMIT_ORDER
             )
         )
+        val secondOrderOuid = UUID.randomUUID().toString()
         val secondOrder = orderBook.handleNewOrderCommand(
             OrderCreateCommand(
-                UUID.randomUUID().toString(),
+                secondOrderOuid,
                 uuid,
                 pair,
                 2,
@@ -492,7 +685,7 @@ class SimpleOrderBookUnitTest {
         //when
         val order = orderBook.handleEditCommand(
             OrderEditCommand(
-                UUID.randomUUID().toString(),
+                secondOrderOuid,
                 uuid,
                 secondOrder!!.id()!!,
                 pair,
@@ -522,9 +715,10 @@ class SimpleOrderBookUnitTest {
                 OrderType.LIMIT_ORDER
             )
         )
+        val secondBidOuid = UUID.randomUUID().toString()
         val secondBid = orderBook.handleNewOrderCommand(
             OrderCreateCommand(
-                UUID.randomUUID().toString(),
+                secondBidOuid,
                 uuid,
                 pair,
                 1,
@@ -549,7 +743,7 @@ class SimpleOrderBookUnitTest {
         //when
         val order: SimpleOrder = orderBook.handleEditCommand(
             OrderEditCommand(
-                UUID.randomUUID().toString(),
+                secondBidOuid,
                 uuid,
                 secondBid!!.id()!!,
                 pair,

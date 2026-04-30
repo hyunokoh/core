@@ -16,10 +16,11 @@
         <kotlin.version>1.6.0</kotlin.version>
         <spring.version>2.7.6</spring.version>
         <spring-cloud.version>2021.0.5</spring-cloud.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
         <error-hanlder.version>1.0.1</error-hanlder.version>
         <preferences.version>1.0.0</preferences.version>
         <interceptor.version>1.0.0</interceptor.version>
-        <skip.unit.tests>true</skip.unit.tests>
+        <skip.unit.tests>false</skip.unit.tests>
     </properties>
 
     <modules>
@@ -71,18 +72,6 @@
                         <artifactId>junit-vintage-engine</artifactId>
                     </exclusion>
                 </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>org.mockito.kotlin</groupId>
-                <artifactId>mockito-kotlin</artifactId>
-                <version>4.0.0</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>io.mockk</groupId>
-                <artifactId>mockk</artifactId>
-                <version>1.12.4</version>
-                <scope>test</scope>
             </dependency>
             <dependency>
                 <groupId>co.nilin.opex</groupId>

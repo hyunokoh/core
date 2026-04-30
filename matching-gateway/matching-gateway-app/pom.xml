@@ -70,8 +70,15 @@
             <artifactId>error-handler</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.mockk</groupId>
-            <artifactId>mockk</artifactId>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>kafka</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>

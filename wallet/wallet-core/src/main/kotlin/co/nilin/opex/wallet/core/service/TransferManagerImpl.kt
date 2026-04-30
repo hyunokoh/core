@@ -23,6 +23,7 @@ class TransferManagerImpl(
     private val walletOwnerManager: WalletOwnerManager,
     private val transactionManager: TransactionManager,
     private val userTransactionManager: UserTransactionManager,
+    private val zkPolLiabilityExporter: ZkPolLiabilityExporter,
 ) : TransferManager {
 
     @Transactional
@@ -115,7 +116,7 @@ class TransferManagerImpl(
                     -amount,
                     UserTransactionCategory.TRADE
                 )
-                userTransactionManager.save(loserTx)
+                saveUserTransaction(loserTx, command.sourceWallet.owner.uuid)
 
                 val gainerTx = UserTransaction(
                     gainerOwner,
@@ -125,7 +126,7 @@ class TransferManagerImpl(
                     amount,
                     UserTransactionCategory.TRADE,
                 )
-                userTransactionManager.save(gainerTx)
+                saveUserTransaction(gainerTx, gainerMainWallet.owner.uuid)
             }
 
             TransferCategory.FEE -> {
@@ -137,7 +138,7 @@ class TransferManagerImpl(
                     -amount,
                     UserTransactionCategory.FEE
                 )
-                userTransactionManager.save(tx)
+                saveUserTransaction(tx, command.sourceWallet.owner.uuid)
             }
 
             TransferCategory.DEPOSIT -> {
@@ -149,7 +150,7 @@ class TransferManagerImpl(
                     amount,
                     UserTransactionCategory.DEPOSIT
                 )
-                userTransactionManager.save(tx)
+                saveUserTransaction(tx, command.destWallet.owner.uuid)
             }
 
             TransferCategory.DEPOSIT_MANUALLY -> {
@@ -163,7 +164,7 @@ class TransferManagerImpl(
                     UserTransactionCategory.DEPOSIT,
                     command.description
                 )
-                userTransactionManager.save(tx)
+                saveUserTransaction(tx, command.destWallet.owner.uuid)
 
                 // TX for admin
                 val adminTx = UserTransaction(
@@ -174,7 +175,7 @@ class TransferManagerImpl(
                     -amount,
                     UserTransactionCategory.DEPOSIT_TO
                 )
-                userTransactionManager.save(adminTx)
+                saveUserTransaction(adminTx, command.sourceWallet.owner.uuid)
             }
 
             TransferCategory.WITHDRAW_ACCEPT -> {
@@ -188,12 +189,27 @@ class TransferManagerImpl(
                     -amount,
                     UserTransactionCategory.WITHDRAW
                 )
-                userTransactionManager.save(tx)
+                saveUserTransaction(tx, command.sourceWallet.owner.uuid)
             }
 
             else -> {
                 // No tx needed for other types
             }
         }
+    }
+
+    private suspend fun saveUserTransaction(tx: UserTransaction, ownerUuid: String) {
+        userTransactionManager.save(tx)
+        zkPolLiabilityExporter.export(
+            ZkPolLiabilityEvent(
+                tokenId = tx.currency,
+                accountId = ownerUuid,
+                balance = tx.balance,
+                delta = tx.balanceChange,
+                eventType = tx.category.name.lowercase(),
+                occurredAt = tx.date,
+                referenceId = tx.uuid
+            )
+        )
     }
 }

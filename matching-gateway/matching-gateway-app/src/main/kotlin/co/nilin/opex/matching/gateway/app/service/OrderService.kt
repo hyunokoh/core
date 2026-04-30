@@ -2,6 +2,7 @@ package co.nilin.opex.matching.gateway.app.service
 
 import co.nilin.opex.common.OpexError
 import co.nilin.opex.matching.engine.core.model.OrderDirection
+import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.engine.core.model.Pair
 import co.nilin.opex.matching.gateway.app.inout.CancelOrderRequest
 import co.nilin.opex.matching.gateway.app.inout.CreateOrderRequest
@@ -27,8 +28,19 @@ class OrderService(
     private val logger = LoggerFactory.getLogger(OrderService::class.java)
 
     suspend fun submitNewOrder(createOrderRequest: CreateOrderRequest): OrderSubmitResult {
-        require(createOrderRequest.price >= BigDecimal.ZERO)
-        val symbolSides = createOrderRequest.pair.split("_")
+        val uuid = createOrderRequest.uuid ?: badRequest("uuid is required")
+        if (uuid.isBlank())
+            badRequest("uuid is required")
+        if (createOrderRequest.orderType == OrderType.LIMIT_ORDER) {
+            if (createOrderRequest.price <= BigDecimal.ZERO)
+                badRequest("limit order price must be greater than zero")
+        } else {
+            if (createOrderRequest.price < BigDecimal.ZERO)
+                badRequest("market order price must be zero or greater")
+        }
+        if (createOrderRequest.quantity <= BigDecimal.ZERO)
+            badRequest("quantity must be greater than zero")
+        val symbolSides = parsePair(createOrderRequest.pair)
         val symbol = if (createOrderRequest.direction == OrderDirection.ASK)
             symbolSides[0]
         else
@@ -39,14 +51,18 @@ class OrderService(
 
         val canCreateOrder = runCatching {
             accountantApiProxy.canCreateOrder(
-                createOrderRequest.uuid!!,
+                uuid,
                 symbol,
                 if (createOrderRequest.direction == OrderDirection.ASK)
                     createOrderRequest.quantity
                 else
                     createOrderRequest.quantity.multiply(createOrderRequest.price)
             )
-        }.onFailure { logger.error(it.message) }.getOrElse { false }
+        }.onFailure {
+            logger.error("Failed to check whether order can be created", it)
+        }.getOrElse {
+            throw OpexError.ServiceUnavailable.exception("accountant service is unavailable")
+        }
 
         if (!canCreateOrder)
             throw OpexError.SubmitOrderForbiddenByAccountant.exception()
@@ -55,7 +71,7 @@ class OrderService(
             throw OpexError.ServiceUnavailable.exception()
 
         val orderSubmitRequest = OrderSubmitRequestEvent(
-            createOrderRequest.uuid!!, //get from auth2
+            uuid, //get from auth2
             Pair(symbolSides[0], symbolSides[1]),
             createOrderRequest.price
                 .divide(pairConfig.rightSideFraction)
@@ -72,8 +88,29 @@ class OrderService(
     }
 
     suspend fun cancelOrder(request: CancelOrderRequest): OrderSubmitResult {
-        val symbols = request.symbol.split("_")
+        if (!kafkaHealthIndicator.isHealthy)
+            throw OpexError.ServiceUnavailable.exception()
+
+        if (request.uuid.isBlank())
+            badRequest("uuid is required")
+        if (request.ouid.isBlank())
+            badRequest("ouid is required")
+        val symbols = parsePair(request.symbol)
+        if (request.orderId < 0)
+            badRequest("orderId must be zero or greater")
+
         val event = OrderCancelRequestEvent(request.ouid, request.uuid, Pair(symbols[0], symbols[1]), request.orderId)
         return orderRequestEventSubmitter.submit(event)
+    }
+
+    private fun parsePair(pair: String): List<String> {
+        val symbols = pair.split("_")
+        if (symbols.size != 2 || symbols[0].isBlank() || symbols[1].isBlank())
+            badRequest("pair must be formatted as BASE_QUOTE")
+        return symbols
+    }
+
+    private fun badRequest(message: String): Nothing {
+        throw OpexError.BadRequest.exception(message)
     }
 }

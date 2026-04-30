@@ -37,6 +37,13 @@ spring:
       hibernate:
         format_sql: true
   cloud:
+    bus:
+      enabled: false
+    stream:
+      default-binder: kafka
+      binders:
+        kafka:
+          type: kafka
     bootstrap:
       enabled: true
     discovery:

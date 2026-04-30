@@ -7,9 +7,9 @@ import co.nilin.opex.market.core.inout.RateSource
 import co.nilin.opex.market.core.spi.TradePersister
 import co.nilin.opex.market.ports.postgres.dao.CurrencyRateRepository
 import co.nilin.opex.market.ports.postgres.dao.TradeRepository
-import co.nilin.opex.market.ports.postgres.model.TradeModel
 import co.nilin.opex.market.ports.postgres.util.RedisCacheHelper
 import kotlinx.coroutines.reactive.awaitFirstOrNull
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -29,30 +29,32 @@ class TradePersisterImpl(
     @Transactional
     override suspend fun save(trade: RichTrade) {
         val pair = trade.pair.split("_")
+        val createDate = LocalDateTime.now()
 
-        val tradeEntity = tradeRepository.save(
-            TradeModel(
-                null,
-                trade.id,
-                trade.pair,
-                pair[0].uppercase(),
-                pair[1].uppercase(),
-                trade.matchedPrice,
-                trade.matchedQuantity,
-                trade.takerPrice,
-                trade.makerPrice,
-                trade.takerCommision,
-                trade.makerCommision,
-                trade.takerCommisionAsset,
-                trade.makerCommisionAsset,
-                trade.tradeDateTime,
-                trade.makerOuid,
-                trade.takerOuid,
-                trade.makerUuid,
-                trade.takerUuid,
-                LocalDateTime.now()
-            )
-        ).awaitFirstOrNull()
+        val tradeEntity = tradeRepository.insertIfAbsent(
+            trade.id,
+            trade.pair,
+            pair[0].uppercase(),
+            pair[1].uppercase(),
+            trade.matchedPrice,
+            trade.matchedQuantity,
+            trade.takerPrice,
+            trade.makerPrice,
+            trade.takerCommision,
+            trade.makerCommision,
+            trade.takerCommisionAsset,
+            trade.makerCommisionAsset,
+            trade.tradeDateTime,
+            trade.makerOuid,
+            trade.takerOuid,
+            trade.makerUuid,
+            trade.takerUuid,
+            createDate
+        ).awaitSingleOrNull()
+        if (tradeEntity == null) {
+            logger.info("Duplicate RichTrade ${trade.id} ignored")
+            return
+        }
         logger.info("RichTrade ${trade.id} saved")
 
         currencyRateRepository.createOrUpdate(
@@ -64,7 +66,7 @@ class TradePersisterImpl(
         logger.info("Rate between ${pair[0]} and ${pair[1]} updated")
 
         try {
-            if (tradeEntity == null || !redisCacheHelper.hasKey("recentTrades:${trade.pair.lowercase()}")) return
+            if (!redisCacheHelper.hasKey("recentTrades:${trade.pair.lowercase()}")) return
             val isMakerBuyer = trade.makerDirection == OrderDirection.BID
             redisCacheHelper.putListItem(
                 "recentTrades:${trade.pair.lowercase()}",

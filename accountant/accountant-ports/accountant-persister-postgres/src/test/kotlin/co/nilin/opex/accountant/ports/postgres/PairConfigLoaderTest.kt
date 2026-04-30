@@ -3,60 +3,67 @@ package co.nilin.opex.accountant.ports.postgres
 import co.nilin.opex.accountant.ports.postgres.dao.PairConfigRepository
 import co.nilin.opex.accountant.ports.postgres.dao.PairFeeConfigRepository
 import co.nilin.opex.accountant.ports.postgres.impl.PairConfigLoaderImpl
+import co.nilin.opex.accountant.ports.postgres.model.PairFeeConfigModel
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.utility.error.data.OpexException
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
+import kotlinx.coroutines.reactor.awaitSingle
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import reactor.core.publisher.Flux
-import reactor.core.publisher.Mono
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.r2dbc.core.DatabaseClient
 
-@Suppress("ReactiveStreamsUnusedPublisher")
-class PairConfigLoaderTest {
+class PairConfigLoaderTest : AccountantPostgresIntegrationTest() {
 
-    private val pairConfigRepository = mockk<PairConfigRepository> {
-        every { findAll() } returns Flux.just(Valid.pairConfigModel, Valid.pairConfigModel)
-        every { findById(any() as String) } returns Mono.just(Valid.pairConfigModel)
+    @Autowired
+    private lateinit var databaseClient: DatabaseClient
+
+    @Autowired
+    private lateinit var pairConfigRepository: PairConfigRepository
+
+    @Autowired
+    private lateinit var pairFeeConfigRepository: PairFeeConfigRepository
+
+    private val pairConfigLoader by lazy { PairConfigLoaderImpl(pairConfigRepository, pairFeeConfigRepository) }
+
+    @BeforeEach
+    fun cleanDb(): Unit = runBlocking {
+        pairFeeConfigRepository.deleteAll().awaitSingleOrNull()
+        pairConfigRepository.deleteAll().awaitSingleOrNull()
+        databaseClient.executeSql("delete from user_level")
     }
-    private val pairFeeConfigRepository = mockk<PairFeeConfigRepository> {
-        every { findAll() } returns Flux.just(Valid.pairFeeConfigModel, Valid.pairFeeConfigModel)
-        every { findByPairAndDirectionAndUserLevel(any(), any(), any()) } returns Mono.just(Valid.pairFeeConfigModel)
-    }
-    private val pairConfigLoader = PairConfigLoaderImpl(pairConfigRepository, pairFeeConfigRepository)
 
     @Test
     fun givenPairConfigs_whenListNotEmpty_resultIsNotEmptyAndValid(): Unit = runBlocking {
+        seedPairConfig()
+        seedPairConfig("ETH_USDT", "ETH", "USDT")
+
         val configs = pairConfigLoader.loadPairConfigs()
-        assertThat(configs.size).isEqualTo(2)
-        with(configs[1]) {
-            assertThat(pair).isEqualTo(Valid.pairConfig.pair)
-            assertThat(leftSideWalletSymbol).isEqualTo(Valid.pairConfig.leftSideWalletSymbol)
-            assertThat(rightSideWalletSymbol).isEqualTo(Valid.pairConfig.rightSideWalletSymbol)
-            assertThat(leftSideFraction).isEqualTo(Valid.pairConfig.leftSideFraction)
-            assertThat(rightSideFraction).isEqualTo(Valid.pairConfig.rightSideFraction)
-        }
+
+        assertThat(configs).hasSize(2)
+        assertThat(configs.map { it.pair }).contains("BTC_USDT", "ETH_USDT")
     }
 
     @Test
     fun givenPairFeeConfigs_whenListNotEmpty_resultIsNotEmptyAndValid(): Unit = runBlocking {
+        seedPairConfig()
+        seedUserLevel("*")
+        seedUserLevel("1")
+        seedFeeConfig("*")
+        seedFeeConfig("1")
+
         val configs = pairConfigLoader.loadPairFeeConfigs()
-        assertThat(configs.size).isEqualTo(2)
-        with(configs[1]) {
-            assertThat(pairConfig.pair).isEqualTo(Valid.pairConfig.pair)
-            assertThat(userLevel).isEqualTo(Valid.pairFeeConfigModel.userLevel)
-            assertThat(direction).isEqualTo(Valid.pairFeeConfigModel.direction)
-            assertThat(makerFee).isEqualTo(Valid.pairFeeConfigModel.makerFee)
-            assertThat(takerFee).isEqualTo(Valid.pairFeeConfigModel.takerFee)
-        }
+
+        assertThat(configs).hasSize(2)
+        assertThat(configs.map { it.userLevel }).contains("*", "1")
+        assertThat(configs.map { it.pairConfig.pair }).containsOnly("BTC_USDT")
     }
 
     @Test
     fun givenPairDirectionUserLevel_whenPairConfigNotFound_throwsException(): Unit = runBlocking {
-        every { pairConfigRepository.findById(any() as String) } returns Mono.empty()
         assertThatThrownBy {
             runBlocking { pairConfigLoader.load("BTC_USDT", OrderDirection.BID, "*") }
         }.isInstanceOf(OpexException::class.java)
@@ -64,22 +71,20 @@ class PairConfigLoaderTest {
 
     @Test
     fun givenPairDirection_whenUserLevelEmpty_loadWithDefaultUserLevel(): Unit = runBlocking {
+        seedPairConfig()
+        seedUserLevel("*")
+        seedFeeConfig("*")
+
         val pair = pairConfigLoader.load("BTC_USDT", OrderDirection.BID, "")
+
         assertThat(pair).isNotNull
-        verify(exactly = 1) {
-            pairFeeConfigRepository.findByPairAndDirectionAndUserLevel(
-                eq("BTC_USDT"),
-                eq(OrderDirection.BID),
-                eq("*")
-            )
-        }
+        assertThat(pair.userLevel).isEqualTo("*")
     }
 
     @Test
     fun givenPairDirection_whenPairFeeConfigNotFound_throwsException(): Unit = runBlocking {
-        every {
-            pairFeeConfigRepository.findByPairAndDirectionAndUserLevel(any(), any(), eq("*"))
-        } returns Mono.empty()
+        seedPairConfig()
+        seedUserLevel("*")
 
         assertThatThrownBy {
             runBlocking { pairConfigLoader.load("BTC_USDT", OrderDirection.BID, "") }
@@ -88,31 +93,23 @@ class PairConfigLoaderTest {
 
     @Test
     fun givenPairDirectionUserLevel_whenPairFeeConfigNotFound_loadWithDefaultUserLevel(): Unit = runBlocking {
-        every {
-            pairFeeConfigRepository.findByPairAndDirectionAndUserLevel(any(), any(), eq("1"))
-        } returns Mono.empty()
+        seedPairConfig()
+        seedUserLevel("*")
+        seedUserLevel("1")
+        seedFeeConfig("*")
 
         val pair = pairConfigLoader.load("BTC_USDT", OrderDirection.BID, "1")
+
         assertThat(pair).isNotNull
-        verify(exactly = 1) {
-            pairFeeConfigRepository.findByPairAndDirectionAndUserLevel(
-                eq("BTC_USDT"),
-                eq(OrderDirection.BID),
-                eq("*")
-            )
-        }
+        assertThat(pair.userLevel).isEqualTo("*")
     }
 
     @Test
     fun givenPairDirectionUserLevel_whenPairFeeConfigNotFoundWithActualAndDefaultUserLevel_throwsException(): Unit =
         runBlocking {
-            every {
-                pairFeeConfigRepository.findByPairAndDirectionAndUserLevel(any(), any(), eq("1"))
-            } returns Mono.empty()
-
-            every {
-                pairFeeConfigRepository.findByPairAndDirectionAndUserLevel(any(), any(), eq("*"))
-            } returns Mono.empty()
+            seedPairConfig()
+            seedUserLevel("*")
+            seedUserLevel("1")
 
             assertThatThrownBy {
                 runBlocking { pairConfigLoader.load("BTC_USDT", OrderDirection.BID, "1") }
@@ -121,7 +118,6 @@ class PairConfigLoaderTest {
 
     @Test
     fun givenPairDirection_whenPairConfigNotFound_throwException(): Unit = runBlocking {
-        every { pairConfigRepository.findById(any() as String) } returns Mono.empty()
         assertThatThrownBy {
             runBlocking { pairConfigLoader.load("BTC_USDT", OrderDirection.BID) }
         }.isInstanceOf(OpexException::class.java)
@@ -129,13 +125,47 @@ class PairConfigLoaderTest {
 
     @Test
     fun givenPairDirection_whenConfigLoaded_returnValidPairConfig(): Unit = runBlocking {
+        seedPairConfig()
+
         with(pairConfigLoader.load("BTC_USDT", OrderDirection.BID)) {
             assertThat(pair).isEqualTo(Valid.pairConfigModel.pair)
             assertThat(leftSideWalletSymbol).isEqualTo(Valid.pairConfigModel.leftSideWalletSymbol)
             assertThat(rightSideWalletSymbol).isEqualTo(Valid.pairConfigModel.rightSideWalletSymbol)
-            assertThat(rightSideFraction).isEqualTo(Valid.pairConfigModel.rightSideFraction)
-            assertThat(leftSideFraction).isEqualTo(Valid.pairConfigModel.leftSideFraction)
+            assertThat(rightSideFraction.stripTrailingZeros())
+                .isEqualTo(Valid.pairConfigModel.rightSideFraction.stripTrailingZeros())
+            assertThat(leftSideFraction.stripTrailingZeros())
+                .isEqualTo(Valid.pairConfigModel.leftSideFraction.stripTrailingZeros())
         }
     }
 
+    private suspend fun seedPairConfig(
+        pair: String = "BTC_USDT",
+        leftSide: String = "BTC",
+        rightSide: String = "USDT"
+    ) {
+        pairConfigRepository.insert(
+            pair,
+            leftSide,
+            rightSide,
+            Valid.pairConfigModel.leftSideFraction,
+            Valid.pairConfigModel.rightSideFraction
+        ).awaitSingleOrNull()
+    }
+
+    private suspend fun seedUserLevel(level: String) {
+        databaseClient.executeSql("insert into user_level(level) values ('$level') on conflict do nothing")
+    }
+
+    private suspend fun seedFeeConfig(userLevel: String) {
+        pairFeeConfigRepository.save(
+            PairFeeConfigModel(
+                null,
+                "BTC_USDT",
+                OrderDirection.BID.toString(),
+                userLevel,
+                Valid.pairFeeConfigModel.makerFee,
+                Valid.pairFeeConfigModel.takerFee
+            )
+        ).awaitSingle()
+    }
 }

@@ -23,12 +23,19 @@ class TempEventPersisterImpl(
 ) : TempEventPersister {
 
     override suspend fun saveTempEvent(ouid: String, event: CoreEvent) {
+        val eventType = event.javaClass.name
+        val eventBody = objectMapper.writeValueAsString(event)
+        val existing = tempEventRepository
+            .findByOuidAndEventTypeAndEventBody(ouid, eventType, eventBody)
+            .toList()
+        if (existing.isNotEmpty()) return
+
         tempEventRepository.save(
             TempEventModel(
                 null,
                 ouid,
-                event.javaClass.name,
-                objectMapper.writeValueAsString(event),
+                eventType,
+                eventBody,
                 LocalDateTime.now()
             )
         ).awaitSingleOrNull()
@@ -39,6 +46,17 @@ class TempEventPersisterImpl(
             .findByOuid(ouid)
             .map { objectMapper.readValue(it.eventBody, Class.forName(it.eventType)) as CoreEvent }
             .toList()
+    }
+
+    override suspend fun removeTempEvent(ouid: String, event: CoreEvent) {
+        val eventType = event.javaClass.name
+        val eventBody = objectMapper.writeValueAsString(event)
+        val existing = tempEventRepository
+            .findByOuidAndEventTypeAndEventBody(ouid, eventType, eventBody)
+            .toList()
+        if (existing.isNotEmpty()) {
+            tempEventRepository.deleteAll(existing).awaitFirstOrNull()
+        }
     }
 
     override suspend fun removeTempEvents(ouid: String) {

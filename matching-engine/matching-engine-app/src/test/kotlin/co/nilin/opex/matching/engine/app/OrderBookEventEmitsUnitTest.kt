@@ -106,9 +106,10 @@ class OrderBookEventEmitsUnitTest {
                 OrderType.LIMIT_ORDER
             )
         )
+        val secondOrderOuid = UUID.randomUUID().toString()
         val secondOrder = orderBook.handleNewOrderCommand(
             OrderCreateCommand(
-                UUID.randomUUID().toString(),
+                secondOrderOuid,
                 uuid,
                 pair,
                 2,
@@ -134,7 +135,7 @@ class OrderBookEventEmitsUnitTest {
         //when
         orderBook.handleEditCommand(
             OrderEditCommand(
-                UUID.randomUUID().toString(),
+                secondOrderOuid,
                 uuid,
                 secondOrder!!.id()!!,
                 pair,

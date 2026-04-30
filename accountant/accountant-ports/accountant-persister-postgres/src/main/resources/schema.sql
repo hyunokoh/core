@@ -53,6 +53,15 @@ CREATE INDEX IF NOT EXISTS idx_fi_actions_pointer ON fi_actions(pointer);
 ALTER TABLE fi_actions
     ADD COLUMN IF NOT EXISTS category_name VARCHAR(36);
 
+CREATE TABLE IF NOT EXISTS processed_events
+(
+    event_type  VARCHAR(72)  NOT NULL,
+    event_key   VARCHAR(255) NOT NULL,
+    create_date TIMESTAMP    NOT NULL,
+    PRIMARY KEY (event_type, event_key)
+);
+CREATE INDEX IF NOT EXISTS idx_processed_events_create_date ON processed_events(create_date);
+
 CREATE TABLE IF NOT EXISTS fi_action_retry
 (
     id            SERIAL PRIMARY KEY,

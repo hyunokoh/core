@@ -19,6 +19,13 @@ spring:
     url: r2dbc:tc:postgresql:///accountant?TC_IMAGE_TAG=9.6.8
     initialization-mode: always
   cloud:
+    bus:
+      enabled: false
+    stream:
+      default-binder: kafka
+      binders:
+        kafka:
+          type: kafka
     bootstrap:
       enabled: true
     discovery:

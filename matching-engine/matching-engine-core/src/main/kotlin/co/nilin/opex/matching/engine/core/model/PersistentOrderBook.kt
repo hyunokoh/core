@@ -6,6 +6,8 @@ class PersistentOrderBook {
     var lastOrder: PersistentOrder? = null
     var orders: List<PersistentOrder>? = emptyList()
     var tradeCounter: Long = 0
+    var processedOrderOuids: Set<String> = emptySet()
+    var processedCancelOuids: Set<String> = emptySet()
 
     constructor() {
     }

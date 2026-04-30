@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Component
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -23,13 +25,26 @@ class TempEventSubmitter(
     override suspend fun republish(events: List<CoreEvent>): Unit = suspendCoroutine { cont ->
         logger.info("Submitting TempEvents")
 
+        if (events.isEmpty()) {
+            cont.resume(Unit)
+            return@suspendCoroutine
+        }
+
+        val remaining = AtomicInteger(events.size)
+        val firstError = AtomicReference<Throwable?>()
+
         events.forEach { event ->
             val sendFuture = kafkaTemplate.send(topic, event)
             sendFuture.addCallback({
-                cont.resume(Unit)
+                if (remaining.decrementAndGet() == 0) {
+                    firstError.get()?.let(cont::resumeWithException) ?: cont.resume(Unit)
+                }
             }, {
                 logger.error("Error submitting TempEvents", it)
-                cont.resumeWithException(it)
+                firstError.compareAndSet(null, it)
+                if (remaining.decrementAndGet() == 0) {
+                    cont.resumeWithException(firstError.get() ?: it)
+                }
             })
         }
     }

@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS trades
 );
 CREATE INDEX IF NOT EXISTS idx_trades_symbol on trades (symbol);
 CREATE INDEX IF NOT EXISTS idx_trades_create_date on trades (create_date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_event_key
+    ON trades (symbol, trade_id, taker_ouid, maker_ouid, matched_quantity, maker_price);
 
 CREATE TABLE IF NOT EXISTS currency_rate
 (
@@ -101,4 +103,3 @@ BEGIN
 END;
 
 $$ LANGUAGE 'plpgsql';
-

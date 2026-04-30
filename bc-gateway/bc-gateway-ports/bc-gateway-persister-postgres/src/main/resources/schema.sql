@@ -91,5 +91,23 @@ CREATE TABLE IF NOT EXISTS deposits
     depositor_memo   VARCHAR(72)
 );
 
+CREATE TABLE IF NOT EXISTS zkaml_deposit_case
+(
+    id               SERIAL PRIMARY KEY,
+    owner_uuid       VARCHAR(72)  NOT NULL,
+    chain            VARCHAR(72)  NOT NULL REFERENCES chains (name),
+    tx_hash          VARCHAR(100) NOT NULL,
+    amount           VARCHAR(64)  NOT NULL,
+    receiver_address VARCHAR(72)  NOT NULL,
+    receiver_memo    VARCHAR(72),
+    token_address    VARCHAR(72),
+    decision         VARCHAR(20)  NOT NULL,
+    reason           TEXT,
+    external_ref     VARCHAR(255),
+    created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_zkaml_deposit_case_owner_uuid ON zkaml_deposit_case (owner_uuid);
+CREATE INDEX IF NOT EXISTS idx_zkaml_deposit_case_tx_hash ON zkaml_deposit_case (tx_hash);
 
 

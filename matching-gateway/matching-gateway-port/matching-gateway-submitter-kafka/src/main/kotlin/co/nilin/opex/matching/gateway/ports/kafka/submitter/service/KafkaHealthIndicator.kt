@@ -3,15 +3,19 @@ package co.nilin.opex.matching.gateway.ports.kafka.submitter.service
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.admin.DescribeClusterOptions
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 
 @Component
-class KafkaHealthIndicator(private val adminClient: AdminClient) {
+class KafkaHealthIndicator(
+    private val adminClient: AdminClient,
+    @Value("\${app.kafka.health.min-nodes:3}")
+    private val healthyNodeSize: Int = 3
+) {
 
     private val logger = LoggerFactory.getLogger(KafkaHealthIndicator::class.java)
     private val options = DescribeClusterOptions().timeoutMs(1000)
-    private val healthyNodeSize = 3
     private var pIsHealthy = false
     val isHealthy
         get() = pIsHealthy

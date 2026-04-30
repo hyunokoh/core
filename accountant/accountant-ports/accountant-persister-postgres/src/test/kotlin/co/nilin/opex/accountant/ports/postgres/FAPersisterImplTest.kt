@@ -1,51 +1,83 @@
 package co.nilin.opex.accountant.ports.postgres
 
+import co.nilin.opex.accountant.core.model.FinancialAction
 import co.nilin.opex.accountant.core.model.FinancialActionStatus
 import co.nilin.opex.accountant.ports.postgres.dao.FinancialActionErrorRepository
 import co.nilin.opex.accountant.ports.postgres.dao.FinancialActionRepository
 import co.nilin.opex.accountant.ports.postgres.dao.FinancialActionRetryRepository
 import co.nilin.opex.accountant.ports.postgres.impl.FinancialActionPersisterImpl
-import co.nilin.opex.accountant.ports.postgres.model.FinancialActionModel
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.mockk
+import kotlinx.coroutines.reactor.awaitSingle
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import reactor.core.publisher.Flux
-import reactor.core.publisher.Mono
+import org.springframework.beans.factory.annotation.Autowired
 
-@Suppress("ReactiveStreamsUnusedPublisher")
-class FAPersisterImplTest {
+class FAPersisterImplTest : AccountantPostgresIntegrationTest() {
 
-    private val financialActionRepository = mockk<FinancialActionRepository> {
-        coEvery { saveAll(any() as Iterable<FinancialActionModel>) } returns Flux.just(Valid.faModel)
-        coEvery { updateBatchStatus(any(), any()) } returns Mono.empty()
+    @Autowired
+    private lateinit var financialActionRepository: FinancialActionRepository
+
+    @Autowired
+    private lateinit var faRetryRepository: FinancialActionRetryRepository
+
+    @Autowired
+    private lateinit var faErrorRepository: FinancialActionErrorRepository
+
+    private val faPersister by lazy {
+        FinancialActionPersisterImpl(
+            financialActionRepository,
+            faRetryRepository,
+            faErrorRepository
+        )
     }
-    private val faRetryRepository = mockk<FinancialActionRetryRepository>()
-    private val faErrorRepository = mockk<FinancialActionErrorRepository>()
 
-    private val faPersister = FinancialActionPersisterImpl(
-        financialActionRepository,
-        faRetryRepository,
-        faErrorRepository
-    )
+    @BeforeEach
+    fun cleanDb(): Unit = runBlocking {
+        faErrorRepository.deleteAll().awaitSingleOrNull()
+        faRetryRepository.deleteAll().awaitSingleOrNull()
+        financialActionRepository.deleteAll().awaitSingleOrNull()
+    }
 
     @Test
-    fun givenListOfActions_whenSaving_callSaveAll(): Unit = runBlocking {
+    fun givenListOfActions_whenSaving_persistsRows(): Unit = runBlocking {
         faPersister.persist(listOf(Valid.fa))
-        coVerify { financialActionRepository.saveAll(eq(listOf(Valid.faModel))) }
-    }
 
-    @Test
-    fun givenFAAndStatus_whenUpdatingStatusAndFANotFound_throwException(): Unit = runBlocking {
-        coEvery { financialActionRepository.updateStatus(eq(Valid.fa.id!!), any()) } returns Mono.empty()
-        faPersister.updateStatus(Valid.fa, FinancialActionStatus.CREATED)
-        coVerify {
-            financialActionRepository.updateStatus(
-                eq(Valid.fa.id!!),
-                eq(FinancialActionStatus.CREATED)
-            )
+        val persisted = financialActionRepository.findAll().collectList().awaitSingle()
+
+        assertThat(persisted).hasSize(1)
+        with(persisted[0]) {
+            assertThat(uuid).isEqualTo(Valid.fa.uuid)
+            assertThat(pointer).isEqualTo(Valid.fa.pointer)
+            assertThat(symbol).isEqualTo(Valid.fa.symbol)
+            assertThat(amount.stripTrailingZeros()).isEqualTo(Valid.fa.amount.stripTrailingZeros())
+            assertThat(status).isEqualTo(FinancialActionStatus.CREATED)
         }
     }
 
+    @Test
+    fun givenFAAndStatus_whenUpdatingStatus_updatesPersistedRow(): Unit = runBlocking {
+        val persisted = financialActionRepository.save(Valid.faModel.copy(id = null)).awaitSingle()
+        val action = FinancialAction(
+            Valid.fa.parent,
+            Valid.fa.eventType,
+            Valid.fa.pointer,
+            Valid.fa.symbol,
+            Valid.fa.amount,
+            Valid.fa.sender,
+            Valid.fa.senderWalletType,
+            Valid.fa.receiver,
+            Valid.fa.receiverWalletType,
+            Valid.fa.createDate,
+            Valid.fa.category,
+            id = persisted.id,
+            uuid = persisted.uuid
+        )
+
+        faPersister.updateStatus(action, FinancialActionStatus.PROCESSED)
+
+        val updated = financialActionRepository.findById(persisted.id!!).awaitSingle()
+        assertThat(updated.status).isEqualTo(FinancialActionStatus.PROCESSED)
+    }
 }

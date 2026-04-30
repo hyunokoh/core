@@ -8,10 +8,13 @@ import co.nilin.opex.accountant.core.inout.RichTrade
 import co.nilin.opex.accountant.core.model.*
 import co.nilin.opex.accountant.core.spi.*
 import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.LocalDateTime
+import java.util.concurrent.ConcurrentHashMap
 
 open class TradeManagerImpl(
     private val financeActionPersister: FinancialActionPersister,
@@ -22,19 +25,24 @@ open class TradeManagerImpl(
     private val richOrderPublisher: RichOrderPublisher,
     private val feeCalculator: FeeCalculator,
     private val financialActionPublisher: FinancialActionPublisher,
-    private val jsonMapper: JsonMapper
+    private val jsonMapper: JsonMapper,
+    private val processedEventPersister: ProcessedEventPersister
 ) : TradeManager {
 
     private val logger = LoggerFactory.getLogger(TradeManagerImpl::class.java)
+    private val orderLocks = ConcurrentHashMap<String, Mutex>()
 
     @Transactional
     override suspend fun handleTrade(trade: TradeEvent): List<FinancialAction> {
+        return withTradeOrderLocks(trade) {
+            handleTradeLocked(trade)
+        }
+    }
+
+    private suspend fun handleTradeLocked(trade: TradeEvent): List<FinancialAction> {
         logger.info("Trade event started ${trade.tradeId}")
         val financialActions = mutableListOf<FinancialAction>()
-        //taker order by ouid
-        val takerOrder = orderPersister.load(trade.takerOuid)
-        //maker order by ouid
-        val makerOrder = orderPersister.load(trade.makerOuid)
+        val (takerOrder, makerOrder) = loadTradeOrdersForUpdate(trade)
         if (takerOrder == null || makerOrder == null) {
             if (takerOrder == null) {
                 tempEventPersister.saveTempEvent(trade.takerOuid, trade)
@@ -42,6 +50,13 @@ open class TradeManagerImpl(
             if (makerOrder == null) {
                 tempEventPersister.saveTempEvent(trade.makerOuid, trade)
             }
+            return emptyList()
+        }
+
+        val eventType = TradeEvent::class.simpleName!!
+        val eventKey = trade.processedEventKey()
+        if (!processedEventPersister.tryMarkProcessed(eventType, eventKey)) {
+            logger.info("Duplicate trade event ignored: type=$eventType key=$eventKey")
             return emptyList()
         }
 
@@ -183,8 +198,41 @@ open class TradeManagerImpl(
                 trade.eventDate
             )
         )
-        return financeActionPersister.persist(financialActions)
+        return financeActionPersister.persist(financialActions).also {
+            tempEventPersister.removeTempEvent(trade.takerOuid, trade)
+            if (trade.makerOuid != trade.takerOuid) {
+                tempEventPersister.removeTempEvent(trade.makerOuid, trade)
+            }
+        }
         //return financeActionPersister.persist(financialActions).also { publishFinancialActions(it) }
+    }
+
+    private suspend fun <T> withTradeOrderLocks(trade: TradeEvent, block: suspend () -> T): T {
+        val lockKeys = listOf(trade.takerOuid, trade.makerOuid).distinct().sorted()
+        val locks = lockKeys.map { orderLocks.computeIfAbsent(it) { Mutex() } }
+        return withLocks(locks, block)
+    }
+
+    private suspend fun <T> withLocks(locks: List<Mutex>, block: suspend () -> T): T {
+        if (locks.isEmpty())
+            return block()
+
+        return locks.first().withLock {
+            withLocks(locks.drop(1), block)
+        }
+    }
+
+    private suspend fun loadTradeOrdersForUpdate(trade: TradeEvent): Pair<Order?, Order?> {
+        if (trade.takerOuid == trade.makerOuid) {
+            val order = orderPersister.loadForUpdate(trade.takerOuid)
+            return order to order
+        }
+
+        val lockedOrders = listOf(trade.takerOuid, trade.makerOuid)
+            .sorted()
+            .associateWith { orderPersister.loadForUpdate(it) }
+
+        return lockedOrders[trade.takerOuid] to lockedOrders[trade.makerOuid]
     }
 
     private fun createFinalizeOrderFinancialAction(
@@ -240,6 +288,21 @@ open class TradeManagerImpl(
                 financeActionPersister.updateStatus(fa.uuid, FinancialActionStatus.PROCESSED)
             }
         }
+    }
+
+    private fun TradeEvent.processedEventKey(): String {
+        return listOf(
+            pair.toString(),
+            tradeId,
+            takerOuid,
+            takerUuid,
+            takerOrderId,
+            makerOuid,
+            makerUuid,
+            makerOrderId,
+            matchedQuantity,
+            makerPrice
+        ).joinToString(":")
     }
 
     private fun extractFAParents(financialAction: FinancialAction, list: ArrayList<FinancialAction>) {

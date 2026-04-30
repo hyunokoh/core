@@ -13,6 +13,8 @@ interface TempEventRepository : ReactiveCrudRepository<TempEventModel, Long> {
 
     fun findByOuid(ouid: String): Flow<TempEventModel>
 
+    fun findByOuidAndEventTypeAndEventBody(ouid: String, eventType: String, eventBody: String): Flow<TempEventModel>
+
     fun deleteByOuid(ouid: String): Mono<Void>
 
     @Query("select * from temp_events")

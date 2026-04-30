@@ -1,0 +1,49 @@
+name: Exchange E2E
+
+on:
+  workflow_dispatch:
+
+jobs:
+  exchange-e2e:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Verify Docker
+        run: docker info
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run real exchange E2E
+        env:
+          DOCKER_SOCK: unix:///var/run/docker.sock
+        run: tools/e2e/run_exchange_e2e.sh --package --build --reset
+
+      - name: Upload E2E summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exchange-e2e-summary
+          path: /tmp/opex-e2e-*.json
+          if-no-files-found: ignore
+
+      - name: Print E2E logs on failure
+        if: failure()
+        env:
+          DOCKER_SOCK: unix:///var/run/docker.sock
+        run: |
+          docker -H "$DOCKER_SOCK" compose \
+            --env-file .env.e2e \
+            -f docker-compose.yml \
+            -f docker-compose.override.yml \
+            -f docker-compose.build.yml \
+            -f docker-compose.local.yml \
+            -f tools/e2e/docker-compose.e2e.yml \
+            logs --tail=300 wallet accountant matching-engine matching-gateway market

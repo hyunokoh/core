@@ -12,4 +12,7 @@ interface OrderRepository : ReactiveCrudRepository<OrderModel, Long> {
 
     @Query("select * from orders where ouid = :ouid")
     fun findByOuid(@Param("ouid") ouid: String): Mono<OrderModel>
+
+    @Query("select * from orders where ouid = :ouid for update")
+    fun findByOuidForUpdate(@Param("ouid") ouid: String): Mono<OrderModel>
 }
