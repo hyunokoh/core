@@ -57,6 +57,7 @@ Runs a real Docker-backed exchange E2E flow:
   17. Verify malformed cancel requests are rejected before they reach market state.
   18. Verify an unsupported FOK order does not remain in market state and releases reserved funds.
   19. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
+  19b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
   20. Verify underfunded ask/bid orders are rejected before they reach market state.
   21. Verify invalid order parameters are rejected before they reach market state.
   22. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
@@ -2217,6 +2218,91 @@ main() {
     sleep 2
   done
 
+  local layered_self_trade_owner="e2e-layered-self-trade-$(date +%s)"
+  local layered_external_seller="e2e-layered-stp-maker-$(date +%s)"
+  local layered_self_trade_ref="e2e-layered-self-trade-$(date +%s)"
+  expect_2xx "layered-stp owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${layered_self_trade_owner}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-owner-eth")" >/dev/null
+  expect_2xx "layered-stp owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${layered_self_trade_owner}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-owner-usdt")" >/dev/null
+  expect_2xx "layered-stp external ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.1_test-ethereum_ETH/${layered_external_seller}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-external-eth")" >/dev/null
+
+  local layered_external_ask='{"uuid":null,"pair":"ETH_USDT","price":119,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local layered_self_ask='{"uuid":null,"pair":"ETH_USDT","price":120,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local layered_self_bid='{"uuid":null,"pair":"ETH_USDT","price":120,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "layered-stp external resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$layered_external_ask' '$layered_external_seller'" >/tmp/opex-e2e-layered-stp-external-ask.json
+  expect_2xx_retry "layered-stp owner resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$layered_self_ask' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-owner-ask.json
+  wait_user_open_order "$layered_external_seller" "ETH_USDT" "119" "0.1" /tmp/opex-e2e-layered-stp-external-open-orders.json
+  wait_user_open_order "$layered_self_trade_owner" "ETH_USDT" "120" "0.4" /tmp/opex-e2e-layered-stp-owner-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "119" "0.1"
+  wait_order_book_level "ETH_USDT" "ASK" "120" "0.4"
+
+  expect_2xx_retry "layered-stp crossing bid rejected before partial fill" "curl_json POST 'http://127.0.0.1:8093/order' '$layered_self_bid' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-bid.json
+  wait_query_eq "layered-stp bid reject financial action" "postgres-accountant" "1" "
+    select count(*)
+    from fi_actions
+    where event_type = 'RejectOrderEvent'
+      and category_name = 'ORDER_CANCEL'
+      and sender = '${layered_self_trade_owner}'
+      and receiver = '${layered_self_trade_owner}'
+      and symbol = 'USDT'
+      and amount = 24.00000000
+      and status = 'PROCESSED';
+  "
+  wait_user_open_order "$layered_external_seller" "ETH_USDT" "119" "0.1" /tmp/opex-e2e-layered-stp-external-open-orders.json
+  wait_user_open_order "$layered_self_trade_owner" "ETH_USDT" "120" "0.4" /tmp/opex-e2e-layered-stp-owner-open-orders.json
+  assert_no_user_order_by_price "$layered_self_trade_owner" "ETH_USDT" "120" "0.2"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$layered_self_trade_owner" "USDT" "100"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for layered self-trade rejected bid release" >&2
+      assert_wallet_balance "layered-stp owner USDT released after rejected bid" "$layered_self_trade_owner" "USDT" "100" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  wait_query_eq "layered self-trade prevention emitted no partial external fill" "postgres-market" "0" "
+    select count(*)
+    from trades
+    where symbol = 'ETH_USDT'
+      and maker_uuid = '$layered_external_seller'
+      and taker_uuid = '$layered_self_trade_owner';
+  "
+  wait_query_eq "layered self-trade prevention emitted no owner self trade" "postgres-market" "0" "
+    select count(*)
+    from trades
+    where symbol = 'ETH_USDT'
+      and maker_uuid = '$layered_self_trade_owner'
+      and taker_uuid = '$layered_self_trade_owner';
+  "
+
+  local layered_external_ouid layered_external_order_id layered_external_cancel_request
+  layered_external_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-layered-stp-external-open-orders.json)"
+  layered_external_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-layered-stp-external-open-orders.json)"
+  layered_external_cancel_request="$(jq -nc --arg ouid "$layered_external_ouid" --arg uuid "$layered_external_seller" --argjson orderId "$layered_external_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  expect_2xx_retry "cancel layered-stp external ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$layered_external_cancel_request' '$layered_external_seller'" >/tmp/opex-e2e-layered-stp-external-cancel.json
+  wait_no_user_open_orders "$layered_external_seller" "ETH_USDT"
+  wait_order_status "$layered_external_seller" "$layered_external_ouid" "CANCELED"
+
+  local layered_owner_ouid layered_owner_order_id layered_owner_cancel_request
+  layered_owner_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-layered-stp-owner-open-orders.json)"
+  layered_owner_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-layered-stp-owner-open-orders.json)"
+  layered_owner_cancel_request="$(jq -nc --arg ouid "$layered_owner_ouid" --arg uuid "$layered_self_trade_owner" --argjson orderId "$layered_owner_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  expect_2xx_retry "cancel layered-stp owner ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$layered_owner_cancel_request' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-owner-cancel.json
+  wait_no_user_open_orders "$layered_self_trade_owner" "ETH_USDT"
+  wait_order_status "$layered_self_trade_owner" "$layered_owner_ouid" "CANCELED"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$layered_external_seller" "ETH" "0.1" &&
+    try_wallet_balance "$layered_self_trade_owner" "ETH" "1"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for layered self-trade cleanup release" >&2
+      assert_wallet_balance "layered-stp external ETH released after cleanup" "$layered_external_seller" "ETH" "0.1" >&2 || true
+      assert_wallet_balance "layered-stp owner ETH released after cleanup" "$layered_self_trade_owner" "ETH" "1" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
   local reject_owner="e2e-reject-$(date +%s)"
   local underfunded_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   expect_http_status "underfunded ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$underfunded_ask" "$reject_owner")" >/tmp/opex-e2e-reject-order.json
@@ -2334,7 +2420,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,45\nFEE,32\nORDER_CANCEL,15\nORDER_CREATE,41\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,1\nWITHDRAW_REQUEST,3' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,48\nFEE,32\nORDER_CANCEL,18\nORDER_CREATE,44\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,1\nWITHDRAW_REQUEST,3' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -2345,7 +2431,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,24.95400000\nUSDT,2365.74400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,26.05400000\nUSDT,2465.74400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -2409,7 +2495,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,15\nSubmitOrderEvent,PROCESSED,41\nTradeEvent,PROCESSED,65' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,18\nSubmitOrderEvent,PROCESSED,44\nTradeEvent,PROCESSED,65' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -2953,7 +3039,7 @@ main() {
   wait_order_book_empty "BTC_USDT" "BID"
 
   echo "E2E exchange flow passed"
-  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner selfTradeOwner=$self_trade_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
+  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
   cat > /tmp/opex-e2e-summary.json <<EOF
 {
   "status": "passed",
@@ -2997,6 +3083,8 @@ main() {
   "cancelAuthIntruder": "$cancel_auth_intruder",
   "fokOwner": "$fok_owner",
   "selfTradeOwner": "$self_trade_owner",
+  "layeredSelfTradeOwner": "$layered_self_trade_owner",
+  "layeredExternalSeller": "$layered_external_seller",
   "rejectOwner": "$reject_owner",
   "bidRejectOwner": "$bid_reject_owner",
   "invalidOwner": "$invalid_owner",
@@ -3155,6 +3243,15 @@ main() {
     "rejectedBidQuantity": 0.2,
     "status": "REJECTED_NO_TRADE"
   },
+  "layeredSelfTradePreventionScenario": {
+    "externalAskPrice": 119,
+    "externalAskQuantity": 0.1,
+    "ownerAskPrice": 120,
+    "ownerAskQuantity": 0.4,
+    "rejectedBidPrice": 120,
+    "rejectedBidQuantity": 0.2,
+    "status": "REJECTED_BEFORE_EXTERNAL_PARTIAL_FILL"
+  },
   "rejectScenario": {
     "direction": "ASK",
     "price": 100,
@@ -3239,10 +3336,10 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 45,
+      "DEPOSIT": 48,
       "FEE": 32,
-      "ORDER_CANCEL": 15,
-      "ORDER_CREATE": 41,
+      "ORDER_CANCEL": 18,
+      "ORDER_CREATE": 44,
       "ORDER_FINALIZED": 1,
       "TRADE": 32,
       "WITHDRAW_ACCEPT": 1,
@@ -3251,8 +3348,8 @@ main() {
       "WITHDRAW_REQUEST": 3
     },
     "walletAggregateBalances": {
-      "ETH": 23.954,
-      "USDT": 2265.744
+      "ETH": 26.054,
+      "USDT": 2465.744
     },
     "walletWithdrawStatuses": {
       "CANCELED": 1,
@@ -3265,8 +3362,8 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "RejectOrderEvent": 15,
-      "SubmitOrderEvent": 41,
+      "RejectOrderEvent": 18,
+      "SubmitOrderEvent": 44,
       "TradeEvent": 65
     },
     "accountantRetryQueueDrained": true,
@@ -3367,6 +3464,9 @@ main() {
     "bidOverreserveOwner": {"USDT": 100},
     "cancelAuthOwner": {"ETH": 1},
     "fokOwner": {"ETH": 1},
+    "selfTradeOwner": {"ETH": 1, "USDT": 100},
+    "layeredSelfTradeOwner": {"ETH": 1, "USDT": 100},
+    "layeredExternalSeller": {"ETH": 0.1},
     "duplicateDepositOwner": {"USDT": 5},
     "withdrawOwner": {"USDT": 6},
     "btcSeller": {"BTC": 0.009, "USDT": 19.8},
