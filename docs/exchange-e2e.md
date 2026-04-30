@@ -33,7 +33,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Duplicate cancel is safe: resubmitting a cancel for an already canceled order does not release funds twice.
 - An unsupported FOK order does not remain in user-visible market order state and releases its reserved ETH.
 - Underfunded ask and bid orders are rejected and never appear in market order state.
-- Invalid order parameters such as zero quantity or negative price are rejected before reaching market state.
+- Invalid order parameters such as zero quantity, invalid price, malformed pair, or price/quantity precision mismatch are rejected before reaching market state.
 - Duplicate deposit `transferRef` values are rejected and do not double-credit the receiver wallet.
 - Withdraw requests cover invalid request rejection, owner-only cancel authorization, `CREATED -> CANCELED`, `CREATED -> PROCESSING -> DONE`, `CREATED -> PROCESSING -> REJECTED`, and rejection of terminal-state reprocessing without balance mutation.
 - The public `ETH_USDT` ask and bid order books are empty after all open-order scenarios are cleaned up.
@@ -89,7 +89,7 @@ For the default `1 ETH @ 100 USDT` flow, the final balances are:
 - Cancel-auth owner: `1 ETH` after an intruder cancel is rejected, the owner cancels the order, and the same owner cancel is submitted again.
 - Unsupported FOK owner: `1 ETH` after reject release.
 - Underfunded reject owners never get user-visible market orders.
-- Invalid order owner keeps `1 ETH` and `100 USDT`, with no user-visible market orders.
+- Invalid order owner keeps `1 ETH` and `100 USDT` after malformed, non-positive, and precision-mismatched orders, with no user-visible market orders.
 - Duplicate deposit owner keeps `5 USDT` after the first deposit succeeds and the second deposit with the same `transferRef` is rejected.
 - Withdraw owner keeps `6 USDT` after one canceled, one accepted, and one rejected withdrawal; intruder cancel, processing cancel, duplicate accept, and terminal-state admin/user transitions are rejected without additional wallet movement.
 - Final public order book state has `0` ask levels and `0` bid levels.

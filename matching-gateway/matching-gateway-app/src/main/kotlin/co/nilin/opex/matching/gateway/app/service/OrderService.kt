@@ -73,12 +73,8 @@ class OrderService(
         val orderSubmitRequest = OrderSubmitRequestEvent(
             uuid, //get from auth2
             Pair(symbolSides[0], symbolSides[1]),
-            createOrderRequest.price
-                .divide(pairConfig.rightSideFraction)
-                .longValueExact(),
-            createOrderRequest.quantity
-                .divide(pairConfig.leftSideFraction)
-                .longValueExact(),
+            toOrderUnits(createOrderRequest.price, pairConfig.rightSideFraction, "price"),
+            toOrderUnits(createOrderRequest.quantity, pairConfig.leftSideFraction, "quantity"),
             createOrderRequest.direction,
             createOrderRequest.matchConstraint,
             createOrderRequest.orderType,
@@ -108,6 +104,14 @@ class OrderService(
         if (symbols.size != 2 || symbols[0].isBlank() || symbols[1].isBlank())
             badRequest("pair must be formatted as BASE_QUOTE")
         return symbols
+    }
+
+    private fun toOrderUnits(value: BigDecimal, fraction: BigDecimal, field: String): Long {
+        return try {
+            value.divide(fraction).longValueExact()
+        } catch (ex: ArithmeticException) {
+            badRequest("$field does not match pair precision")
+        }
     }
 
     private fun badRequest(message: String): Nothing {

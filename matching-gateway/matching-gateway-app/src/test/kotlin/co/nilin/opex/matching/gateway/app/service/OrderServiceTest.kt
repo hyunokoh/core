@@ -119,6 +119,19 @@ private class OrderServiceTest {
     }
 
     @Test
+    fun givenPair_whenOrderPrecisionDoesNotMatchPairConfig_thenThrowBadRequestBeforeKafkaPublish(): Unit = runBlocking {
+        val service = orderService()
+
+        assertThatThrownBy {
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(price = BigDecimal("100000.00001"))) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(quantity = BigDecimal("0.00101"))) }
+        }.isBadRequest()
+    }
+
+    @Test
     fun givenPair_whenSubmitNewOrderByBIDAndNotAllowed_thenThrow(): Unit = runBlocking {
         val service = orderService(RecordingAccountantApiProxy(allowed = false))
 
