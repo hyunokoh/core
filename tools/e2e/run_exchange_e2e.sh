@@ -2578,6 +2578,45 @@ main() {
     sleep 2
   done
 
+  wait_query_eq "BTC_USDT scenario wallet transaction ledger" "postgres-wallet" $'DEPOSIT,10\nFEE,12\nORDER_CANCEL,1\nORDER_CREATE,10\nTRADE,12' "
+    select t.transfer_category, count(*)
+    from transaction t
+    join wallet sw on sw.id = t.source_wallet
+    join wallet_owner swo on swo.id = sw.owner
+    join wallet dw on dw.id = t.dest_wallet
+    join wallet_owner dwo on dwo.id = dw.owner
+    where swo.uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+       or dwo.uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+    group by t.transfer_category
+    order by t.transfer_category;
+  "
+  wait_query_eq "BTC_USDT scenario wallet balances by type" "postgres-wallet" $'BTC,EXCHANGE,0.00000000\nBTC,MAIN,0.01494000\nUSDT,EXCHANGE,0.00000000\nUSDT,MAIN,228.73000000' "
+    select w.currency, w.wallet_type, to_char(sum(w.balance), 'FM9999999990.00000000')
+    from wallet w
+    join wallet_owner wo on wo.id = w.owner
+    where wo.uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+    group by w.currency, w.wallet_type
+    order by w.currency, w.wallet_type;
+  "
+  wait_query_eq "BTC_USDT scenario accountant actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,1\nSubmitOrderEvent,PROCESSED,10\nTradeEvent,PROCESSED,24' "
+    select event_type, status, count(*)
+    from fi_actions
+    where sender in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+       or receiver in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+    group by event_type, status
+    order by event_type, status;
+  "
+  wait_query_eq "BTC_USDT scenario market trades" "postgres-market" "BTC_USDT,6,0.00600000" "
+    select symbol, count(*), to_char(sum(matched_quantity), 'FM9999999990.00000000')
+    from trades
+    where maker_uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+       or taker_uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+    group by symbol
+    order by symbol;
+  "
+  wait_order_book_empty "BTC_USDT" "ASK"
+  wait_order_book_empty "BTC_USDT" "BID"
+
   echo "E2E exchange flow passed"
   echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
   cat > /tmp/opex-e2e-summary.json <<EOF
