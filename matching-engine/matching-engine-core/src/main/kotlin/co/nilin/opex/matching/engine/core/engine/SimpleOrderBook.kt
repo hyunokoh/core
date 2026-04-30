@@ -9,7 +9,11 @@ import org.slf4j.LoggerFactory
 import java.util.*
 import java.util.concurrent.atomic.AtomicLong
 
-class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
+class SimpleOrderBook(
+    val pair: Pair,
+    var replayMode: Boolean,
+    private val preventSelfTrade: Boolean = false
+) : OrderBook {
 
     private val logger = LoggerFactory.getLogger(SimpleOrderBook::class.java)
 
@@ -54,6 +58,10 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
                     }
                     return null
                 }
+                if (wouldSelfTrade(orderCommand)) {
+                    rejectSelfTrade(orderCommand)
+                    return null
+                }
                 val order = SimpleOrder(
                     orderCounter.incrementAndGet(),
                     orderCommand.ouid,
@@ -94,6 +102,10 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
             }
 
             MatchConstraint.IOC -> {
+                if (wouldSelfTrade(orderCommand)) {
+                    rejectSelfTrade(orderCommand)
+                    return null
+                }
                 val order = SimpleOrder(
                     orderCounter.incrementAndGet(),
                     orderCommand.ouid,
@@ -419,6 +431,42 @@ class SimpleOrderBook(val pair: Pair, var replayMode: Boolean) : OrderBook {
                 bestBidOrder = newMakerOrder
             }
         }
+    }
+
+    private fun wouldSelfTrade(orderCommand: OrderCreateCommand): Boolean {
+        if (!preventSelfTrade) {
+            return false
+        }
+        val makerOrder = if (orderCommand.direction == OrderDirection.BID) bestAskOrder else bestBidOrder
+        if (makerOrder == null || makerOrder.uuid != orderCommand.uuid) {
+            return false
+        }
+        return orderCommand.orderType == OrderType.MARKET_ORDER ||
+            if (orderCommand.direction == OrderDirection.BID) {
+                makerOrder.price <= orderCommand.price
+            } else {
+                makerOrder.price >= orderCommand.price
+            }
+    }
+
+    private fun rejectSelfTrade(orderCommand: OrderCreateCommand) {
+        if (replayMode) {
+            return
+        }
+        EventDispatcher.emit(
+            RejectOrderEvent(
+                orderCommand.ouid,
+                orderCommand.uuid,
+                orderCommand.pair,
+                orderCommand.price,
+                orderCommand.quantity,
+                orderCommand.direction,
+                orderCommand.matchConstraint,
+                orderCommand.orderType,
+                RequestedOperation.PLACE_ORDER,
+                RejectReason.SELF_TRADE_PREVENTION
+            )
+        )
     }
 
     private fun putGtcInQueue(order: SimpleOrder): SimpleOrder {

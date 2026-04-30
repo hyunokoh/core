@@ -3,10 +3,12 @@ package co.nilin.opex.matching.engine.core
 import co.nilin.opex.matching.engine.core.eventh.EventDispatcher
 import co.nilin.opex.matching.engine.core.eventh.events.OrderBookPublishedEvent
 import co.nilin.opex.matching.engine.core.eventh.events.RejectOrderEvent
+import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
 import co.nilin.opex.matching.engine.core.engine.SimpleOrderBook
 import co.nilin.opex.matching.engine.core.inout.OrderCancelCommand
 import co.nilin.opex.matching.engine.core.inout.OrderCreateCommand
 import co.nilin.opex.matching.engine.core.inout.OrderEditCommand
+import co.nilin.opex.matching.engine.core.inout.RejectReason
 import co.nilin.opex.matching.engine.core.model.MatchConstraint
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.matching.engine.core.model.OrderType
@@ -20,6 +22,49 @@ class SimpleOrderBookUnitTest {
     private val pair = co.nilin.opex.matching.engine.core.model.Pair("BTC", "USDT")
     private val ETH_BTC_PAIR = co.nilin.opex.matching.engine.core.model.Pair("ETH", "BTC")
     private val uuid = UUID.randomUUID().toString()
+
+    @Test
+    fun givenCrossingOwnOrder_whenGtcLimitOrderCreated_thenSelfTradeIsRejected() {
+        val orderBook = SimpleOrderBook(pair, false, preventSelfTrade = true)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        val tradeEvents = mutableListOf<TradeEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        EventDispatcher.register(TradeEvent::class.java) { tradeEvents.add(it) }
+        val restingAsk = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+
+        val rejectedBidOuid = UUID.randomUUID().toString()
+        val rejectedBid = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                rejectedBidOuid,
+                uuid,
+                pair,
+                10,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+
+        Assertions.assertNull(rejectedBid)
+        Assertions.assertEquals(1, rejectEvents.count { it.ouid == rejectedBidOuid && it.reason == RejectReason.SELF_TRADE_PREVENTION })
+        Assertions.assertEquals(0, tradeEvents.count { it.takerOuid == rejectedBidOuid || it.makerOuid == rejectedBidOuid })
+        Assertions.assertEquals(1, orderBook.orders.size)
+        Assertions.assertEquals(restingAsk, orderBook.bestAskOrder)
+        Assertions.assertNull(orderBook.bestBidOrder)
+        Assertions.assertEquals(2, orderBook.bestAskOrder!!.remainedQuantity())
+    }
 
     @Test
     fun givenDuplicateOuid_whenGtcBidLimitOrderCreatedTwice_thenSecondCreateIsIgnored() {

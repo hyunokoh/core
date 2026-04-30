@@ -56,26 +56,27 @@ Runs a real Docker-backed exchange E2E flow:
   16. Verify a duplicate cancel of an already canceled order does not release funds twice.
   17. Verify malformed cancel requests are rejected before they reach market state.
   18. Verify an unsupported FOK order does not remain in market state and releases reserved funds.
-  19. Verify underfunded ask/bid orders are rejected before they reach market state.
-  20. Verify invalid order parameters are rejected before they reach market state.
-  21. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
-  22. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
-  23. Verify wallet/accountant/market database invariants after settlement.
-  24. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  25. Restart Market and verify public market state is still available from persisted data.
-  26. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  27. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  28. Restart Matching Engine with an open order and verify it can still be matched.
-  29. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  30. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  31. Restart Matching Gateway and verify new order submission still works.
-  32. Restart all core exchange services and verify a fresh trade still settles.
-  33. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  34. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  35. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  36. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  37. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  38. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  19. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
+  20. Verify underfunded ask/bid orders are rejected before they reach market state.
+  21. Verify invalid order parameters are rejected before they reach market state.
+  22. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
+  23. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
+  24. Verify wallet/accountant/market database invariants after settlement.
+  25. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  26. Restart Market and verify public market state is still available from persisted data.
+  27. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  28. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  29. Restart Matching Engine with an open order and verify it can still be matched.
+  30. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  31. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  32. Restart Matching Gateway and verify new order submission still works.
+  33. Restart all core exchange services and verify a fresh trade still settles.
+  34. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  35. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  36. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  37. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  38. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  39. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -211,7 +212,7 @@ curl_json() {
 wait_http() {
   local name="$1"
   local url="$2"
-  local deadline=$((SECONDS + 240))
+  local deadline=$((SECONDS + 900))
   until curl -fsS "$url" >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for $name at $url" >&2
@@ -1146,7 +1147,11 @@ main() {
   local vault_since
   vault_since="$(log_since_now)"
   "${COMPOSE[@]}" up -d vault
-  wait_log_since "vault" "vault e2e secrets loaded" "secret/opex-wallet" "$vault_since" 900
+  if "${COMPOSE[@]}" logs vault 2>/dev/null | grep -q "secret/opex-wallet"; then
+    echo "ready: vault e2e secrets loaded"
+  else
+    wait_log_since "vault" "vault e2e secrets loaded" "secret/opex-wallet" "$vault_since" 900
+  fi
 
   "${COMPOSE[@]}" up -d
 
@@ -2141,6 +2146,77 @@ main() {
     sleep 2
   done
 
+  local self_trade_owner="e2e-self-trade-$(date +%s)"
+  local self_trade_ref="e2e-self-trade-$(date +%s)"
+  expect_2xx "self-trade owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${self_trade_owner}_MAIN?description=e2e-self-trade&transferRef=${self_trade_ref}-eth")" >/dev/null
+  expect_2xx "self-trade owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${self_trade_owner}_MAIN?description=e2e-self-trade&transferRef=${self_trade_ref}-usdt")" >/dev/null
+
+  local self_trade_ask='{"uuid":null,"pair":"ETH_USDT","price":118,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local self_trade_bid='{"uuid":null,"pair":"ETH_USDT","price":118,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "self-trade resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$self_trade_ask' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-ask.json
+  wait_user_open_order "$self_trade_owner" "ETH_USDT" "118" "0.4" /tmp/opex-e2e-self-trade-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "118" "0.4"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$self_trade_owner" "ETH" "0.6"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for self-trade resting ask reservation" >&2
+      assert_wallet_balance "self-trade owner ETH reserved before rejected bid" "$self_trade_owner" "ETH" "0.6" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
+  expect_2xx_retry "self-trade crossing bid rejected async" "curl_json POST 'http://127.0.0.1:8093/order' '$self_trade_bid' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-bid.json
+  wait_query_eq "self-trade bid reject financial action" "postgres-accountant" "1" "
+    select count(*)
+    from fi_actions
+    where event_type = 'RejectOrderEvent'
+      and category_name = 'ORDER_CANCEL'
+      and sender = '${self_trade_owner}'
+      and receiver = '${self_trade_owner}'
+      and symbol = 'USDT'
+      and amount = 23.60000000
+      and status = 'PROCESSED';
+  "
+  wait_user_open_order "$self_trade_owner" "ETH_USDT" "118" "0.4" /tmp/opex-e2e-self-trade-open-orders.json
+  assert_no_user_order_by_price "$self_trade_owner" "ETH_USDT" "118" "0.2"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$self_trade_owner" "USDT" "100"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for self-trade rejected bid release" >&2
+      assert_wallet_balance "self-trade owner USDT released after rejected bid" "$self_trade_owner" "USDT" "100" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  wait_query_eq "self-trade prevention emitted no trade" "postgres-market" "0" "
+    select count(*)
+    from trades
+    where symbol = 'ETH_USDT'
+      and maker_uuid = '$self_trade_owner'
+      and taker_uuid = '$self_trade_owner';
+  "
+
+  local self_trade_ouid self_trade_order_id self_trade_cancel_request
+  self_trade_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-self-trade-open-orders.json)"
+  self_trade_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-self-trade-open-orders.json)"
+  self_trade_cancel_request="$(jq -nc --arg ouid "$self_trade_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  expect_2xx_retry "cancel self-trade resting ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$self_trade_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-cancel.json
+  wait_no_user_open_orders "$self_trade_owner" "ETH_USDT"
+  wait_order_status "$self_trade_owner" "$self_trade_ouid" "CANCELED"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$self_trade_owner" "ETH" "1"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for self-trade resting ask cancel release" >&2
+      assert_wallet_balance "self-trade owner ETH released after cleanup" "$self_trade_owner" "ETH" "1" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
   local reject_owner="e2e-reject-$(date +%s)"
   local underfunded_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   expect_http_status "underfunded ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$underfunded_ask" "$reject_owner")" >/tmp/opex-e2e-reject-order.json
@@ -2258,7 +2334,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,43\nFEE,32\nORDER_CANCEL,13\nORDER_CREATE,39\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,1\nWITHDRAW_REQUEST,3' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,45\nFEE,32\nORDER_CANCEL,15\nORDER_CREATE,41\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,1\nWITHDRAW_REQUEST,3' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -2269,7 +2345,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,23.95400000\nUSDT,2265.74400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,24.95400000\nUSDT,2365.74400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -2333,7 +2409,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,13\nSubmitOrderEvent,PROCESSED,39\nTradeEvent,PROCESSED,65' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,15\nSubmitOrderEvent,PROCESSED,41\nTradeEvent,PROCESSED,65' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -2877,7 +2953,7 @@ main() {
   wait_order_book_empty "BTC_USDT" "BID"
 
   echo "E2E exchange flow passed"
-  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
+  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner selfTradeOwner=$self_trade_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
   cat > /tmp/opex-e2e-summary.json <<EOF
 {
   "status": "passed",
@@ -2920,6 +2996,7 @@ main() {
   "cancelAuthOwner": "$cancel_auth_owner",
   "cancelAuthIntruder": "$cancel_auth_intruder",
   "fokOwner": "$fok_owner",
+  "selfTradeOwner": "$self_trade_owner",
   "rejectOwner": "$reject_owner",
   "bidRejectOwner": "$bid_reject_owner",
   "invalidOwner": "$invalid_owner",
@@ -3071,6 +3148,13 @@ main() {
     "quantity": 0.5,
     "status": "NO_MARKET_ORDER"
   },
+  "selfTradePreventionScenario": {
+    "restingAskPrice": 118,
+    "restingAskQuantity": 0.4,
+    "rejectedBidPrice": 118,
+    "rejectedBidQuantity": 0.2,
+    "status": "REJECTED_NO_TRADE"
+  },
   "rejectScenario": {
     "direction": "ASK",
     "price": 100,
@@ -3155,10 +3239,10 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 43,
+      "DEPOSIT": 45,
       "FEE": 32,
-      "ORDER_CANCEL": 13,
-      "ORDER_CREATE": 39,
+      "ORDER_CANCEL": 15,
+      "ORDER_CREATE": 41,
       "ORDER_FINALIZED": 1,
       "TRADE": 32,
       "WITHDRAW_ACCEPT": 1,
@@ -3181,8 +3265,8 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "RejectOrderEvent": 13,
-      "SubmitOrderEvent": 39,
+      "RejectOrderEvent": 15,
+      "SubmitOrderEvent": 41,
       "TradeEvent": 65
     },
     "accountantRetryQueueDrained": true,
