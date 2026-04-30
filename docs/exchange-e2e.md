@@ -45,7 +45,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Restarting Accountant after funds are reserved does not break later trade settlement and financial action processing.
 - Restarting Matching Gateway does not break new order submission, matching, market visibility, or wallet settlement.
 - Restarting all core exchange services together still allows fresh deposits, order submission, matching, market visibility, and wallet settlement.
-- Restarting the Kafka broker still allows producers/consumers to reconnect and settle a fresh trade.
+- While Kafka is down, Matching Gateway rejects new orders with `503` before reservation or market state changes; after broker restart producers/consumers reconnect and settle a fresh trade.
 - Restarting Wallet, Accountant, and Market Postgres datastores still allows services to reconnect and settle a fresh trade.
 - `BTC_USDT` is exercised independently from `ETH_USDT`, including persisted trade visibility and empty final books.
 - `SOL_USDT`, `DOGE_USDT`, and `TON_USDT` are exercised through the secondary `matching-engine-duo` shard so configured non-primary markets are not silently accepted without engine coverage.
@@ -67,7 +67,7 @@ For the default `1 ETH @ 100 USDT` flow, the final balances are:
 - Matching Gateway restart buyer: `0.198 ETH`, `77.2 USDT`.
 - Core services restart seller: `0.8 ETH`, `22.77 USDT` after submitting and filling `0.2 ETH @ 115 USDT` after restarting Gateway, Matching Engine, Accountant, Wallet, and Market together.
 - Core services restart buyer: `0.198 ETH`, `77 USDT`.
-- Kafka broker restart seller: `0.8 ETH`, `22.968 USDT` after submitting and filling `0.2 ETH @ 116 USDT` after broker restart.
+- Kafka broker restart seller: `0.8 ETH`, `22.968 USDT` after an attempted order is rejected with `503` while Kafka is down, then `0.2 ETH @ 116 USDT` is submitted and filled after broker restart.
 - Kafka broker restart buyer: `0.198 ETH`, `76.8 USDT`.
 - Postgres datastore restart seller: `0.8 ETH`, `23.166 USDT` after submitting and filling `0.2 ETH @ 117 USDT` after Wallet, Accountant, and Market Postgres restart.
 - Postgres datastore restart buyer: `0.198 ETH`, `76.6 USDT`.

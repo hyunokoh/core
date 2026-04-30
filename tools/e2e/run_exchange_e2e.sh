@@ -70,7 +70,7 @@ Runs a real Docker-backed exchange E2E flow:
   30. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
   31. Restart Matching Gateway and verify new order submission still works.
   32. Restart all core exchange services and verify a fresh trade still settles.
-  33. Restart Kafka broker and verify a fresh trade still settles after producer/consumer reconnect.
+  33. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
   34. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
   35. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
   36. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
@@ -441,6 +441,29 @@ restart_kafka_and_wait() {
   since="$(log_since_now)"
   "${COMPOSE[@]}" stop kafka-1
   wait_zookeeper_broker_id_released "1001"
+  "${COMPOSE[@]}" start kafka-1
+  wait_kafka_broker_ready
+  ensure_exchange_topics_ready
+  wait_exchange_consumer_groups_stable_since "$since" "kafka restart"
+  sleep 15
+}
+
+restart_kafka_with_gateway_rejection_check() {
+  local order_body="$1"
+  local owner="$2"
+  local unchanged_asset="$3"
+  local unchanged_balance="$4"
+  local since
+  since="$(log_since_now)"
+
+  "${COMPOSE[@]}" stop kafka-1
+  wait_zookeeper_broker_id_released "1001"
+  wait_log_since "matching-gateway" "matching-gateway Kafka health down" "Kafka is not healthy" "$since" 60
+  expect_http_status "order while Kafka unavailable" "503" "$(curl_json POST "http://127.0.0.1:8093/order" "$order_body" "$owner")" >/tmp/opex-e2e-kafka-down-order.json
+  assert_wallet_balance "Kafka-down owner balance unchanged" "$owner" "$unchanged_asset" "$unchanged_balance"
+  wait_no_user_open_orders "$owner" "ETH_USDT"
+  assert_no_user_orders "$owner" "ETH_USDT"
+
   "${COMPOSE[@]}" start kafka-1
   wait_kafka_broker_ready
   ensure_exchange_topics_ready
@@ -1408,7 +1431,8 @@ main() {
   expect_2xx_retry "kafka-restart seller ETH deposit before restart" "curl_json POST 'http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${kafka_restart_seller}_MAIN?description=e2e-kafka-restart&transferRef=${kafka_restart_ref}-eth'" >/dev/null
   expect_2xx_retry "kafka-restart buyer USDT deposit before restart" "curl_json POST 'http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${kafka_restart_buyer}_MAIN?description=e2e-kafka-restart&transferRef=${kafka_restart_ref}-usdt'" >/dev/null
 
-  restart_kafka_and_wait
+  local kafka_down_ask='{"uuid":null,"pair":"ETH_USDT","price":116,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  restart_kafka_with_gateway_rejection_check "$kafka_down_ask" "$kafka_restart_seller" "ETH" "1"
   local kafka_restart_ask='{"uuid":null,"pair":"ETH_USDT","price":116,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local kafka_restart_bid='{"uuid":null,"pair":"ETH_USDT","price":116,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   expect_2xx_retry "kafka-restart ask order after broker restart" "curl_json POST 'http://127.0.0.1:8093/order' '$kafka_restart_ask' '$kafka_restart_seller'" >/tmp/opex-e2e-kafka-restart-ask.json
@@ -2954,6 +2978,8 @@ main() {
   "kafkaBrokerRestartScenario": {
     "price": 116,
     "quantity": 0.2,
+    "gatewayRejectedOrderWhileKafkaDown": true,
+    "rejectedOrderStatus": 503,
     "status": "SETTLED_AFTER_RESTART"
   },
   "postgresDatastoreRestartScenario": {
