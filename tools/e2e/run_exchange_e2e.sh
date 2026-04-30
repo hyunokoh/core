@@ -61,7 +61,7 @@ Runs a real Docker-backed exchange E2E flow:
   21. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
   22. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   23. Verify wallet/accountant/market database invariants after settlement.
-  24. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or duplicate market trades remain.
+  24. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   25. Restart Market and verify public market state is still available from persisted data.
   26. Verify BTC_USDT can trade independently from the ETH_USDT market.
   27. Restart Matching Engine with an open order and verify it can still be matched.
@@ -2342,6 +2342,26 @@ main() {
       having count(*) > 1
     ) duplicate_trade_events;
   "
+  wait_query_eq "market e2e trade projections internally consistent" "postgres-market" "0" "
+    select count(*)
+    from trades
+    where (maker_uuid like 'e2e-%' or taker_uuid like 'e2e-%')
+      and (
+        maker_uuid = taker_uuid
+        or maker_ouid = taker_ouid
+        or maker_uuid = ''
+        or taker_uuid = ''
+        or maker_ouid = ''
+        or taker_ouid = ''
+        or base_asset <> split_part(symbol, '_', 1)
+        or quote_asset <> split_part(symbol, '_', 2)
+        or matched_price <> maker_price
+        or coalesce(maker_commission, 0) < 0
+        or coalesce(taker_commission, 0) < 0
+        or coalesce(maker_commission_asset, '') not in (base_asset, quote_asset)
+        or coalesce(taker_commission_asset, '') not in (base_asset, quote_asset)
+      );
+  "
   wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
@@ -2632,6 +2652,26 @@ main() {
        or taker_uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
     group by symbol
     order by symbol;
+  "
+  wait_query_eq "all e2e market trade projections internally consistent after BTC" "postgres-market" "0" "
+    select count(*)
+    from trades
+    where (maker_uuid like 'e2e-%' or taker_uuid like 'e2e-%')
+      and (
+        maker_uuid = taker_uuid
+        or maker_ouid = taker_ouid
+        or maker_uuid = ''
+        or taker_uuid = ''
+        or maker_ouid = ''
+        or taker_ouid = ''
+        or base_asset <> split_part(symbol, '_', 1)
+        or quote_asset <> split_part(symbol, '_', 2)
+        or matched_price <> maker_price
+        or coalesce(maker_commission, 0) < 0
+        or coalesce(taker_commission, 0) < 0
+        or coalesce(maker_commission_asset, '') not in (base_asset, quote_asset)
+        or coalesce(taker_commission_asset, '') not in (base_asset, quote_asset)
+      );
   "
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
