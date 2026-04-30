@@ -64,7 +64,7 @@ Runs a real Docker-backed exchange E2E flow:
   24. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   25. Restart Market and verify public market state is still available from persisted data.
   26. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  27. Verify DOGE_USDT can trade on the secondary matching-engine shard.
+  27. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
   28. Restart Matching Engine with an open order and verify it can still be matched.
   29. Restart Wallet before a trade settlement and verify balances still settle correctly.
   30. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
@@ -359,9 +359,15 @@ ensure_exchange_topics_ready() {
   ensure_kafka_topic_ready "orders_BTC_USDT"
   ensure_kafka_topic_ready "events_BTC_USDT"
   ensure_kafka_topic_ready "trades_BTC_USDT"
+  ensure_kafka_topic_ready "orders_SOL_USDT"
+  ensure_kafka_topic_ready "events_SOL_USDT"
+  ensure_kafka_topic_ready "trades_SOL_USDT"
   ensure_kafka_topic_ready "orders_DOGE_USDT"
   ensure_kafka_topic_ready "events_DOGE_USDT"
   ensure_kafka_topic_ready "trades_DOGE_USDT"
+  ensure_kafka_topic_ready "orders_TON_USDT"
+  ensure_kafka_topic_ready "events_TON_USDT"
+  ensure_kafka_topic_ready "trades_TON_USDT"
   ensure_kafka_topic_ready "richOrder"
   ensure_kafka_topic_ready "richTrade"
 }
@@ -1132,12 +1138,20 @@ main() {
   wait_log "accountant" "accountant BTC_USDT order consumer" "orders_BTC_USDT-0"
   wait_log "accountant" "accountant BTC_USDT event consumer" "events_BTC_USDT-0"
   wait_log "accountant" "accountant BTC_USDT trade consumer" "trades_BTC_USDT-0"
+  wait_log "accountant" "accountant SOL_USDT order consumer" "orders_SOL_USDT-0"
+  wait_log "accountant" "accountant SOL_USDT event consumer" "events_SOL_USDT-0"
+  wait_log "accountant" "accountant SOL_USDT trade consumer" "trades_SOL_USDT-0"
   wait_log "accountant" "accountant DOGE_USDT order consumer" "orders_DOGE_USDT-0"
   wait_log "accountant" "accountant DOGE_USDT event consumer" "events_DOGE_USDT-0"
   wait_log "accountant" "accountant DOGE_USDT trade consumer" "trades_DOGE_USDT-0"
+  wait_log "accountant" "accountant TON_USDT order consumer" "orders_TON_USDT-0"
+  wait_log "accountant" "accountant TON_USDT event consumer" "events_TON_USDT-0"
+  wait_log "accountant" "accountant TON_USDT trade consumer" "trades_TON_USDT-0"
   wait_log "matching-engine" "matching-engine ETH_USDT order consumer" "orders_ETH_USDT-0"
   wait_log "matching-engine" "matching-engine BTC_USDT order consumer" "orders_BTC_USDT-0"
+  wait_log "matching-engine-duo" "matching-engine-duo SOL_USDT order consumer" "orders_SOL_USDT-0"
   wait_log "matching-engine-duo" "matching-engine-duo DOGE_USDT order consumer" "orders_DOGE_USDT-0"
+  wait_log "matching-engine-duo" "matching-engine-duo TON_USDT order consumer" "orders_TON_USDT-0"
   wait_log "market" "market richTrade consumer" "richTrade-0"
   wait_log "market" "market richOrder consumer" "richOrder-0"
   sleep 10
@@ -2441,6 +2455,56 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
 
+  local sol_seller="e2e-sol-seller-$(date +%s)"
+  local sol_buyer="e2e-sol-buyer-$(date +%s)"
+  local sol_ref="e2e-sol-$(date +%s)"
+  expect_2xx "sol-usdt seller SOL deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-bsc_SOL/${sol_seller}_MAIN?description=e2e-sol-usdt&transferRef=${sol_ref}-sol")" >/dev/null
+  expect_2xx "sol-usdt buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${sol_buyer}_MAIN?description=e2e-sol-usdt&transferRef=${sol_ref}-usdt")" >/dev/null
+
+  local sol_ask='{"uuid":null,"pair":"SOL_USDT","price":10,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local sol_bid='{"uuid":null,"pair":"SOL_USDT","price":10,"quantity":1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "sol-usdt ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$sol_ask' '$sol_seller'" >/tmp/opex-e2e-sol-usdt-ask.json
+  wait_user_open_order "$sol_seller" "SOL_USDT" "10" "1" /tmp/opex-e2e-sol-usdt-open-orders.json
+  wait_order_book_level "SOL_USDT" "ASK" "10" "1"
+  expect_2xx_retry "sol-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$sol_bid' '$sol_buyer'" >/tmp/opex-e2e-sol-usdt-bid.json
+  wait_no_user_open_orders "$sol_seller" "SOL_USDT"
+  wait_user_trade_price "$sol_seller" "SOL_USDT" "10" "1"
+  wait_user_trade_price "$sol_buyer" "SOL_USDT" "10" "1"
+  wait_recent_trade_level "SOL_USDT" "10" "1" /tmp/opex-e2e-sol-usdt-recent-trades.json
+  wait_order_book_empty "SOL_USDT" "ASK"
+  wait_order_book_empty "SOL_USDT" "BID"
+
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$sol_seller" "SOL" "0" &&
+    try_wallet_balance "$sol_seller" "USDT" "9.9" &&
+    try_wallet_balance "$sol_buyer" "SOL" "0.99" &&
+    try_wallet_balance "$sol_buyer" "USDT" "10"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for SOL_USDT wallet settlement" >&2
+      assert_wallet_balance "sol-usdt seller SOL fully sold" "$sol_seller" "SOL" "0" >&2 || true
+      assert_wallet_balance "sol-usdt seller USDT proceeds" "$sol_seller" "USDT" "9.9" >&2 || true
+      assert_wallet_balance "sol-usdt buyer SOL received" "$sol_buyer" "SOL" "0.99" >&2 || true
+      assert_wallet_balance "sol-usdt buyer USDT remainder" "$sol_buyer" "USDT" "10" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine matching-engine-duo accountant market wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  wait_query_eq "market SOL_USDT persisted trade count" "postgres-market" "1" "
+    select count(*) from trades
+    where symbol = 'SOL_USDT'
+      and maker_uuid = '$sol_seller'
+      and taker_uuid = '$sol_buyer';
+  "
+  wait_query_eq "SOL_USDT secondary engine wallet balances by type" "postgres-wallet" $'SOL,EXCHANGE,0.00000000\nSOL,MAIN,0.99000000\nUSDT,EXCHANGE,0.00000000\nUSDT,MAIN,19.90000000' "
+    select w.currency, w.wallet_type, to_char(sum(w.balance), 'FM9999999990.00000000')
+    from wallet w
+    join wallet_owner wo on wo.id = w.owner
+    where wo.uuid in ('$sol_seller', '$sol_buyer')
+    group by w.currency, w.wallet_type
+    order by w.currency, w.wallet_type;
+  "
+
   local doge_seller="e2e-doge-seller-$(date +%s)"
   local doge_buyer="e2e-doge-buyer-$(date +%s)"
   local doge_ref="e2e-doge-$(date +%s)"
@@ -2487,6 +2551,56 @@ main() {
     from wallet w
     join wallet_owner wo on wo.id = w.owner
     where wo.uuid in ('$doge_seller', '$doge_buyer')
+    group by w.currency, w.wallet_type
+    order by w.currency, w.wallet_type;
+  "
+
+  local ton_seller="e2e-ton-seller-$(date +%s)"
+  local ton_buyer="e2e-ton-buyer-$(date +%s)"
+  local ton_ref="e2e-ton-$(date +%s)"
+  expect_2xx "ton-usdt seller TON deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/2_test-ethereum_TON/${ton_seller}_MAIN?description=e2e-ton-usdt&transferRef=${ton_ref}-ton")" >/dev/null
+  expect_2xx "ton-usdt buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${ton_buyer}_MAIN?description=e2e-ton-usdt&transferRef=${ton_ref}-usdt")" >/dev/null
+
+  local ton_ask='{"uuid":null,"pair":"TON_USDT","price":5,"quantity":2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local ton_bid='{"uuid":null,"pair":"TON_USDT","price":5,"quantity":2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "ton-usdt ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$ton_ask' '$ton_seller'" >/tmp/opex-e2e-ton-usdt-ask.json
+  wait_user_open_order "$ton_seller" "TON_USDT" "5" "2" /tmp/opex-e2e-ton-usdt-open-orders.json
+  wait_order_book_level "TON_USDT" "ASK" "5" "2"
+  expect_2xx_retry "ton-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$ton_bid' '$ton_buyer'" >/tmp/opex-e2e-ton-usdt-bid.json
+  wait_no_user_open_orders "$ton_seller" "TON_USDT"
+  wait_user_trade_price "$ton_seller" "TON_USDT" "5" "2"
+  wait_user_trade_price "$ton_buyer" "TON_USDT" "5" "2"
+  wait_recent_trade_level "TON_USDT" "5" "2" /tmp/opex-e2e-ton-usdt-recent-trades.json
+  wait_order_book_empty "TON_USDT" "ASK"
+  wait_order_book_empty "TON_USDT" "BID"
+
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$ton_seller" "TON" "0" &&
+    try_wallet_balance "$ton_seller" "USDT" "9.9" &&
+    try_wallet_balance "$ton_buyer" "TON" "1.98" &&
+    try_wallet_balance "$ton_buyer" "USDT" "10"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for TON_USDT wallet settlement" >&2
+      assert_wallet_balance "ton-usdt seller TON fully sold" "$ton_seller" "TON" "0" >&2 || true
+      assert_wallet_balance "ton-usdt seller USDT proceeds" "$ton_seller" "USDT" "9.9" >&2 || true
+      assert_wallet_balance "ton-usdt buyer TON received" "$ton_buyer" "TON" "1.98" >&2 || true
+      assert_wallet_balance "ton-usdt buyer USDT remainder" "$ton_buyer" "USDT" "10" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine matching-engine-duo accountant market wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  wait_query_eq "market TON_USDT persisted trade count" "postgres-market" "1" "
+    select count(*) from trades
+    where symbol = 'TON_USDT'
+      and maker_uuid = '$ton_seller'
+      and taker_uuid = '$ton_buyer';
+  "
+  wait_query_eq "TON_USDT secondary engine wallet balances by type" "postgres-wallet" $'TON,EXCHANGE,0.00000000\nTON,MAIN,1.98000000\nUSDT,EXCHANGE,0.00000000\nUSDT,MAIN,19.90000000' "
+    select w.currency, w.wallet_type, to_char(sum(w.balance), 'FM9999999990.00000000')
+    from wallet w
+    join wallet_owner wo on wo.id = w.owner
+    where wo.uuid in ('$ton_seller', '$ton_buyer')
     group by w.currency, w.wallet_type
     order by w.currency, w.wallet_type;
   "
@@ -2739,7 +2853,7 @@ main() {
   wait_order_book_empty "BTC_USDT" "BID"
 
   echo "E2E exchange flow passed"
-  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
+  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
   cat > /tmp/opex-e2e-summary.json <<EOF
 {
   "status": "passed",
@@ -2789,8 +2903,12 @@ main() {
   "withdrawOwner": "$withdraw_owner",
   "btcSeller": "$btc_seller",
   "btcBuyer": "$btc_buyer",
+  "solSeller": "$sol_seller",
+  "solBuyer": "$sol_buyer",
   "dogeSeller": "$doge_seller",
   "dogeBuyer": "$doge_buyer",
+  "tonSeller": "$ton_seller",
+  "tonBuyer": "$ton_buyer",
   "concurrentSeller": "$concurrent_seller",
   "concurrentBuyerOne": "$concurrent_buyer_one",
   "concurrentBuyerTwo": "$concurrent_buyer_two",
@@ -3072,10 +3190,8 @@ main() {
     "status": "passed"
   },
   "secondaryEngineMarketScenario": {
-    "pair": "DOGE_USDT",
-    "price": 1,
-    "quantity": 10,
-    "marketPersistedTrades": 1,
+    "pairs": ["SOL_USDT", "DOGE_USDT", "TON_USDT"],
+    "marketPersistedTrades": 3,
     "status": "passed"
   },
   "concurrentTakerScenario": {
@@ -3145,8 +3261,12 @@ main() {
     "withdrawOwner": {"USDT": 6},
     "btcSeller": {"BTC": 0.009, "USDT": 19.8},
     "btcBuyer": {"BTC": 0.00099, "USDT": 30},
+    "solSeller": {"SOL": 0, "USDT": 9.9},
+    "solBuyer": {"SOL": 0.99, "USDT": 10},
     "dogeSeller": {"DOGE": 0, "USDT": 9.9},
     "dogeBuyer": {"DOGE": 9.9, "USDT": 10},
+    "tonSeller": {"TON": 0, "USDT": 9.9},
+    "tonBuyer": {"TON": 1.98, "USDT": 10},
     "concurrentSeller": {"BTC": 0, "USDT": 62.37},
     "concurrentBuyerOne": {"BTC": 0.00099, "USDT": 9},
     "concurrentBuyerTwo": {"BTC": 0.00099, "USDT": 9},
