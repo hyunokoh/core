@@ -35,6 +35,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Underfunded ask and bid orders are rejected and never appear in market order state.
 - Invalid order parameters such as zero quantity or negative price are rejected before reaching market state.
 - Duplicate deposit `transferRef` values are rejected and do not double-credit the receiver wallet.
+- Withdraw requests cover invalid request rejection, owner-only cancel authorization, `CREATED -> CANCELED`, `CREATED -> PROCESSING -> DONE`, `CREATED -> PROCESSING -> REJECTED`, and rejection of terminal-state reprocessing without balance mutation.
 - The public `ETH_USDT` ask and bid order books are empty after all open-order scenarios are cleaned up.
 - The public `ETH_USDT` recent-trades feed contains exactly the expected trade count and price/quantity distribution.
 - Wallet, Accountant, and Market Postgres tables contain the expected persisted settlement invariants after all API checks pass.
@@ -90,6 +91,7 @@ For the default `1 ETH @ 100 USDT` flow, the final balances are:
 - Underfunded reject owners never get user-visible market orders.
 - Invalid order owner keeps `1 ETH` and `100 USDT`, with no user-visible market orders.
 - Duplicate deposit owner keeps `5 USDT` after the first deposit succeeds and the second deposit with the same `transferRef` is rejected.
+- Withdraw owner keeps `6 USDT` after one canceled, one accepted, and one rejected withdrawal; intruder cancel, processing cancel, duplicate accept, and terminal-state admin/user transitions are rejected without additional wallet movement.
 - Final public order book state has `0` ask levels and `0` bid levels.
 - Final public recent-trades state has `16` trades with aggregate quantities: `90 -> 0.1`, `100 -> 1.2`, `111 -> 0.5`, `112 -> 0.4`, `113 -> 0.3`, `114 -> 0.2`, `115 -> 0.2`, `116 -> 0.2`, `117 -> 0.2`, `120 -> 0.4`, `125 -> 0.2`, `130 -> 0.2`, `140 -> 0.4`, `150 -> 0.1`.
 - Final database state has zero E2E `EXCHANGE` wallet balances, wallet transaction counts of `41 DEPOSIT`, `38 ORDER_CREATE`, `12 ORDER_CANCEL`, `32 TRADE`, `32 FEE`, and `1 ORDER_FINALIZED`, processed Accountant financial action counts of `38 SubmitOrderEvent`, `12 RejectOrderEvent`, and `65 TradeEvent`, no pending/given-up Accountant retries, zero Market `open_orders`, and the same persisted trade distribution as the public recent-trades API.

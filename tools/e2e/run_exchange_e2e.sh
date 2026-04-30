@@ -2151,9 +2151,16 @@ main() {
   withdraw_cancel_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-cancel-request.json)"
   wait_withdraw_status "withdraw cancel created" "$withdraw_cancel_id" "CREATED" /tmp/opex-e2e-withdraw-cancel-created.json
   assert_wallet_balance "withdraw owner reserved for cancel" "$withdraw_owner" "USDT" "7"
+  expect_http_status "withdraw intruder cancel rejected" "403" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_cancel_id}/cancel" "" "${withdraw_owner}-intruder")" >/tmp/opex-e2e-withdraw-intruder-cancel.json
+  wait_withdraw_status "withdraw cancel still created after intruder cancel" "$withdraw_cancel_id" "CREATED" /tmp/opex-e2e-withdraw-cancel-after-intruder.json
+  assert_wallet_balance "withdraw owner unchanged after intruder cancel" "$withdraw_owner" "USDT" "7"
   expect_2xx "withdraw cancel action" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_cancel_id}/cancel" "" "$withdraw_owner")" >/dev/null
   wait_withdraw_status "withdraw cancel canceled" "$withdraw_cancel_id" "CANCELED" /tmp/opex-e2e-withdraw-cancel-canceled.json
   assert_wallet_balance "withdraw owner restored after cancel" "$withdraw_owner" "USDT" "10"
+  expect_http_status "withdraw canceled cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_cancel_id}/process")" >/tmp/opex-e2e-withdraw-canceled-process.json
+  expect_http_status "withdraw canceled cannot reject" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_cancel_id}/reject?reason=e2e-canceled-reject")" >/tmp/opex-e2e-withdraw-canceled-reject.json
+  wait_withdraw_status "withdraw cancel remains canceled" "$withdraw_cancel_id" "CANCELED" /tmp/opex-e2e-withdraw-cancel-terminal.json
+  assert_wallet_balance "withdraw owner unchanged after canceled terminal attempts" "$withdraw_owner" "USDT" "10"
 
   local withdraw_accept_body='{"currency":"USDT","amount":4,"destSymbol":"USDT","destAddress":"0xwithdrawaccept","destNetwork":"test-ethereum","destNote":"accept","description":"e2e withdraw accept"}'
   expect_2xx "withdraw accept request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_accept_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-accept-request.json
@@ -2163,11 +2170,18 @@ main() {
   assert_wallet_balance "withdraw owner reserved for accept" "$withdraw_owner" "USDT" "6"
   expect_2xx "withdraw process action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/process")" >/tmp/opex-e2e-withdraw-processing.json
   wait_withdraw_status "withdraw processing" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-state.json
+  expect_http_status "withdraw processing user cancel rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-processing-cancel.json
+  wait_withdraw_status "withdraw remains processing after cancel attempt" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-after-cancel.json
+  assert_wallet_balance "withdraw owner still reserved while processing" "$withdraw_owner" "USDT" "6"
   expect_2xx "withdraw accept action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=3.9")" >/tmp/opex-e2e-withdraw-done.json
   wait_withdraw_status "withdraw done" "$withdraw_accept_id" "DONE" /tmp/opex-e2e-withdraw-done-state.json
   assert_wallet_balance "withdraw owner final after accept" "$withdraw_owner" "USDT" "6"
   expect_http_status "withdraw duplicate accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain-duplicate&destAmount=3.9")" >/tmp/opex-e2e-withdraw-duplicate-accept.json
-  assert_wallet_balance "withdraw owner unchanged after duplicate accept" "$withdraw_owner" "USDT" "6"
+  expect_http_status "withdraw done cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/process")" >/tmp/opex-e2e-withdraw-done-process.json
+  expect_http_status "withdraw done cannot reject" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/reject?reason=e2e-done-reject")" >/tmp/opex-e2e-withdraw-done-reject.json
+  expect_http_status "withdraw done user cancel rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-done-cancel.json
+  wait_withdraw_status "withdraw remains done after terminal attempts" "$withdraw_accept_id" "DONE" /tmp/opex-e2e-withdraw-done-terminal.json
+  assert_wallet_balance "withdraw owner unchanged after done terminal attempts" "$withdraw_owner" "USDT" "6"
 
   local withdraw_reject_body='{"currency":"USDT","amount":2,"destSymbol":"USDT","destAddress":"0xwithdrawreject","destNetwork":"test-ethereum","destNote":"reject","description":"e2e withdraw reject"}'
   expect_2xx "withdraw reject request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_reject_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-reject-request.json
@@ -2180,6 +2194,11 @@ main() {
   expect_2xx "withdraw reject action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject")" >/tmp/opex-e2e-withdraw-rejected.json
   wait_withdraw_status "withdraw rejected" "$withdraw_reject_id" "REJECTED" /tmp/opex-e2e-withdraw-rejected-state.json
   assert_wallet_balance "withdraw owner restored after reject" "$withdraw_owner" "USDT" "6"
+  expect_http_status "withdraw rejected cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/process")" >/tmp/opex-e2e-withdraw-rejected-process.json
+  expect_http_status "withdraw rejected cannot accept" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/accept?destTransactionRef=${withdraw_ref}-rejected-chain&destAmount=1.9")" >/tmp/opex-e2e-withdraw-rejected-accept.json
+  expect_http_status "withdraw rejected duplicate reject rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject-duplicate")" >/tmp/opex-e2e-withdraw-rejected-duplicate-reject.json
+  wait_withdraw_status "withdraw remains rejected after terminal attempts" "$withdraw_reject_id" "REJECTED" /tmp/opex-e2e-withdraw-rejected-terminal.json
+  assert_wallet_balance "withdraw owner unchanged after rejected terminal attempts" "$withdraw_owner" "USDT" "6"
 
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
@@ -2836,20 +2855,25 @@ main() {
     },
     "cancelFlow": {
       "requestedAmount": 3,
+      "intruderCancelRejected": true,
       "finalStatus": "CANCELED",
+      "terminalTransitionsRejected": true,
       "balanceAfterCancel": 10
     },
     "acceptFlow": {
       "requestedAmount": 4,
       "fee": 0.1,
       "destAmount": 3.9,
+      "processingCancelRejected": true,
       "finalStatus": "DONE",
       "duplicateAcceptRejected": true,
+      "terminalTransitionsRejected": true,
       "finalBalance": 6
     },
     "rejectFlow": {
       "requestedAmount": 2,
       "finalStatus": "REJECTED",
+      "terminalTransitionsRejected": true,
       "balanceAfterReject": 6
     },
     "status": "passed"
