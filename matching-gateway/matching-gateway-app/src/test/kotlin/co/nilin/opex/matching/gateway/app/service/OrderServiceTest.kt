@@ -72,6 +72,26 @@ private class OrderServiceTest {
     }
 
     @Test
+    fun givenMarketBidWithZeroPrice_whenSubmitNewOrder_thenThrowBadRequestBeforeAccountantCheck(): Unit = runBlocking {
+        val accountant = RecordingAccountantApiProxy()
+        val service = orderService(accountant)
+
+        assertThatThrownBy {
+            runBlocking {
+                service.submitNewOrder(
+                    VALID.CREATE_ORDER_REQUEST_BID.copy(
+                        price = BigDecimal.ZERO,
+                        orderType = OrderType.MARKET_ORDER
+                    )
+                )
+            }
+        }.isBadRequest()
+
+        assertThat(accountant.lastSymbol).isNull()
+        assertThat(accountant.lastValue).isNull()
+    }
+
+    @Test
     fun givenPair_whenSubmitNewBidOrder_thenChecksRightSideAmountAndPublishesOrderToKafka(): Unit = runBlocking {
         val accountant = RecordingAccountantApiProxy()
         val service = orderService(accountant)

@@ -37,6 +37,8 @@ class OrderService(
         } else {
             if (createOrderRequest.price < BigDecimal.ZERO)
                 badRequest("market order price must be zero or greater")
+            if (createOrderRequest.direction == OrderDirection.BID && createOrderRequest.price <= BigDecimal.ZERO)
+                badRequest("market bid price must be greater than zero")
         }
         if (createOrderRequest.quantity <= BigDecimal.ZERO)
             badRequest("quantity must be greater than zero")
