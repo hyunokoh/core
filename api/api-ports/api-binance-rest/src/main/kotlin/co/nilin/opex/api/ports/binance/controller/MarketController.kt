@@ -144,6 +144,7 @@ class MarketController(
     // 2 when the symbol parameter is omitted
     @GetMapping("/v3/ticker/price")
     suspend fun priceTicker(@RequestParam(required = false) symbol: String?): List<PriceTicker> {
+        validateOptionalSymbol(symbol)
         val symbols = symbolMapper.symbolToAliasMap()
         val localSymbol = if (symbol == null)
             null
@@ -271,6 +272,7 @@ class MarketController(
     }
 
     private suspend fun requestedExchangeInfoSymbols(symbol: String?, symbols: String?): Set<String>? {
+        validateOptionalSymbol(symbol)
         if (!symbol.isNullOrBlank() && !symbols.isNullOrBlank())
             throw OpexError.BadRequest.exception("'symbol' and 'symbols' cannot both be sent")
 
