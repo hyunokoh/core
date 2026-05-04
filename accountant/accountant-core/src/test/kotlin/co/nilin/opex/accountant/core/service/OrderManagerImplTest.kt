@@ -754,6 +754,46 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenDifferentCancelOrderEventAfterOrderCanceled_whenLocalFound_ignoreWithoutReleasingReserveAgain(): Unit =
+        runBlocking {
+            val firstCancelEvent = CancelOrderEvent(
+                "terminal_cancel_ouid",
+                "user_1",
+                88,
+                Pair("BTC", "USDT"),
+                100000,
+                1000,
+                500,
+                OrderDirection.BID
+            )
+            val secondCancelEvent = CancelOrderEvent(
+                firstCancelEvent.ouid,
+                firstCancelEvent.uuid,
+                firstCancelEvent.orderId,
+                firstCancelEvent.pair,
+                firstCancelEvent.price,
+                firstCancelEvent.quantity,
+                400,
+                firstCancelEvent.direction
+            )
+            orderPersister.orders[firstCancelEvent.ouid] =
+                Valid.order.copy(
+                    ouid = firstCancelEvent.ouid,
+                    matchingEngineId = firstCancelEvent.orderId,
+                    filledQuantity = 500
+                )
+
+            val first = orderManager.handleCancelOrder(firstCancelEvent)
+            val second = orderManager.handleCancelOrder(secondCancelEvent)
+
+            assertThat(first).hasSize(1)
+            assertThat(second).isEmpty()
+            assertThat(financialActionStore.persisted).hasSize(1)
+            assertThat(richOrderPublisher.published).hasSize(1)
+            assertThat(orderPersister.saved).hasSize(1)
+        }
+
+    @Test
     fun givenCancelOrderEventDoesNotMatchLocalOrder_whenLocalFound_ignoreWithoutReleasingReserve(): Unit = runBlocking {
         val orderEvent = CancelOrderEvent(
             "mismatched_cancel_ouid",
@@ -829,6 +869,47 @@ internal class OrderManagerImplTest {
         assertThat(richOrderPublisher.published).hasSize(1)
         assertThat(orderPersister.saved).hasSize(1)
     }
+
+    @Test
+    fun givenDifferentRejectOrderEventAfterOrderRejected_whenLocalFound_ignoreWithoutReleasingReserveAgain(): Unit =
+        runBlocking {
+            val firstRejectEvent = RejectOrderEvent(
+                "terminal_reject_ouid",
+                "user_1",
+                56,
+                Pair("BTC", "USDT"),
+                100000,
+                1000,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER,
+                RequestedOperation.PLACE_ORDER,
+                RejectReason.ORDER_NOT_FOUND,
+            )
+            val secondRejectEvent = RejectOrderEvent(
+                firstRejectEvent.ouid,
+                firstRejectEvent.uuid,
+                firstRejectEvent.orderId,
+                firstRejectEvent.pair,
+                firstRejectEvent.price!!,
+                firstRejectEvent.quantity!!,
+                firstRejectEvent.direction!!,
+                firstRejectEvent.matchConstraint!!,
+                firstRejectEvent.orderType!!,
+                firstRejectEvent.requestedOperation,
+                RejectReason.INVALID_ORDER,
+            )
+            orderPersister.orders[firstRejectEvent.ouid] = Valid.order.copy(ouid = firstRejectEvent.ouid)
+
+            val first = orderManager.handleRejectOrder(firstRejectEvent)
+            val second = orderManager.handleRejectOrder(secondRejectEvent)
+
+            assertThat(first).hasSize(1)
+            assertThat(second).isEmpty()
+            assertThat(financialActionStore.persisted).hasSize(1)
+            assertThat(richOrderPublisher.published).hasSize(1)
+            assertThat(orderPersister.saved).hasSize(1)
+        }
 
 
 }

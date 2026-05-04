@@ -301,6 +301,10 @@ open class OrderManagerImpl(
             tempEventPersister.saveTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
             return emptyList()
         }
+        if (isTerminalOrderStatus(order.status)) {
+            tempEventPersister.removeTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
+            return emptyList()
+        }
         if (!isRejectEventForOrder(rejectOrderEvent, order)) {
             logger.warn("Inconsistent reject order event ignored: ouid={}", rejectOrderEvent.ouid)
             tempEventPersister.removeTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
@@ -366,6 +370,10 @@ open class OrderManagerImpl(
         val order = orderPersister.load(cancelOrderEvent.ouid)
         if (order == null) {
             tempEventPersister.saveTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
+            return emptyList()
+        }
+        if (isTerminalOrderStatus(order.status)) {
+            tempEventPersister.removeTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
             return emptyList()
         }
         val expectedFilledQuantity = cancelOrderEvent.quantity - cancelOrderEvent.remainedQuantity
@@ -511,6 +519,16 @@ open class OrderManagerImpl(
             order.direction == event.direction &&
             order.matchConstraint == event.matchConstraint &&
             order.orderType == event.orderType
+    }
+
+    private fun isTerminalOrderStatus(statusCode: Int): Boolean {
+        return when (OrderStatus.fromCode(statusCode)) {
+            OrderStatus.FILLED,
+            OrderStatus.CANCELED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED -> true
+            else -> false
+        }
     }
 
     private fun createMap(rejectOrderEvent: RejectOrderEvent, order: Order): Map<String, Any> {
