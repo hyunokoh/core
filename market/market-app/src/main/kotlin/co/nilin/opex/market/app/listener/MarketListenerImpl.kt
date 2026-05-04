@@ -25,7 +25,7 @@ class MarketListenerImpl(
     }
 
     override fun onTrade(trade: RichTrade, partition: Int, offset: Long, timestamp: Long) {
-        println("RichTrade received")
+        logger.info("RichTrade received: tradeId={}, pair={}, partition={}, offset={}", trade.id, trade.pair, partition, offset)
         runBlocking(AppDispatchers.kafkaExecutor) {
             richTradePersister.save(trade)
         }
@@ -39,7 +39,7 @@ class MarketListenerImpl(
                     try {
                         meterRegistry.counter("order_event").increment()
                     } catch (e: Exception) {
-                        logger.warn("error in incrementing order_event counter")
+                        logger.warn("error in incrementing order_event counter", e)
                     }
                 }
 

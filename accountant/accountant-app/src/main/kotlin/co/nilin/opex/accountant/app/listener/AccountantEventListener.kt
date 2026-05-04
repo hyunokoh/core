@@ -4,8 +4,10 @@ import co.nilin.opex.accountant.core.api.OrderManager
 import co.nilin.opex.accountant.ports.kafka.listener.spi.EventListener
 import co.nilin.opex.matching.engine.core.eventh.events.*
 import kotlinx.coroutines.runBlocking
+import org.slf4j.LoggerFactory
 
 class AccountantEventListener(private val orderManager: OrderManager) : EventListener {
+    private val logger = LoggerFactory.getLogger(AccountantEventListener::class.java)
 
     override fun id(): String {
         return "EventListener"
@@ -19,10 +21,10 @@ class AccountantEventListener(private val orderManager: OrderManager) : EventLis
                 is UpdatedOrderEvent -> orderManager.handleUpdateOrder(event)
                 is CancelOrderEvent -> orderManager.handleCancelOrder(event)
                 else -> {
-                    println("Event is not accepted ${event::class.java}")
+                    logger.warn("Event is not accepted: eventType={}", event::class.java.name)
                 }
             }
         }
-        println("onEvent")
+        logger.debug("Accountant event handled: eventType={}, partition={}, offset={}", event::class.java.name, partition, offset)
     }
 }
