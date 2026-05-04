@@ -329,6 +329,39 @@ class TransferManagerImplIT : KafkaEnabledTest() {
     }
 
     @Test
+    fun givenNegativeTransferAmount_whenTransfer_thenRejectsAndBalancesAreUnchanged() {
+        runBlocking {
+            val currency = currencyService.getCurrency(cc)!!
+            val owner = walletOwnerManager.findWalletOwner(sourceUuid!!)!!
+            val sourceWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+            val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+            val sourceBalanceBefore = sourceWallet.balance.amount
+            val receiverBalanceBefore = receiverWallet.balance.amount
+
+            val exception = assertThrows(OpexException::class.java) {
+                runBlocking {
+                    transferManager.transfer(
+                        TransferCommand(
+                            sourceWallet,
+                            receiverWallet,
+                            Amount(sourceWallet.currency, BigDecimal("-1")),
+                            "negative transfer",
+                            "negative-transfer-ref-${UUID.randomUUID()}",
+                            TransferCategory.NORMAL
+                        )
+                    )
+                }
+            }
+
+            assertEquals(OpexError.InvalidAmount, exception.error)
+            val refreshedSource = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.MAIN, currency)!!
+            val refreshedReceiver = walletManager.findWalletByOwnerAndCurrencyAndType(owner, WalletType.EXCHANGE, currency)!!
+            assertEquals(sourceBalanceBefore, refreshedSource.balance.amount)
+            assertEquals(receiverBalanceBefore, refreshedReceiver.balance.amount)
+        }
+    }
+
+    @Test
     fun dwhenTransferWithAdditionalData_thenDataIsPersistedAndRetrievable() {
         runBlocking {
             val currency = currencyService.getCurrency(cc)!!
