@@ -49,11 +49,77 @@ private class WithdrawServiceTest {
         assertThat(withdrawPersister.persistCallCount).isZero()
     }
 
+    @Test
+    fun givenFeeGreaterThanAmount_whenWithdrawRequested_thenRejectBeforeTransfer(): Unit = runBlocking {
+        val transferManager = RecordingTransferManager()
+        val withdrawPersister = RecordingWithdrawPersister()
+        val service = service(
+            transferManager = transferManager,
+            withdrawPersister = withdrawPersister,
+            mainBalance = BigDecimal("100"),
+            withdrawFee = BigDecimal("2")
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                service.requestWithdraw(
+                    WithdrawCommand(
+                        uuid = "user-1",
+                        currency = "USDT",
+                        amount = BigDecimal("1.5"),
+                        description = "withdraw",
+                        destSymbol = "USDT",
+                        destAddress = "addr-1",
+                        destNetwork = "ETH",
+                        destNote = null
+                    )
+                )
+            }
+        }.isOpexError(OpexError.InvalidAmount)
+
+        assertThat(transferManager.transferCallCount).isZero()
+        assertThat(withdrawPersister.persistCallCount).isZero()
+    }
+
+    @Test
+    fun givenNetAmountBelowMinimum_whenWithdrawRequested_thenRejectBeforeTransfer(): Unit = runBlocking {
+        val transferManager = RecordingTransferManager()
+        val withdrawPersister = RecordingWithdrawPersister()
+        val service = service(
+            transferManager = transferManager,
+            withdrawPersister = withdrawPersister,
+            mainBalance = BigDecimal("100"),
+            withdrawFee = BigDecimal("2"),
+            minimumWithdraw = BigDecimal("1")
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                service.requestWithdraw(
+                    WithdrawCommand(
+                        uuid = "user-1",
+                        currency = "USDT",
+                        amount = BigDecimal("2.5"),
+                        description = "withdraw",
+                        destSymbol = "USDT",
+                        destAddress = "addr-1",
+                        destNetwork = "ETH",
+                        destNote = null
+                    )
+                )
+            }
+        }.isOpexError(OpexError.WithdrawAmountLessThanMinimum)
+
+        assertThat(transferManager.transferCallCount).isZero()
+        assertThat(withdrawPersister.persistCallCount).isZero()
+    }
+
     private fun service(
         transferManager: RecordingTransferManager = RecordingTransferManager(),
         withdrawPersister: RecordingWithdrawPersister = RecordingWithdrawPersister(),
         mainBalance: BigDecimal = BigDecimal("100"),
-        withdrawFee: BigDecimal = BigDecimal("1")
+        withdrawFee: BigDecimal = BigDecimal("1"),
+        minimumWithdraw: BigDecimal = BigDecimal.ONE
     ): WithdrawService {
         val currency = Currency("USDT", "Tether", BigDecimal("0.00000001"))
         val owner = WalletOwner(1, "user-1", "User", "*", true, true, true)
@@ -69,7 +135,7 @@ private class WithdrawServiceTest {
             RecordingCurrencyService(currency),
             transferManager,
             SimpleMeterRegistry(),
-            RecordingBcGatewayProxy(withdrawFee),
+            RecordingBcGatewayProxy(withdrawFee, minimumWithdraw),
             AllowingZkAmlScreeningService(),
             RecordingZkAmlWithdrawCaseRecorder(),
             "system"
@@ -227,7 +293,10 @@ private class WithdrawServiceTest {
         }
     }
 
-    private class RecordingBcGatewayProxy(private val withdrawFee: BigDecimal) : BcGatewayProxy {
+    private class RecordingBcGatewayProxy(
+        private val withdrawFee: BigDecimal,
+        private val minimumWithdraw: BigDecimal
+    ) : BcGatewayProxy {
         override suspend fun createCurrency(currencyImp: PropagateCurrencyChanges): CurrencyImplementationResponse? = null
 
         override suspend fun updateCurrency(currencyImp: PropagateCurrencyChanges): CurrencyImplementationResponse? = null
@@ -235,7 +304,7 @@ private class WithdrawServiceTest {
         override suspend fun getCurrencyInfo(symbol: String): FetchCurrencyInfo? = null
 
         override suspend fun getWithdrawData(symbol: String, network: String): WithdrawData =
-            WithdrawData(isEnabled = true, fee = withdrawFee, minimum = BigDecimal.ONE)
+            WithdrawData(isEnabled = true, fee = withdrawFee, minimum = minimumWithdraw)
     }
 
     private class AllowingZkAmlScreeningService : ZkAmlScreeningService {

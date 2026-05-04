@@ -48,7 +48,10 @@ class WithdrawService(
         if (withdrawCommand.amount > sourceWallet.balance.amount)
             throw OpexError.WithdrawAmountExceedsWalletBalance.exception()
 
-        if (withdrawCommand.amount < withdrawData.minimum)
+        if (realAmount <= BigDecimal.ZERO)
+            throw OpexError.InvalidAmount.exception()
+
+        if (realAmount < withdrawData.minimum)
             throw OpexError.WithdrawAmountLessThanMinimum.exception()
 
         val screening = zkAmlScreeningService.screenWithdraw(
