@@ -4,6 +4,7 @@ import co.nilin.opex.matching.engine.core.eventh.EventDispatcher
 import co.nilin.opex.matching.engine.core.eventh.events.OrderBookPublishedEvent
 import co.nilin.opex.matching.engine.core.eventh.events.RejectOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
+import co.nilin.opex.matching.engine.core.eventh.events.UpdatedOrderEvent
 import co.nilin.opex.matching.engine.core.engine.SimpleOrderBook
 import co.nilin.opex.matching.engine.core.inout.OrderCancelCommand
 import co.nilin.opex.matching.engine.core.inout.OrderCreateCommand
@@ -996,6 +997,65 @@ class SimpleOrderBookUnitTest {
         Assertions.assertEquals(secondOrder.id(), order?.id())
         Assertions.assertEquals(orderBook.bestBidOrder, order)
         Assertions.assertEquals(orderBook.bidOrders.entriesList().size, 3)
+    }
+
+    @Test
+    fun givenPartiallyFilledBidOrder_whenEditOrder_thenEmitUpdateWithOldRemainingQuantity() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val updateEvents = mutableListOf<UpdatedOrderEvent>()
+        EventDispatcher.register(UpdatedOrderEvent::class.java) { updateEvents.add(it) }
+        val bidOuid = UUID.randomUUID().toString()
+        val bidOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                bidOuid,
+                uuid,
+                pair,
+                10,
+                5,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+        orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+
+        val editedOrder = orderBook.handleEditCommand(
+            OrderEditCommand(
+                bidOuid,
+                uuid,
+                bidOrder.id()!!,
+                pair,
+                11,
+                6
+            )
+        )
+
+        Assertions.assertEquals(bidOrder.id(), editedOrder?.id())
+        Assertions.assertEquals(1, updateEvents.size)
+        updateEvents.single().also {
+            Assertions.assertEquals(bidOuid, it.ouid)
+            Assertions.assertEquals(uuid, it.uuid)
+            Assertions.assertEquals(bidOrder.id(), it.orderId)
+            Assertions.assertEquals(10, it.oldPrice)
+            Assertions.assertEquals(5, it.oldQuantity)
+            Assertions.assertEquals(11, it.price)
+            Assertions.assertEquals(6, it.quantity)
+            Assertions.assertEquals(3, it.remainedQuantity)
+            Assertions.assertEquals(OrderDirection.BID, it.direction)
+            Assertions.assertEquals(MatchConstraint.GTC, it.matchConstraint)
+            Assertions.assertEquals(OrderType.LIMIT_ORDER, it.orderType)
+        }
     }
 
     @Test
