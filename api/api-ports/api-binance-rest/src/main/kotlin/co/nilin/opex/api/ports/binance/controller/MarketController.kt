@@ -159,18 +159,21 @@ class MarketController(
         symbols: String?
     ): ExchangeInfoResponse = coroutineScope {
         val symbolsMap = symbolMapper.symbolToAliasMap()
+        val requestedSymbols = requestedExchangeInfoSymbols(symbol, symbols)
         val fee = async { accountantProxy.getFeeConfigs() }
         val pairConfigs = async {
-            accountantProxy.getPairConfigs().map {
-                ExchangeInfoSymbol(
-                    symbolsMap[it.pair] ?: it.pair,
-                    "TRADING",
-                    it.leftSideWalletSymbol.uppercase(),
-                    it.leftSideFraction.scale(),
-                    it.rightSideWalletSymbol.uppercase(),
-                    it.rightSideFraction.scale()
-                )
-            }
+            accountantProxy.getPairConfigs()
+                .filter { requestedSymbols == null || requestedSymbols.contains(it.pair) }
+                .map {
+                    ExchangeInfoSymbol(
+                        symbolsMap[it.pair] ?: it.pair,
+                        "TRADING",
+                        it.leftSideWalletSymbol.uppercase(),
+                        it.leftSideFraction.scale(),
+                        it.rightSideWalletSymbol.uppercase(),
+                        it.rightSideFraction.scale()
+                    )
+                }
         }
         ExchangeInfoResponse(fees = fee.await(), symbols = pairConfigs.await())
     }
@@ -259,6 +262,32 @@ class MarketController(
             throw OpexError.InvalidRequestParam.exception("Parameter 'endTime' is either missing or invalid")
         if (startTime != null && endTime != null && startTime > endTime)
             throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
+    }
+
+    private suspend fun requestedExchangeInfoSymbols(symbol: String?, symbols: String?): Set<String>? {
+        if (!symbol.isNullOrBlank() && !symbols.isNullOrBlank())
+            throw OpexError.BadRequest.exception("'symbol' and 'symbols' cannot both be sent")
+
+        if (!symbol.isNullOrBlank())
+            return setOf(symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception())
+
+        if (symbols.isNullOrBlank())
+            return null
+
+        val aliases = symbols
+            .trim()
+            .removePrefix("[")
+            .removeSuffix("]")
+            .split(",")
+            .map { it.trim().trim('"', '\'') }
+            .filter { it.isNotBlank() }
+
+        if (aliases.isEmpty())
+            throw OpexError.InvalidRequestParam.exception("Parameter 'symbols' is either missing or invalid")
+
+        return aliases
+            .map { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
+            .toSet()
     }
 
 }

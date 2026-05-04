@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
+import java.math.BigDecimal
 import java.security.Principal
 
 private class MarketControllerTest {
@@ -72,6 +73,48 @@ private class MarketControllerTest {
         assertThatThrownBy {
             runBlocking { controller.klines("ETHUSDT", "1m", -1, null, null) }
         }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
+    @Test
+    fun givenSymbol_whenExchangeInfoRequested_thenReturnOnlyRequestedSymbol(): Unit = runBlocking {
+        val controller = controller(RecordingMarketDataProxy())
+
+        val response = controller.pairInfo("ETHUSDT", null)
+
+        assertThat(response.symbols.map { it.symbol }).containsExactly("ETHUSDT")
+    }
+
+    @Test
+    fun givenSymbols_whenExchangeInfoRequested_thenReturnOnlyRequestedSymbols(): Unit = runBlocking {
+        val controller = controller(RecordingMarketDataProxy())
+
+        val response = controller.pairInfo(null, "[\"ETHUSDT\",\"BTCUSDT\"]")
+
+        assertThat(response.symbols.map { it.symbol }).containsExactlyInAnyOrder("ETHUSDT", "BTCUSDT")
+    }
+
+    @Test
+    fun givenSymbolAndSymbols_whenExchangeInfoRequested_thenRejectRequest(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.pairInfo("ETHUSDT", "[\"BTCUSDT\"]") }
+        }.isOpexError(OpexError.BadRequest)
+
+        marketDataProxy.assertNotCalled()
+    }
+
+    @Test
+    fun givenUnknownSymbolsEntry_whenExchangeInfoRequested_thenRejectRequest(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.pairInfo(null, "[\"ETHUSDT\",\"UNKNOWN\"]") }
+        }.isOpexError(OpexError.SymbolNotFound)
 
         marketDataProxy.assertNotCalled()
     }
@@ -183,14 +226,21 @@ private class MarketControllerTest {
         override suspend fun toInternalSymbol(alias: String?): String? =
             when (alias) {
                 "ETHUSDT" -> "ETH_USDT"
+                "BTCUSDT" -> "BTC_USDT"
                 else -> null
             }
 
-        override suspend fun symbolToAliasMap(): Map<String, String> = mapOf("ETH_USDT" to "ETHUSDT")
+        override suspend fun symbolToAliasMap(): Map<String, String> = mapOf(
+            "ETH_USDT" to "ETHUSDT",
+            "BTC_USDT" to "BTCUSDT"
+        )
     }
 
     private class RecordingAccountantProxy : AccountantProxy {
-        override suspend fun getPairConfigs(): List<PairInfoResponse> = emptyList()
+        override suspend fun getPairConfigs(): List<PairInfoResponse> = listOf(
+            PairInfoResponse("ETH_USDT", "ETH", "USDT", BigDecimal("0.00000001"), BigDecimal("0.00000001")),
+            PairInfoResponse("BTC_USDT", "BTC", "USDT", BigDecimal("0.00000001"), BigDecimal("0.00000001"))
+        )
 
         override suspend fun getFeeConfigs(): List<PairFeeResponse> = emptyList()
 
