@@ -1,7 +1,9 @@
 package co.nilin.opex.matching.engine.core
 
 import co.nilin.opex.matching.engine.core.eventh.EventDispatcher
+import co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.CoreEvent
+import co.nilin.opex.matching.engine.core.eventh.events.CreateOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.OrderBookPublishedEvent
 import co.nilin.opex.matching.engine.core.eventh.events.RejectOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
@@ -1134,6 +1136,83 @@ class SimpleOrderBookUnitTest {
             Assertions.assertEquals(1, it.takerRemainedQuantity)
             Assertions.assertEquals(0, it.makerRemainedQuantity)
             Assertions.assertEquals(2, it.matchedQuantity)
+        }
+    }
+
+    @Test
+    fun givenIocBidOrderPartiallyFills_whenCreated_thenCancelEventUsesOrderState() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val askOuid = UUID.randomUUID().toString()
+        val askOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                askOuid,
+                UUID.randomUUID().toString(),
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+        val bidOuid = UUID.randomUUID().toString()
+        val createEvents = mutableListOf<CoreEvent>()
+        EventDispatcher.register(CoreEvent::class.java) { createEvents.add(it) }
+
+        val bidOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                bidOuid,
+                uuid,
+                pair,
+                11,
+                5,
+                OrderDirection.BID,
+                MatchConstraint.IOC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+
+        Assertions.assertEquals(2, bidOrder.filledQuantity)
+        Assertions.assertEquals(3, bidOrder.remainedQuantity())
+        Assertions.assertEquals(0, orderBook.orders.size)
+        Assertions.assertNull(orderBook.bestAskOrder)
+        Assertions.assertNull(orderBook.bestBidOrder)
+        Assertions.assertEquals(
+            listOf(
+                CreateOrderEvent::class.java,
+                TradeEvent::class.java,
+                CancelOrderEvent::class.java,
+                OrderBookPublishedEvent::class.java
+            ),
+            createEvents.map { it::class.java }
+        )
+        (createEvents[0] as CreateOrderEvent).also {
+            Assertions.assertEquals(bidOuid, it.ouid)
+            Assertions.assertEquals(11, it.price)
+            Assertions.assertEquals(5, it.quantity)
+            Assertions.assertEquals(5, it.remainedQuantity)
+        }
+        (createEvents[1] as TradeEvent).also {
+            Assertions.assertEquals(bidOuid, it.takerOuid)
+            Assertions.assertEquals(bidOrder.id(), it.takerOrderId)
+            Assertions.assertEquals(askOuid, it.makerOuid)
+            Assertions.assertEquals(askOrder.id(), it.makerOrderId)
+            Assertions.assertEquals(11, it.takerPrice)
+            Assertions.assertEquals(10, it.makerPrice)
+            Assertions.assertEquals(3, it.takerRemainedQuantity)
+            Assertions.assertEquals(0, it.makerRemainedQuantity)
+            Assertions.assertEquals(2, it.matchedQuantity)
+        }
+        (createEvents[2] as CancelOrderEvent).also {
+            Assertions.assertEquals(bidOuid, it.ouid)
+            Assertions.assertEquals(uuid, it.uuid)
+            Assertions.assertEquals(bidOrder.id(), it.orderId)
+            Assertions.assertEquals(11, it.price)
+            Assertions.assertEquals(5, it.quantity)
+            Assertions.assertEquals(3, it.remainedQuantity)
+            Assertions.assertEquals(OrderDirection.BID, it.direction)
+            Assertions.assertEquals(MatchConstraint.IOC, it.matchConstraint)
+            Assertions.assertEquals(OrderType.LIMIT_ORDER, it.orderType)
         }
     }
 

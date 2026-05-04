@@ -129,12 +129,12 @@ class SimpleOrderBook(
                                 orderCommand.uuid,
                                 queueOrder.id!!,
                                 orderCommand.pair,
-                                order.price,
-                                order.quantity,
-                                order.remainedQuantity(),
-                                order.direction,
-                                order.matchConstraint,
-                                order.orderType
+                                queueOrder.price,
+                                queueOrder.quantity,
+                                queueOrder.remainedQuantity(),
+                                queueOrder.direction,
+                                queueOrder.matchConstraint,
+                                queueOrder.orderType
                             )
                         )
                     }
