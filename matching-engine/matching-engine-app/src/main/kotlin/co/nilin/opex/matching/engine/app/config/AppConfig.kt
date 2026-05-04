@@ -1,6 +1,7 @@
 package co.nilin.opex.matching.engine.app.config
 
 import co.nilin.opex.matching.engine.app.bl.ExchangeEventHandler
+import co.nilin.opex.matching.engine.app.bl.OrderBookBootstrapper
 import co.nilin.opex.matching.engine.app.bl.OrderBooks
 import co.nilin.opex.matching.engine.app.listener.MatchingEngineEventListener
 import co.nilin.opex.matching.engine.app.listener.OrderListener
@@ -8,9 +9,6 @@ import co.nilin.opex.matching.engine.core.model.PersistentOrderBook
 import co.nilin.opex.matching.engine.core.spi.OrderBookPersister
 import co.nilin.opex.matching.engine.ports.kafka.listener.consumer.EventKafkaListener
 import co.nilin.opex.matching.engine.ports.kafka.listener.consumer.OrderKafkaListener
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
@@ -36,21 +34,7 @@ class AppConfig {
 
     @Autowired
     fun configureOrderBooks(orderBookPersister: OrderBookPersister) {
-        symbols.forEach { symbol ->
-            CoroutineScope(AppSchedulers.generalExecutor).launch {
-                val lastOrderBook = orderBookPersister.loadLastState(symbol)
-                //todo: load db orders from last order in order book and put in order book
-                //todo: add missing orders to lastOrderBook or create one
-                if (lastOrderBook != null) {
-                    withContext(coroutineContext) {
-                        OrderBooks.reloadOrderBook(lastOrderBook)
-                    }
-                } else {
-                    OrderBooks.createOrderBook(symbol)
-                }
-
-            }
-        }
+        OrderBookBootstrapper(symbols, orderBookPersister).bootstrap()
     }
 
     @Bean
