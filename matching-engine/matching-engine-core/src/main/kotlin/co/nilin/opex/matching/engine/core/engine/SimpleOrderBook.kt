@@ -685,30 +685,38 @@ class SimpleOrderBook(
         processedOrderOuids.addAll(persistentOrderBook.processedOrderOuids)
         processedCancelOuids.clear()
         processedCancelOuids.addAll(persistentOrderBook.processedCancelOuids)
-        persistentOrderBook.orders?.map { order ->
-            SimpleOrder(
-                order.id,
-                order.ouid,
-                order.uuid,
-                order.price,
-                order.quantity,
-                order.matchConstraint,
-                order.orderType,
-                order.direction,
-                order.filledQuantity,
-                null,
-                null,
-                null
-            )
-        }?.filter { order ->
+        lastOrder = persistentOrderBook.lastOrder?.toSimpleOrder()
+        val rebuiltOrders = persistentOrderBook.orders?.map { order -> order.toSimpleOrder() } ?: emptyList()
+        rebuiltOrders.filter { order ->
             order.matchConstraint == MatchConstraint.GTC
-        }?.forEach { order ->
+        }.forEach { order ->
             processedOrderOuids.add(order.ouid)
             putGtcInQueue(order)
         }
 
-        orderCounter.set(persistentOrderBook.lastOrder?.id ?: 0)
+        val maxKnownOrderId = maxOf(
+            persistentOrderBook.lastOrder?.id ?: 0,
+            rebuiltOrders.maxOfOrNull { it.id ?: 0 } ?: 0
+        )
+        orderCounter.set(maxKnownOrderId)
         tradeCounter.set(persistentOrderBook.tradeCounter)
+    }
+
+    private fun PersistentOrder.toSimpleOrder(): SimpleOrder {
+        return SimpleOrder(
+            id,
+            ouid,
+            uuid,
+            price,
+            quantity,
+            matchConstraint,
+            orderType,
+            direction,
+            filledQuantity,
+            null,
+            null,
+            null
+        )
     }
 
     private fun logNewOrder(orderCommand: OrderCreateCommand) {

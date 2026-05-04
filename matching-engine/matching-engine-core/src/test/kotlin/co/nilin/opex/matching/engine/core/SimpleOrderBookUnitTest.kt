@@ -300,6 +300,60 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenRebuiltOrderBook_whenCancelPublishesSnapshot_thenLastOrderAndNextIdArePreserved() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val snapshots = mutableListOf<OrderBookPublishedEvent>()
+        EventDispatcher.register(OrderBookPublishedEvent::class.java) { snapshots.add(it) }
+        val firstOuid = UUID.randomUUID().toString()
+        val firstOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                firstOuid,
+                uuid,
+                pair,
+                2,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+        val secondOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                1,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+        val rebuiltOrderBook = SimpleOrderBook(pair, false)
+        rebuiltOrderBook.rebuild(snapshots.last().persistentOrderBook)
+
+        rebuiltOrderBook.handleCancelCommand(OrderCancelCommand(firstOuid, uuid, firstOrder.id()!!, pair))
+        val snapshotAfterCancel = snapshots.last().persistentOrderBook
+        val secondRebuiltOrderBook = SimpleOrderBook(pair, false)
+        secondRebuiltOrderBook.rebuild(snapshotAfterCancel)
+        val newOrder = secondRebuiltOrderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                3,
+                1,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+
+        Assertions.assertEquals(secondOrder.id(), snapshotAfterCancel.lastOrder?.id)
+        Assertions.assertTrue(newOrder.id()!! > secondOrder.id()!!)
+    }
+
+    @Test
     fun givenEmptyOrderBook_whenGtcBidLimitOrderCreated_then1BucketWithSize1() {
         //given
         val orderBook = SimpleOrderBook(pair, false)
