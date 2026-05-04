@@ -74,6 +74,7 @@ class WalletController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<DepositResponse> {
         validateSignedRequest(recvWindow, timestamp)
+        validateDepositHistoryStatus(status)
         val validLimit = validWalletHistoryLimit(limit)
         val validOffset = validWalletHistoryOffset(offset)
         validateWalletHistoryTimeRange(startTime, endTime)
@@ -121,6 +122,7 @@ class WalletController(
     ): List<WithdrawResponse> {
         validateSignedRequest(recvWindow, timestamp)
         validateUnsupportedWithdrawHistoryParams(withdrawOrderId)
+        validateWithdrawHistoryStatus(withdrawStatus)
         val validLimit = validWalletHistoryLimit(limit)
         val validOffset = validWalletHistoryOffset(offset)
         validateWalletHistoryTimeRange(startTime, endTime)
@@ -147,6 +149,7 @@ class WalletController(
     ): List<WithdrawResponse> {
         validateSignedRequest(withdrawRequest.recvWindow, withdrawRequest.timestamp)
         validateUnsupportedWithdrawHistoryParams(withdrawRequest.withdrawOrderId)
+        validateWithdrawHistoryStatus(withdrawRequest.withdrawStatus)
         val validLimit = validWalletHistoryLimit(withdrawRequest.limit)
         val validOffset = validWalletHistoryOffset(withdrawRequest.offset)
         validateWalletHistoryTimeRange(withdrawRequest.startTime, withdrawRequest.endTime)
@@ -326,6 +329,16 @@ class WalletController(
     private fun validateUnsupportedWithdrawHistoryParams(withdrawOrderId: String?) {
         if (withdrawOrderId != null)
             throw OpexError.InvalidRequestParam.exception("Parameter 'withdrawOrderId' is either missing or invalid")
+    }
+
+    private fun validateDepositHistoryStatus(status: Int?) {
+        if (status != null && status !in 0..1)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'status' is either missing or invalid")
+    }
+
+    private fun validateWithdrawHistoryStatus(status: Int?) {
+        if (status != null && status !in 0..2)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'status' is either missing or invalid")
     }
 
     private fun WithdrawHistoryResponse.asWithdrawResponse(): WithdrawResponse {
