@@ -73,14 +73,14 @@ class WalletController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<DepositResponse> {
         validateSignedRequest(recvWindow, timestamp)
-        val validLimit = limit ?: 1000
+        val validLimit = validWalletHistoryLimit(limit)
         val deposits = walletProxy.getDepositTransactions(
             securityContext.jwtAuthentication().name,
             securityContext.jwtAuthentication().tokenValue(),
             coin,
             startTime ?: null,
             endTime ?: null,
-            if (validLimit > 1000 || validLimit < 1) 1000 else validLimit,
+            validLimit,
             offset ?: 0,
             ascendingByTime
         )
@@ -116,14 +116,14 @@ class WalletController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<WithdrawResponse> {
         validateSignedRequest(recvWindow, timestamp)
-        val validLimit = limit ?: 1000
+        val validLimit = validWalletHistoryLimit(limit)
         val response = walletProxy.getWithdrawTransactions(
             securityContext.jwtAuthentication().name,
             securityContext.jwtAuthentication().tokenValue(),
             coin,
             startTime ?: null,
             endTime ?: null,
-            if (validLimit > 1000 || validLimit < 1) 1000 else validLimit,
+            validLimit,
             offset ?: 0,
             ascendingByTime
         )
@@ -162,14 +162,14 @@ class WalletController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<WithdrawResponse> {
         validateSignedRequest(withdrawRequest.recvWindow, withdrawRequest.timestamp)
-        val validLimit = withdrawRequest.limit ?: 1000
+        val validLimit = validWalletHistoryLimit(withdrawRequest.limit)
         val response = walletProxy.getWithdrawTransactions(
             securityContext.jwtAuthentication().name,
             securityContext.jwtAuthentication().tokenValue(),
             withdrawRequest.coin,
             withdrawRequest.startTime ?: null,
             withdrawRequest.endTime ?: null,
-            if (validLimit > 1000 || validLimit < 1) 1000 else validLimit,
+            validLimit,
             withdrawRequest.offset ?: 0,
             withdrawRequest.ascendingByTime
         )
@@ -334,5 +334,12 @@ class WalletController(
                 )
             }
         }
+    }
+
+    private fun validWalletHistoryLimit(limit: Int?): Int {
+        val validLimit = limit ?: 1000
+        if (validLimit !in 1..1000)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'limit' is either missing or invalid")
+        return validLimit
     }
 }

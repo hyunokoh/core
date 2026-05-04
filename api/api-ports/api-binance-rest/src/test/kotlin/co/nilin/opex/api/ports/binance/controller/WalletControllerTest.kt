@@ -84,6 +84,55 @@ private class WalletControllerTest {
         assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
     }
 
+    @Test
+    fun givenInvalidLimit_whenDepositHistoryRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.getDepositTransactions(
+                    coin = "USDT",
+                    status = null,
+                    startTime = null,
+                    endTime = null,
+                    offset = null,
+                    limit = 0,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    ascendingByTime = null,
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getDepositTransactionsCallCount).isZero()
+    }
+
+    @Test
+    fun givenInvalidLimit_whenWithdrawHistoryV2Requested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+        val request = WithDrawRequest(
+            coin = "USDT",
+            withdrawOrderId = null,
+            withdrawStatus = null,
+            offset = null,
+            limit = 1001,
+            startTime = null,
+            endTime = null,
+            ascendingByTime = null,
+            recvWindow = null,
+            timestamp = signedTimestamp()
+        )
+
+        assertThatThrownBy {
+            runBlocking { controller.getWithdrawTransactionsV2(request, securityContext()) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
+    }
+
     private fun controller(
         walletProxy: RecordingWalletProxy = RecordingWalletProxy(),
         blockchainGatewayProxy: RecordingBlockchainGatewayProxy = RecordingBlockchainGatewayProxy()
@@ -112,6 +161,7 @@ private class WalletControllerTest {
     }
 
     private class RecordingWalletProxy : WalletProxy {
+        var getDepositTransactionsCallCount = 0
         var getWithdrawTransactionsCallCount = 0
 
         override suspend fun getWallets(uuid: String?, token: String?): List<Wallet> = emptyList()
@@ -131,7 +181,10 @@ private class WalletControllerTest {
             limit: Int,
             offset: Int,
             ascendingByTime: Boolean?
-        ): List<TransactionHistoryResponse> = emptyList()
+        ): List<TransactionHistoryResponse> {
+            getDepositTransactionsCallCount += 1
+            return emptyList()
+        }
 
         override suspend fun getWithdrawTransactions(
             uuid: String,
