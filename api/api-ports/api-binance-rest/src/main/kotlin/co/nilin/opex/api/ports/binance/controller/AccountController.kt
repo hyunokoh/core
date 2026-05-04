@@ -146,18 +146,17 @@ class AccountController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): CancelOrderResponse {
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
-        if (orderId == null && origClientOrderId == null)
-            throw OpexError.BadRequest.exception("'orderId' or 'origClientOrderId' must be sent")
+        validateOrderLookupParams(orderId, origClientOrderId)
 
         val order = queryHandler.queryOrder(principal, localSymbol, orderId, origClientOrderId)
             ?: throw OpexError.OrderNotFound.exception()
 
         val response = CancelOrderResponse(
             symbol,
-            origClientOrderId,
-            orderId,
+            order.clientOrderId,
+            order.orderId,
             -1,
-            null,
+            newClientOrderId ?: order.clientOrderId,
             order.price,
             order.quantity,
             order.executedQuantity,
@@ -175,12 +174,13 @@ class AccountController(
             throw OpexError.CancelOrderNotAllowed.exception()
 
 
+        val auth = securityContext.jwtAuthentication()
         matchingGatewayProxy.cancelOrder(
             order.ouid,
-            principal.name,
+            auth.name,
             order.orderId ?: 0,
             localSymbol,
-            securityContext.jwtAuthentication().tokenValue()
+            auth.tokenValue()
         )
         return response
     }
@@ -221,6 +221,7 @@ class AccountController(
         timestamp: Long
     ): QueryOrderResponse {
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
+        validateOrderLookupParams(orderId, origClientOrderId)
         return queryHandler.queryOrder(principal, internalSymbol, orderId, origClientOrderId)
             ?.asQueryOrderResponse()
             ?.apply { this.symbol = symbol }
@@ -455,6 +456,11 @@ class AccountController(
     private fun checkNull(obj: Any?, paramName: String) {
         if (obj == null)
             throw OpexError.InvalidRequestParam.exception("Parameter '$paramName' is either missing or invalid")
+    }
+
+    private fun validateOrderLookupParams(orderId: Long?, origClientOrderId: String?) {
+        if (orderId == null && origClientOrderId == null)
+            throw OpexError.BadRequest.exception("'orderId' or 'origClientOrderId' must be sent")
     }
 
     private fun validAccountQueryLimit(limit: Int?): Int {

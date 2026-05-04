@@ -97,6 +97,46 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenNoOrderIdentifier_whenQueryOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking { controller.queryOrder(Principal { "user-1" }, "ETHUSDT", null, null, null, 1L) }
+        }.isOpexError(OpexError.BadRequest)
+
+        assertThat(queryHandler.queryOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenClientOrderId_whenCancelOrderRequested_thenCancelActualOrderWithAuthenticatedUser(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        val response = controller.cancelOrder(
+            principal = Principal { "principal-user" },
+            symbol = "ETHUSDT",
+            orderId = null,
+            origClientOrderId = "client-1",
+            newClientOrderId = "cancel-1",
+            recvWindow = null,
+            timestamp = 1L,
+            securityContext = securityContext()
+        )
+
+        assertThat(queryHandler.queryOrderSymbol).isEqualTo("ETH_USDT")
+        assertThat(queryHandler.queryOrderId).isNull()
+        assertThat(queryHandler.queryOrigClientOrderId).isEqualTo("client-1")
+        assertThat(response.orderId).isEqualTo(100)
+        assertThat(response.origClientOrderId).isEqualTo("client-1")
+        assertThat(response.clientOrderId).isEqualTo("cancel-1")
+        assertThat(matchingGatewayProxy.cancelOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.cancelOrderUuid).isEqualTo("user-1")
+        assertThat(matchingGatewayProxy.cancelOrderToken).isEqualTo("token-1")
+    }
+
+    @Test
     fun givenUnsupportedOrderType_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
@@ -218,13 +258,23 @@ private class AccountControllerTest {
         var allOrdersLimit: Int? = null
         var allTradesSymbol: String? = "not-called"
         var allTradesLimit: Int? = null
+        var queryOrderCallCount = 0
+        var queryOrderSymbol: String? = null
+        var queryOrderId: Long? = null
+        var queryOrigClientOrderId: String? = null
 
         override suspend fun queryOrder(
             principal: Principal,
             symbol: String,
             orderId: Long?,
             origClientOrderId: String?
-        ): Order? = null
+        ): Order? {
+            queryOrderCallCount += 1
+            queryOrderSymbol = symbol
+            queryOrderId = orderId
+            queryOrigClientOrderId = origClientOrderId
+            return order()
+        }
 
         override suspend fun openOrders(principal: Principal, symbol: String?, limit: Int?): List<Order> {
             openOrdersSymbol = symbol
@@ -309,6 +359,9 @@ private class AccountControllerTest {
         var createOrderConstraint: MatchConstraint? = null
         var createOrderType: MatchingOrderType? = null
         var createOrderToken: String? = null
+        var cancelOrderCallCount = 0
+        var cancelOrderUuid: String? = null
+        var cancelOrderToken: String? = null
 
         override suspend fun createNewOrder(
             uuid: String?,
@@ -339,7 +392,12 @@ private class AccountControllerTest {
             orderId: Long,
             symbol: String,
             token: String?
-        ): OrderSubmitResult? = null
+        ): OrderSubmitResult? {
+            cancelOrderCallCount += 1
+            cancelOrderUuid = uuid
+            cancelOrderToken = token
+            return OrderSubmitResult(2)
+        }
     }
 
     private class RecordingWalletProxy : WalletProxy {
