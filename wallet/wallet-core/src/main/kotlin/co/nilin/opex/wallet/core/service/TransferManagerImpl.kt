@@ -13,6 +13,7 @@ import co.nilin.opex.wallet.core.spi.*
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
 import java.time.LocalDateTime
 import java.util.*
 
@@ -32,6 +33,9 @@ class TransferManagerImpl(
         val srcWallet = transferCommand.sourceWallet
         val srcWalletOwner = srcWallet.owner
         val srcWalletBalance = srcWallet.balance
+
+        if (transferCommand.amount.amount <= BigDecimal.ZERO || transferCommand.destAmount.amount <= BigDecimal.ZERO)
+            throw OpexError.InvalidAmount.exception()
 
         //todo need to review(compare symbols instead of objects)
         if (srcWallet.currency.symbol != transferCommand.amount.currency.symbol)
