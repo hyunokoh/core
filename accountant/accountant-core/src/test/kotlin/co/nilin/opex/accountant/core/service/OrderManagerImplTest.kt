@@ -640,6 +640,7 @@ internal class OrderManagerImplTest {
 
         val fa = orderManager.handleCancelOrder(orderEvent)[0]
 
+        assertThat(fa.eventType).isEqualTo(CancelOrderEvent::class.simpleName!!)
         assertThat(fa.amount).isEqualTo(order.remainedTransferAmount)
         assertThat(fa.symbol).isEqualTo(orderEvent.pair.rightSideName)
         assertThat(fa.category).isEqualTo(FinancialActionCategory.ORDER_CANCEL)
