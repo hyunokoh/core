@@ -54,6 +54,18 @@ private class MarketControllerTest {
     }
 
     @Test
+    fun givenBlankSymbol_whenPriceChangeRequested_thenThrowInvalidParamBeforeProxyCall(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.priceChange("24h", " ", null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
+    @Test
     fun givenInvertedTimeRange_whenKlinesRequested_thenThrowInvalidParamBeforeProxyCall(): Unit = runBlocking {
         val marketDataProxy = RecordingMarketDataProxy()
         val controller = controller(marketDataProxy)

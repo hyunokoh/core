@@ -106,7 +106,8 @@ class MarketController(
         @RequestParam(required = false) symbol: String?,
         @RequestParam(required = false) quote: String?
     ): List<PriceChange> {
-        val localSymbol = if (symbol.isNullOrEmpty())
+        validateOptionalSymbol(symbol)
+        val localSymbol = if (symbol == null)
             null
         else
             symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
@@ -116,7 +117,7 @@ class MarketController(
 
         val interval = Interval.findByLabel(duration) ?: Interval.Week
 
-        val result = if (symbol.isNullOrEmpty())
+        val result = if (symbol == null)
             marketDataProxy.getTradeTickerData(interval).toMutableList()
         else
             arrayListOf(marketDataProxy.getTradeTickerDataBySymbol(localSymbol!!, interval))
@@ -126,7 +127,7 @@ class MarketController(
             val symbolBase = map.key.split("_")[0].uppercase()
             val symbolQuote = map.key.split("_")[1].uppercase()
 
-            if (price == null && symbol.isNullOrEmpty())
+            if (price == null && symbol == null)
                 result.add(PriceChange(map.value, symbolBase, symbolQuote))
             else {
                 price?.symbol = map.value
@@ -262,6 +263,11 @@ class MarketController(
             throw OpexError.InvalidRequestParam.exception("Parameter 'endTime' is either missing or invalid")
         if (startTime != null && endTime != null && startTime > endTime)
             throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
+    }
+
+    private fun validateOptionalSymbol(symbol: String?) {
+        if (symbol != null && symbol.isBlank())
+            throw OpexError.InvalidRequestParam.exception("Parameter 'symbol' is either missing or invalid")
     }
 
     private suspend fun requestedExchangeInfoSymbols(symbol: String?, symbols: String?): Set<String>? {
