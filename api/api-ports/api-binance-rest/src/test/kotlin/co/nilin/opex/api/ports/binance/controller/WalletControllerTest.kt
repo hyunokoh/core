@@ -208,6 +208,148 @@ private class WalletControllerTest {
         assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
     }
 
+    @Test
+    fun givenStatus_whenWithdrawHistoryRequested_thenFiltersReturnedRows(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            withdraws = listOf(
+                withdrawHistory(withdrawId = 10, status = "DONE"),
+                withdrawHistory(withdrawId = 11, status = "REJECTED")
+            )
+        )
+        val controller = controller(walletProxy = walletProxy)
+
+        val response = controller.getWithdrawTransactions(
+            coin = "USDT",
+            withdrawOrderId = null,
+            withdrawStatus = 1,
+            offset = null,
+            limit = null,
+            startTime = null,
+            endTime = null,
+            ascendingByTime = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(response).hasSize(1)
+        assertThat(response[0].id).isEqualTo("10")
+        assertThat(response[0].status).isEqualTo(1)
+    }
+
+    @Test
+    fun givenStatus_whenWithdrawHistoryV2Requested_thenFiltersReturnedRows(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            withdraws = listOf(
+                withdrawHistory(withdrawId = 20, status = "CREATED"),
+                withdrawHistory(withdrawId = 21, status = "DONE")
+            )
+        )
+        val controller = controller(walletProxy = walletProxy)
+        val request = WithDrawRequest(
+            coin = "USDT",
+            withdrawOrderId = null,
+            withdrawStatus = 1,
+            offset = null,
+            limit = null,
+            startTime = null,
+            endTime = null,
+            ascendingByTime = null,
+            recvWindow = null,
+            timestamp = signedTimestamp()
+        )
+
+        val response = controller.getWithdrawTransactionsV2(request, securityContext())
+
+        assertThat(response).hasSize(1)
+        assertThat(response[0].id).isEqualTo("21")
+        assertThat(response[0].status).isEqualTo(1)
+    }
+
+    @Test
+    fun givenWithdrawOrderId_whenWithdrawHistoryRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.getWithdrawTransactions(
+                    coin = "USDT",
+                    withdrawOrderId = "client-1",
+                    withdrawStatus = null,
+                    offset = null,
+                    limit = null,
+                    startTime = null,
+                    endTime = null,
+                    ascendingByTime = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
+    }
+
+    @Test
+    fun givenDepositStatus_whenDepositHistoryRequested_thenFiltersReturnedRows(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            deposits = listOf(
+                TransactionHistoryResponse(
+                    id = 1,
+                    currency = "USDT",
+                    amount = BigDecimal.TEN,
+                    description = null,
+                    ref = "tx-1",
+                    date = 1000
+                )
+            )
+        )
+        val blockchainGatewayProxy = RecordingBlockchainGatewayProxy(
+            depositDetails = listOf(
+                DepositDetails(
+                    hash = "tx-1",
+                    address = "0x1",
+                    memo = null,
+                    amount = BigDecimal.TEN,
+                    chain = "ETH",
+                    isToken = true,
+                    tokenAddress = null
+                )
+            )
+        )
+        val controller = controller(walletProxy = walletProxy, blockchainGatewayProxy = blockchainGatewayProxy)
+
+        val completedDeposits = controller.getDepositTransactions(
+            coin = "USDT",
+            status = 1,
+            startTime = null,
+            endTime = null,
+            offset = null,
+            limit = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            ascendingByTime = null,
+            securityContext = securityContext()
+        )
+        val pendingDeposits = controller.getDepositTransactions(
+            coin = "USDT",
+            status = 0,
+            startTime = null,
+            endTime = null,
+            offset = null,
+            limit = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            ascendingByTime = null,
+            securityContext = securityContext()
+        )
+
+        assertThat(completedDeposits).hasSize(1)
+        assertThat(pendingDeposits).isEmpty()
+    }
+
     private fun controller(
         walletProxy: RecordingWalletProxy = RecordingWalletProxy(),
         blockchainGatewayProxy: RecordingBlockchainGatewayProxy = RecordingBlockchainGatewayProxy()
@@ -235,7 +377,29 @@ private class WalletControllerTest {
             .isEqualTo(error)
     }
 
-    private class RecordingWalletProxy : WalletProxy {
+    private fun withdrawHistory(withdrawId: Long, status: String) = WithdrawHistoryResponse(
+        withdrawId = withdrawId,
+        uuid = "user-1",
+        amount = BigDecimal.TEN,
+        currency = "USDT",
+        acceptedFee = BigDecimal.ZERO,
+        appliedFee = BigDecimal.ZERO,
+        destAmount = BigDecimal.TEN,
+        destSymbol = "USDT",
+        destAddress = "0x1",
+        destNetwork = "ETH",
+        destNote = null,
+        destTransactionRef = "tx-$withdrawId",
+        statusReason = null,
+        status = status,
+        createDate = 1000,
+        acceptDate = 2000
+    )
+
+    private class RecordingWalletProxy(
+        private val deposits: List<TransactionHistoryResponse> = emptyList(),
+        private val withdraws: List<WithdrawHistoryResponse> = emptyList()
+    ) : WalletProxy {
         var getDepositTransactionsCallCount = 0
         var getWithdrawTransactionsCallCount = 0
 
@@ -258,7 +422,7 @@ private class WalletControllerTest {
             ascendingByTime: Boolean?
         ): List<TransactionHistoryResponse> {
             getDepositTransactionsCallCount += 1
-            return emptyList()
+            return deposits
         }
 
         override suspend fun getWithdrawTransactions(
@@ -272,7 +436,7 @@ private class WalletControllerTest {
             ascendingByTime: Boolean?
         ): List<WithdrawHistoryResponse> {
             getWithdrawTransactionsCallCount += 1
-            return emptyList()
+            return withdraws
         }
     }
 
@@ -336,7 +500,9 @@ private class WalletControllerTest {
             )
     }
 
-    private class RecordingBlockchainGatewayProxy : BlockchainGatewayProxy {
+    private class RecordingBlockchainGatewayProxy(
+        private val depositDetails: List<DepositDetails> = emptyList()
+    ) : BlockchainGatewayProxy {
         var assignAddressCallCount = 0
 
         override suspend fun assignAddress(uuid: String, currency: String, chain: String): AssignResponse? {
@@ -354,7 +520,7 @@ private class WalletControllerTest {
             )
         }
 
-        override suspend fun getDepositDetails(refs: List<String>): List<DepositDetails> = emptyList()
+        override suspend fun getDepositDetails(refs: List<String>): List<DepositDetails> = depositDetails
 
         override suspend fun getCurrencyImplementations(currency: String?): List<CurrencyImplementation> = emptyList()
     }

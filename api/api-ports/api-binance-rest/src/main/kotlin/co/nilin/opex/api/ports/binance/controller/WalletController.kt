@@ -2,6 +2,7 @@ package co.nilin.opex.api.ports.binance.controller
 
 import co.nilin.opex.api.core.inout.DepositDetails
 import co.nilin.opex.api.core.inout.TransactionHistoryResponse
+import co.nilin.opex.api.core.inout.WithdrawHistoryResponse
 import co.nilin.opex.api.core.spi.*
 import co.nilin.opex.api.ports.binance.data.*
 import co.nilin.opex.api.ports.binance.util.jwtAuthentication
@@ -54,7 +55,7 @@ class WalletController(
     suspend fun getDepositTransactions(
         @RequestParam(required = false)
         coin: String?,
-        @RequestParam("network", required = false)
+        @RequestParam("status", required = false)
         status: Int?,
         @RequestParam(required = false)
         startTime: Long?,
@@ -91,6 +92,7 @@ class WalletController(
 
         val details = bcGatewayProxy.getDepositDetails(deposits.filterNot { it.ref.isNullOrBlank() }.map { it.ref!! })
         return matchDepositsAndDetails(deposits, details)
+            .filter { status == null || it.status == status }
     }
 
     @GetMapping("/v1/capital/withdraw/history")
@@ -118,6 +120,7 @@ class WalletController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<WithdrawResponse> {
         validateSignedRequest(recvWindow, timestamp)
+        validateUnsupportedWithdrawHistoryParams(withdrawOrderId)
         val validLimit = validWalletHistoryLimit(limit)
         val validOffset = validWalletHistoryOffset(offset)
         validateWalletHistoryTimeRange(startTime, endTime)
@@ -131,32 +134,9 @@ class WalletController(
             validOffset,
             ascendingByTime
         )
-        return response.map {
-            val status = when (it.status) {
-                "CREATED" -> 0
-                "DONE" -> 1
-                "REJECTED" -> 2
-                else -> -1
-            }
-
-            WithdrawResponse(
-                it.destAddress ?: "0x0",
-                it.amount,
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(it.createDate), ZoneId.systemDefault())
-                    .toString()
-                    .replace("T", " "),
-                it.destSymbol ?: "",
-                it.withdrawId?.toString() ?: "",
-                "",
-                it.destNetwork ?: "",
-                1,
-                status,
-                it.appliedFee.toString(),
-                3,
-                it.destTransactionRef ?: it.withdrawId.toString(),
-                if (status == 1 && it.acceptDate != null) it.acceptDate!! else it.createDate
-            )
-        }
+        return response
+            .map { it.asWithdrawResponse() }
+            .filter { withdrawStatus == null || it.status == withdrawStatus }
     }
 
 
@@ -166,6 +146,7 @@ class WalletController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<WithdrawResponse> {
         validateSignedRequest(withdrawRequest.recvWindow, withdrawRequest.timestamp)
+        validateUnsupportedWithdrawHistoryParams(withdrawRequest.withdrawOrderId)
         val validLimit = validWalletHistoryLimit(withdrawRequest.limit)
         val validOffset = validWalletHistoryOffset(withdrawRequest.offset)
         validateWalletHistoryTimeRange(withdrawRequest.startTime, withdrawRequest.endTime)
@@ -179,32 +160,9 @@ class WalletController(
             validOffset,
             withdrawRequest.ascendingByTime
         )
-        return response.map {
-            val status = when (it.status) {
-                "CREATED" -> 0
-                "DONE" -> 1
-                "REJECTED" -> 2
-                else -> -1
-            }
-
-            WithdrawResponse(
-                it.destAddress ?: "0x0",
-                it.amount,
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(it.createDate), ZoneId.systemDefault())
-                    .toString()
-                    .replace("T", " "),
-                it.destSymbol ?: "",
-                it.withdrawId?.toString() ?: "",
-                "",
-                it.destNetwork ?: "",
-                1,
-                status,
-                it.appliedFee.toString(),
-                3,
-                it.destTransactionRef ?: it.withdrawId.toString(),
-                if (status == 1 && it.acceptDate != null) it.acceptDate!! else it.createDate
-            )
-        }
+        return response
+            .map { it.asWithdrawResponse() }
+            .filter { withdrawRequest.withdrawStatus == null || it.status == withdrawRequest.withdrawStatus }
     }
 
     @GetMapping("/v1/asset/tradeFee")
@@ -363,5 +321,37 @@ class WalletController(
             throw OpexError.InvalidRequestParam.exception("Parameter 'endTime' is either missing or invalid")
         if (startTime != null && endTime != null && startTime > endTime)
             throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
+    }
+
+    private fun validateUnsupportedWithdrawHistoryParams(withdrawOrderId: String?) {
+        if (withdrawOrderId != null)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'withdrawOrderId' is either missing or invalid")
+    }
+
+    private fun WithdrawHistoryResponse.asWithdrawResponse(): WithdrawResponse {
+        val binanceStatus = when (status) {
+            "CREATED" -> 0
+            "DONE" -> 1
+            "REJECTED" -> 2
+            else -> -1
+        }
+
+        return WithdrawResponse(
+            destAddress ?: "0x0",
+            amount,
+            LocalDateTime.ofInstant(Instant.ofEpochMilli(createDate), ZoneId.systemDefault())
+                .toString()
+                .replace("T", " "),
+            destSymbol ?: "",
+            withdrawId?.toString() ?: "",
+            "",
+            destNetwork ?: "",
+            1,
+            binanceStatus,
+            appliedFee.toString(),
+            3,
+            destTransactionRef ?: withdrawId.toString(),
+            if (binanceStatus == 1 && acceptDate != null) acceptDate!! else createDate
+        )
     }
 }
