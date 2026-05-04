@@ -242,6 +242,8 @@ open class TradeManagerImpl(
             makerOrder.uuid == trade.makerUuid &&
             takerOrder.direction == trade.takerDirection &&
             makerOrder.direction == trade.makerDirection &&
+            takerOrder.price == trade.takerPrice &&
+            makerOrder.price == trade.makerPrice &&
             !takerOrder.status.isTerminal() &&
             !makerOrder.status.isTerminal() &&
             takerOrder.quantity - takerOrder.filledQuantity >= trade.matchedQuantity &&
