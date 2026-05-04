@@ -521,7 +521,7 @@ internal class OrderManagerImplTest {
     fun givenCancelOrderReceived_whenLocalFound_publishRichOrderUpdate(): Unit = runBlocking {
         val orderEvent = CancelOrderEvent(
             "order_ouid",
-            "user_id",
+            "user_1",
             88,
             Pair("BTC", "USDT"),
             100000,
@@ -529,7 +529,7 @@ internal class OrderManagerImplTest {
             500,
             OrderDirection.BID
         )
-        val order = Valid.order.copy(ouid = orderEvent.ouid, filledQuantity = 500)
+        val order = Valid.order.copy(ouid = orderEvent.ouid, matchingEngineId = orderEvent.orderId, filledQuantity = 500)
         orderPersister.orders[orderEvent.ouid] = order
 
         val fa = orderManager.handleCancelOrder(orderEvent)[0]
@@ -547,7 +547,7 @@ internal class OrderManagerImplTest {
     fun givenCancelOrderReceivedBeforeTradeApplied_whenLocalOrderBehind_saveTempEvent(): Unit = runBlocking {
         val orderEvent = CancelOrderEvent(
             "order_ouid",
-            "user_id",
+            "user_1",
             88,
             Pair("BTC", "USDT"),
             100000,
@@ -555,7 +555,8 @@ internal class OrderManagerImplTest {
             500,
             OrderDirection.BID
         )
-        orderPersister.orders[orderEvent.ouid] = Valid.order.copy(ouid = orderEvent.ouid, filledQuantity = 0)
+        orderPersister.orders[orderEvent.ouid] =
+            Valid.order.copy(ouid = orderEvent.ouid, matchingEngineId = orderEvent.orderId, filledQuantity = 0)
 
         val fa = orderManager.handleCancelOrder(orderEvent)
 
@@ -572,7 +573,7 @@ internal class OrderManagerImplTest {
     fun givenCancelOrderReceivedTwice_whenLocalFound_ignoreDuplicate(): Unit = runBlocking {
         val orderEvent = CancelOrderEvent(
             "duplicate_cancel_ouid",
-            "user_id",
+            "user_1",
             88,
             Pair("BTC", "USDT"),
             100000,
@@ -580,7 +581,8 @@ internal class OrderManagerImplTest {
             500,
             OrderDirection.BID
         )
-        orderPersister.orders[orderEvent.ouid] = Valid.order.copy(ouid = orderEvent.ouid, filledQuantity = 500)
+        orderPersister.orders[orderEvent.ouid] =
+            Valid.order.copy(ouid = orderEvent.ouid, matchingEngineId = orderEvent.orderId, filledQuantity = 500)
 
         val first = orderManager.handleCancelOrder(orderEvent)
         val second = orderManager.handleCancelOrder(orderEvent)
@@ -590,6 +592,56 @@ internal class OrderManagerImplTest {
         assertThat(financialActionStore.persisted).hasSize(1)
         assertThat(richOrderPublisher.published).hasSize(1)
         assertThat(orderPersister.saved).hasSize(1)
+    }
+
+    @Test
+    fun givenCancelOrderEventDoesNotMatchLocalOrder_whenLocalFound_ignoreWithoutReleasingReserve(): Unit = runBlocking {
+        val orderEvent = CancelOrderEvent(
+            "mismatched_cancel_ouid",
+            "intruder",
+            88,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            500,
+            OrderDirection.BID
+        )
+        orderPersister.orders[orderEvent.ouid] =
+            Valid.order.copy(ouid = orderEvent.ouid, matchingEngineId = orderEvent.orderId, filledQuantity = 500)
+
+        val financialActions = orderManager.handleCancelOrder(orderEvent)
+
+        assertThat(financialActions).isEmpty()
+        assertThat(financialActionStore.persisted).isEmpty()
+        assertThat(richOrderPublisher.published).isEmpty()
+        assertThat(orderPersister.saved).isEmpty()
+        assertThat(tempEventPersister.saved).isEmpty()
+        assertThat(processedEventPersister.processed).isEmpty()
+    }
+
+    @Test
+    fun givenCancelOrderEventIsBehindLocalFilledQuantity_whenLocalFound_ignoreAsStale(): Unit = runBlocking {
+        val orderEvent = CancelOrderEvent(
+            "stale_cancel_ouid",
+            "user_1",
+            88,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            500,
+            OrderDirection.BID
+        )
+        orderPersister.orders[orderEvent.ouid] =
+            Valid.order.copy(ouid = orderEvent.ouid, matchingEngineId = orderEvent.orderId, filledQuantity = 600)
+
+        val financialActions = orderManager.handleCancelOrder(orderEvent)
+
+        assertThat(financialActions).isEmpty()
+        assertThat(financialActionStore.persisted).isEmpty()
+        assertThat(richOrderPublisher.published).isEmpty()
+        assertThat(orderPersister.saved).isEmpty()
+        assertThat(tempEventPersister.saved).isEmpty()
+        assertThat(processedEventPersister.processed).isEmpty()
     }
 
     @Test

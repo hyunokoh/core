@@ -169,6 +169,11 @@ open class OrderManagerImpl(
             tempEventPersister.saveTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
             return emptyList()
         }
+        if (!isUpdateEventForOrder(updatedOrderEvent, order)) {
+            logger.warn("Inconsistent update order event ignored: ouid={}", updatedOrderEvent.ouid)
+            tempEventPersister.removeTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
+            return emptyList()
+        }
 
         if (order.matchingEngineId == updatedOrderEvent.orderId &&
             order.price == updatedOrderEvent.price &&
@@ -297,6 +302,11 @@ open class OrderManagerImpl(
             tempEventPersister.saveTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
             return emptyList()
         }
+        if (!isRejectEventForOrder(rejectOrderEvent, order)) {
+            logger.warn("Inconsistent reject order event ignored: ouid={}", rejectOrderEvent.ouid)
+            tempEventPersister.removeTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
+            return emptyList()
+        }
         val eventType = RejectOrderEvent::class.simpleName!!
         val eventKey = rejectOrderEvent.processedEventKey()
         if (!processedEventPersister.tryMarkProcessed(eventType, eventKey)) {
@@ -361,6 +371,11 @@ open class OrderManagerImpl(
             return emptyList()
         }
         val expectedFilledQuantity = cancelOrderEvent.quantity - cancelOrderEvent.remainedQuantity
+        if (!isCancelEventForOrder(cancelOrderEvent, order) || order.filledQuantity > expectedFilledQuantity) {
+            logger.warn("Inconsistent cancel order event ignored: ouid={}", cancelOrderEvent.ouid)
+            tempEventPersister.removeTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
+            return emptyList()
+        }
         if (order.filledQuantity < expectedFilledQuantity) {
             tempEventPersister.saveTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
             return emptyList()
@@ -471,6 +486,34 @@ open class OrderManagerImpl(
         } else {
             baseAmount.multiply(price.toBigDecimal()).multiply(rightSideFraction)
         }
+    }
+
+    private fun isUpdateEventForOrder(event: UpdatedOrderEvent, order: Order): Boolean {
+        return order.uuid == event.uuid &&
+            order.pair == event.pair.toString() &&
+            order.direction == event.direction &&
+            (order.matchingEngineId == null || order.matchingEngineId == event.orderId)
+    }
+
+    private fun isRejectEventForOrder(event: RejectOrderEvent, order: Order): Boolean {
+        return order.uuid == event.uuid &&
+            order.pair == event.pair.toString() &&
+            order.price == event.price &&
+            order.quantity == event.quantity &&
+            order.direction == event.direction &&
+            order.matchConstraint == event.matchConstraint &&
+            order.orderType == event.orderType
+    }
+
+    private fun isCancelEventForOrder(event: CancelOrderEvent, order: Order): Boolean {
+        return order.uuid == event.uuid &&
+            order.pair == event.pair.toString() &&
+            (order.matchingEngineId == null || order.matchingEngineId == event.orderId) &&
+            order.price == event.price &&
+            order.quantity == event.quantity &&
+            order.direction == event.direction &&
+            order.matchConstraint == event.matchConstraint &&
+            order.orderType == event.orderType
     }
 
     private fun createMap(rejectOrderEvent: RejectOrderEvent, order: Order): Map<String, Any> {
