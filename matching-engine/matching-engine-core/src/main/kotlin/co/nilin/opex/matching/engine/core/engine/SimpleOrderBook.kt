@@ -33,6 +33,10 @@ class SimpleOrderBook(
 
     override fun handleNewOrderCommand(orderCommand: OrderCreateCommand): Order? {
         logNewOrder(orderCommand)
+        if (!isValidOrder(orderCommand)) {
+            rejectInvalidOrder(orderCommand)
+            return null
+        }
         if (!processedOrderOuids.add(orderCommand.ouid)) {
             logger.warn("Duplicate order create command ignored: ouid=${orderCommand.ouid}")
             return orders.values.find { it.ouid == orderCommand.ouid }
@@ -479,6 +483,36 @@ class SimpleOrderBook(
                 orderCommand.orderType,
                 RequestedOperation.PLACE_ORDER,
                 RejectReason.SELF_TRADE_PREVENTION
+            )
+        )
+    }
+
+    private fun isValidOrder(orderCommand: OrderCreateCommand): Boolean {
+        if (orderCommand.quantity <= 0) {
+            return false
+        }
+        return when (orderCommand.orderType) {
+            OrderType.LIMIT_ORDER -> orderCommand.price > 0
+            OrderType.MARKET_ORDER -> orderCommand.price >= 0
+        }
+    }
+
+    private fun rejectInvalidOrder(orderCommand: OrderCreateCommand) {
+        if (replayMode) {
+            return
+        }
+        EventDispatcher.emit(
+            RejectOrderEvent(
+                orderCommand.ouid,
+                orderCommand.uuid,
+                orderCommand.pair,
+                orderCommand.price,
+                orderCommand.quantity,
+                orderCommand.direction,
+                orderCommand.matchConstraint,
+                orderCommand.orderType,
+                RequestedOperation.PLACE_ORDER,
+                RejectReason.INVALID_ORDER
             )
         )
     }

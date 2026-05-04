@@ -24,6 +24,59 @@ class SimpleOrderBookUnitTest {
     private val uuid = UUID.randomUUID().toString()
 
     @Test
+    fun givenInvalidOrderValues_whenOrderCreated_thenRejectBeforeBookMutation() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        val publishedEvents = mutableListOf<OrderBookPublishedEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        EventDispatcher.register(OrderBookPublishedEvent::class.java) { publishedEvents.add(it) }
+        val invalidOrders = listOf(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                1,
+                0,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            ),
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                0,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            ),
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                -1,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.IOC,
+                OrderType.MARKET_ORDER
+            )
+        )
+
+        invalidOrders.forEach { command ->
+            Assertions.assertNull(orderBook.handleNewOrderCommand(command))
+        }
+
+        Assertions.assertEquals(3, rejectEvents.count { it.reason == RejectReason.INVALID_ORDER })
+        Assertions.assertEquals(0, publishedEvents.size)
+        Assertions.assertEquals(0, orderBook.orders.size)
+        Assertions.assertEquals(0, orderBook.askOrders.entriesList().size)
+        Assertions.assertEquals(0, orderBook.bidOrders.entriesList().size)
+        Assertions.assertNull(orderBook.bestAskOrder)
+        Assertions.assertNull(orderBook.bestBidOrder)
+    }
+
+    @Test
     fun givenCrossingOwnOrder_whenGtcLimitOrderCreated_thenSelfTradeIsRejected() {
         val orderBook = SimpleOrderBook(pair, false, preventSelfTrade = true)
         val rejectEvents = mutableListOf<RejectOrderEvent>()
