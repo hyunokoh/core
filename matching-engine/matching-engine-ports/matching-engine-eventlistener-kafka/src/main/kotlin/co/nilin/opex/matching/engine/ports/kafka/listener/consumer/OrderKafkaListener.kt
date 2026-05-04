@@ -6,11 +6,12 @@ import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.listener.MessageListener
 import org.springframework.stereotype.Component
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Component
 class OrderKafkaListener : MessageListener<String, OrderRequestEvent> {
 
-    val orderListeners = arrayListOf<OrderRequestEventListener>()
+    val orderListeners = CopyOnWriteArrayList<OrderRequestEventListener>()
 
     override fun onMessage(data: ConsumerRecord<String, OrderRequestEvent>) {
         orderListeners.forEach { tl ->
@@ -21,6 +22,7 @@ class OrderKafkaListener : MessageListener<String, OrderRequestEvent> {
     }
 
     fun addOrderListener(tl: OrderRequestEventListener) {
+        removeOrderListener(tl)
         orderListeners.add(tl)
     }
 

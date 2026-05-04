@@ -5,11 +5,12 @@ import co.nilin.opex.matching.engine.ports.kafka.listener.spi.EventListener
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.listener.MessageListener
 import org.springframework.stereotype.Component
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Component
 class EventKafkaListener : MessageListener<String, CoreEvent> {
 
-    val eventListeners = arrayListOf<EventListener>()
+    val eventListeners = CopyOnWriteArrayList<EventListener>()
 
     override fun onMessage(data: ConsumerRecord<String, CoreEvent>) {
         eventListeners.forEach { tl ->
@@ -18,6 +19,7 @@ class EventKafkaListener : MessageListener<String, CoreEvent> {
     }
 
     fun addEventListener(tl: EventListener) {
+        removeEventListener(tl)
         eventListeners.add(tl)
     }
 
