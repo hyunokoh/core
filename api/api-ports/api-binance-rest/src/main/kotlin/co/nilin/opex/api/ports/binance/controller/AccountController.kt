@@ -311,6 +311,7 @@ class AccountController(
         timestamp: Long
     ): List<QueryOrderResponse> {
         validateSignedRequest(recvWindow, timestamp)
+        validateAccountTimeRange(startTime, endTime)
         val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
         val validLimit = validAccountQueryLimit(limit)
         return queryHandler.allOrders(principal, internalSymbol, startTime, endTime, validLimit).map {
@@ -360,6 +361,8 @@ class AccountController(
         timestamp: Long
     ): List<TradeResponse> {
         validateSignedRequest(recvWindow, timestamp)
+        validateAccountTimeRange(startTime, endTime)
+        validateFromId(fromId)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         val validLimit = validAccountQueryLimit(limit)
 
@@ -482,6 +485,20 @@ class AccountController(
         if (limit != null && limit !in 1..maxAccountQueryLimit)
             throw OpexError.InvalidRequestParam.exception("Parameter 'limit' is either missing or invalid")
         return limit
+    }
+
+    private fun validateAccountTimeRange(startTime: Date?, endTime: Date?) {
+        if (startTime != null && startTime.time <= 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
+        if (endTime != null && endTime.time <= 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'endTime' is either missing or invalid")
+        if (startTime != null && endTime != null && startTime.after(endTime))
+            throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
+    }
+
+    private fun validateFromId(fromId: Long?) {
+        if (fromId != null && fromId < 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'fromId' is either missing or invalid")
     }
 
     private suspend fun responseSymbol(requestSymbol: String?, internalSymbol: String): String {

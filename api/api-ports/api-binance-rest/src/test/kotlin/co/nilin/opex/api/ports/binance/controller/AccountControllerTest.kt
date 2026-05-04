@@ -86,12 +86,80 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenInvertedTimeRange_whenAllOrdersRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.fetchAllOrders(
+                    Principal { "user-1" },
+                    "ETHUSDT",
+                    Date(2000),
+                    Date(1000),
+                    null,
+                    null,
+                    signedTimestamp()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.allOrdersSymbol).isEqualTo("not-called")
+    }
+
+    @Test
     fun givenInvalidLimit_whenMyTradesRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val controller = controller(queryHandler)
 
         assertThatThrownBy {
             runBlocking { controller.fetchAllTrades(Principal { "user-1" }, "ETHUSDT", null, null, null, 0, null, signedTimestamp()) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("not-called")
+    }
+
+    @Test
+    fun givenNegativeFromId_whenMyTradesRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.fetchAllTrades(
+                    Principal { "user-1" },
+                    "ETHUSDT",
+                    null,
+                    null,
+                    -1,
+                    null,
+                    null,
+                    signedTimestamp()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("not-called")
+    }
+
+    @Test
+    fun givenNegativeStartTime_whenMyTradesRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.fetchAllTrades(
+                    Principal { "user-1" },
+                    "ETHUSDT",
+                    Date(-1),
+                    null,
+                    null,
+                    null,
+                    null,
+                    signedTimestamp()
+                )
+            }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(queryHandler.allTradesSymbol).isEqualTo("not-called")
