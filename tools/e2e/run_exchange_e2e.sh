@@ -2372,9 +2372,11 @@ main() {
   assert_wallet_balance "withdraw owner initial USDT" "$withdraw_owner" "USDT" "10"
 
   local withdraw_below_minimum_body='{"currency":"USDT","amount":0.5,"destSymbol":"USDT","destAddress":"0xwithdrawbelowminimum","destNetwork":"test-ethereum","destNote":"below-minimum","description":"e2e withdraw below minimum"}'
+  local withdraw_net_below_minimum_body='{"currency":"USDT","amount":1.05,"destSymbol":"USDT","destAddress":"0xwithdrawnetbelowminimum","destNetwork":"test-ethereum","destNote":"net-below-minimum","description":"e2e withdraw net below minimum"}'
   local withdraw_zero_amount_body='{"currency":"USDT","amount":0,"destSymbol":"USDT","destAddress":"0xwithdrawzero","destNetwork":"test-ethereum","destNote":"zero","description":"e2e withdraw zero"}'
   local withdraw_overbalance_body='{"currency":"USDT","amount":11,"destSymbol":"USDT","destAddress":"0xwithdrawoverbalance","destNetwork":"test-ethereum","destNote":"overbalance","description":"e2e withdraw overbalance"}'
   expect_http_status "withdraw below minimum rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_below_minimum_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-below-minimum.json
+  expect_http_status "withdraw net below minimum rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_net_below_minimum_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-net-below-minimum.json
   expect_http_status "withdraw zero amount rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_zero_amount_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-zero-amount.json
   expect_http_status "withdraw overbalance rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_overbalance_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-overbalance.json
   assert_wallet_balance "withdraw owner unchanged after invalid requests" "$withdraw_owner" "USDT" "10"
