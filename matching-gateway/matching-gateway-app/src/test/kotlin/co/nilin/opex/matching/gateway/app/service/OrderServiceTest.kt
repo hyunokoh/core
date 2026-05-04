@@ -1,6 +1,7 @@
 package co.nilin.opex.matching.gateway.app.service
 
 import co.nilin.opex.common.OpexError
+import co.nilin.opex.matching.engine.core.model.MatchConstraint
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.gateway.app.inout.CancelOrderRequest
@@ -61,6 +62,7 @@ private class OrderServiceTest {
             service.submitNewOrder(
                 VALID.CREATE_ORDER_REQUEST_ASK.copy(
                     price = BigDecimal.ZERO,
+                    matchConstraint = MatchConstraint.IOC,
                     orderType = OrderType.MARKET_ORDER
                 )
             )
@@ -81,6 +83,27 @@ private class OrderServiceTest {
                 service.submitNewOrder(
                     VALID.CREATE_ORDER_REQUEST_BID.copy(
                         price = BigDecimal.ZERO,
+                        orderType = OrderType.MARKET_ORDER
+                    )
+                )
+            }
+        }.isBadRequest()
+
+        assertThat(accountant.lastSymbol).isNull()
+        assertThat(accountant.lastValue).isNull()
+    }
+
+    @Test
+    fun givenMarketOrderWithGtcConstraint_whenSubmitNewOrder_thenThrowBadRequestBeforeAccountantCheck(): Unit = runBlocking {
+        val accountant = RecordingAccountantApiProxy()
+        val service = orderService(accountant)
+
+        assertThatThrownBy {
+            runBlocking {
+                service.submitNewOrder(
+                    VALID.CREATE_ORDER_REQUEST_ASK.copy(
+                        price = BigDecimal.ZERO,
+                        matchConstraint = MatchConstraint.GTC,
                         orderType = OrderType.MARKET_ORDER
                     )
                 )

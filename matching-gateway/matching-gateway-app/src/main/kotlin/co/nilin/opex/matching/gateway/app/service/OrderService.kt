@@ -1,6 +1,7 @@
 package co.nilin.opex.matching.gateway.app.service
 
 import co.nilin.opex.common.OpexError
+import co.nilin.opex.matching.engine.core.model.MatchConstraint
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.engine.core.model.Pair
@@ -35,6 +36,8 @@ class OrderService(
             if (createOrderRequest.price <= BigDecimal.ZERO)
                 badRequest("limit order price must be greater than zero")
         } else {
+            if (createOrderRequest.matchConstraint == MatchConstraint.GTC)
+                badRequest("market order cannot be GTC")
             if (createOrderRequest.price < BigDecimal.ZERO)
                 badRequest("market order price must be zero or greater")
             if (createOrderRequest.direction == OrderDirection.BID && createOrderRequest.price <= BigDecimal.ZERO)

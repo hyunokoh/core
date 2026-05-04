@@ -2344,6 +2344,7 @@ main() {
   local zero_price_ask='{"uuid":null,"pair":"ETH_USDT","price":0,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local negative_price_bid='{"uuid":null,"pair":"ETH_USDT","price":-1,"quantity":1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local zero_price_market_bid='{"uuid":null,"pair":"ETH_USDT","price":0,"quantity":1,"direction":"BID","matchConstraint":"IOC","orderType":"MARKET_ORDER","userLevel":"*"}'
+  local gtc_market_ask='{"uuid":null,"pair":"ETH_USDT","price":0,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"MARKET_ORDER","userLevel":"*"}'
   local malformed_pair_bid='{"uuid":null,"pair":"ETHUSDT","price":100,"quantity":1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local invalid_price_precision_ask='{"uuid":null,"pair":"ETH_USDT","price":100.001,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local invalid_quantity_precision_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.0000001,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
@@ -2351,6 +2352,7 @@ main() {
   expect_http_status "zero price ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$zero_price_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-zero-price.json
   expect_http_status "negative price bid order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$negative_price_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-negative-price.json
   expect_http_status "zero price market bid order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$zero_price_market_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-zero-price-market-bid.json
+  expect_http_status "gtc market ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$gtc_market_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-gtc-market-ask.json
   expect_http_status "malformed pair bid order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$malformed_pair_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-malformed-pair.json
   expect_http_status "invalid price precision ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$invalid_price_precision_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-price-precision.json
   expect_http_status "invalid quantity precision ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$invalid_quantity_precision_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-quantity-precision.json
