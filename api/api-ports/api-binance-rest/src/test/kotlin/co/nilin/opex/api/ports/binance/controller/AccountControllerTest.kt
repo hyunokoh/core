@@ -37,6 +37,18 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenInvalidLimit_whenOpenOrdersRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking { controller.fetchOpenOrders(Principal { "user-1" }, "ETHUSDT", null, 1L, 0) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.openOrdersSymbol).isEqualTo("not-called")
+    }
+
+    @Test
     fun givenNoSymbol_whenAllOrdersRequested_thenQueryAllOrdersAndReturnAliasSymbols(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val controller = controller(queryHandler)

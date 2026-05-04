@@ -263,7 +263,8 @@ class AccountController(
         limit: Int?
     ): List<QueryOrderResponse> {
         val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
-        return queryHandler.openOrders(principal, internalSymbol, limit).map {
+        val validLimit = validOptionalAccountQueryLimit(limit)
+        return queryHandler.openOrders(principal, internalSymbol, validLimit).map {
             it.asQueryOrderResponse().apply { this.symbol = responseSymbol(symbol, it.symbol) }
         }
     }
@@ -468,6 +469,12 @@ class AccountController(
         if (validLimit !in 1..maxAccountQueryLimit)
             throw OpexError.InvalidRequestParam.exception("Parameter 'limit' is either missing or invalid")
         return validLimit
+    }
+
+    private fun validOptionalAccountQueryLimit(limit: Int?): Int? {
+        if (limit != null && limit !in 1..maxAccountQueryLimit)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'limit' is either missing or invalid")
+        return limit
     }
 
     private suspend fun responseSymbol(requestSymbol: String?, internalSymbol: String): String {
