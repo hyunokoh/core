@@ -825,6 +825,59 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenPartiallyFilledBidOrder_whenCanceled_thenCancelEventUsesCurrentRemainingQuantity() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val bidOuid = UUID.randomUUID().toString()
+        val bidOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                bidOuid,
+                uuid,
+                pair,
+                10,
+                5,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+        orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )
+        val cancelEvents = mutableListOf<CancelOrderEvent>()
+        val publishedEvents = mutableListOf<OrderBookPublishedEvent>()
+        EventDispatcher.register(CancelOrderEvent::class.java) { cancelEvents.add(it) }
+        EventDispatcher.register(OrderBookPublishedEvent::class.java) { publishedEvents.add(it) }
+
+        orderBook.handleCancelCommand(OrderCancelCommand(bidOuid, uuid, bidOrder.id()!!, pair))
+
+        Assertions.assertEquals(1, cancelEvents.size)
+        cancelEvents.single().also {
+            Assertions.assertEquals(bidOuid, it.ouid)
+            Assertions.assertEquals(uuid, it.uuid)
+            Assertions.assertEquals(bidOrder.id(), it.orderId)
+            Assertions.assertEquals(10, it.price)
+            Assertions.assertEquals(5, it.quantity)
+            Assertions.assertEquals(3, it.remainedQuantity)
+            Assertions.assertEquals(OrderDirection.BID, it.direction)
+            Assertions.assertEquals(MatchConstraint.GTC, it.matchConstraint)
+            Assertions.assertEquals(OrderType.LIMIT_ORDER, it.orderType)
+        }
+        Assertions.assertEquals(1, publishedEvents.size)
+        Assertions.assertEquals(0, orderBook.orders.size)
+        Assertions.assertNull(orderBook.bestBidOrder)
+        Assertions.assertNull(orderBook.bestAskOrder)
+    }
+
+    @Test
     fun givenOrderBookWithBidOrder_whenDifferentUserCancels_thenOrderRemainsOpen() {
         //given
         val orderBook = SimpleOrderBook(pair, false)
