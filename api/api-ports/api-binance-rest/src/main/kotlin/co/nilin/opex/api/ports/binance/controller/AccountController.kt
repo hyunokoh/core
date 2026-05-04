@@ -94,6 +94,7 @@ class AccountController(
         validateSignedRequest(recvWindow, timestamp)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateNewOrderParams(type, price, quantity, timeInForce, stopPrice, quoteOrderQty)
+        validateUnsupportedNewOrderParams(newClientOrderId, icebergQty, newOrderRespType)
 
         matchingGatewayProxy.createNewOrder(
             securityContext.jwtAuthentication().name,
@@ -457,6 +458,19 @@ class AccountController(
 
             else -> throw OpexError.InvalidRequestParam.exception("Parameter 'type' is either missing or invalid")
         }
+    }
+
+    private fun validateUnsupportedNewOrderParams(
+        newClientOrderId: String?,
+        icebergQty: BigDecimal?,
+        newOrderRespType: OrderResponseType?
+    ) {
+        if (newClientOrderId != null)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'newClientOrderId' is either missing or invalid")
+        if (icebergQty != null)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'icebergQty' is either missing or invalid")
+        if (newOrderRespType != null)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'newOrderRespType' is either missing or invalid")
     }
 
     private fun checkDecimal(decimal: BigDecimal?, paramName: String) {
