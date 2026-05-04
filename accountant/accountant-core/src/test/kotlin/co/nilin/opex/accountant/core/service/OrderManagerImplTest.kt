@@ -221,6 +221,9 @@ internal class OrderManagerImplTest {
             assertThat(persistedOrder.filledQuantity).isEqualTo(500)
             assertThat(persistedOrder.remainedTransferAmount).isEqualByComparingTo(BigDecimal.valueOf(50))
             assertThat(persistedOrder.status).isEqualTo(OrderStatus.PARTIALLY_FILLED.code)
+            val richOrder = richOrderPublisher.published.single() as RichOrder
+            assertThat(richOrder.status).isEqualTo(OrderStatus.PARTIALLY_FILLED.code)
+            assertThat(richOrder.executedQuantity).isEqualByComparingTo(BigDecimal("0.0005000"))
         }
 
     @Test
