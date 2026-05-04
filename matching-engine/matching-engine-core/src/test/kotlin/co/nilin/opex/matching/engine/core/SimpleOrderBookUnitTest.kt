@@ -1007,6 +1007,145 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenOwnBidOrder_whenAskEditWouldSelfTrade_thenRejectBeforeBookMutation() {
+        val orderBook = SimpleOrderBook(pair, false, preventSelfTrade = true)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        val tradeEvents = mutableListOf<TradeEvent>()
+        val updateEvents = mutableListOf<UpdatedOrderEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        EventDispatcher.register(TradeEvent::class.java) { tradeEvents.add(it) }
+        EventDispatcher.register(UpdatedOrderEvent::class.java) { updateEvents.add(it) }
+        val bidOuid = UUID.randomUUID().toString()
+        val bidOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                bidOuid,
+                uuid,
+                pair,
+                10,
+                2,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+        val askOuid = UUID.randomUUID().toString()
+        val askOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                askOuid,
+                uuid,
+                pair,
+                11,
+                3,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+
+        val editedOrder = orderBook.handleEditCommand(
+            OrderEditCommand(
+                askOuid,
+                uuid,
+                askOrder.id()!!,
+                pair,
+                10,
+                3
+            )
+        )
+
+        Assertions.assertNull(editedOrder)
+        Assertions.assertEquals(1, rejectEvents.count {
+            it.ouid == askOuid &&
+                it.requestedOperation == RequestedOperation.EDIT_ORDER &&
+                it.reason == RejectReason.SELF_TRADE_PREVENTION
+        })
+        Assertions.assertTrue(tradeEvents.isEmpty())
+        Assertions.assertTrue(updateEvents.isEmpty())
+        Assertions.assertEquals(2, orderBook.orders.size)
+        Assertions.assertEquals(askOrder, orderBook.bestAskOrder)
+        Assertions.assertEquals(bidOrder, orderBook.bestBidOrder)
+        Assertions.assertEquals(3, askOrder.remainedQuantity())
+        Assertions.assertEquals(2, bidOrder.remainedQuantity())
+    }
+
+    @Test
+    fun givenExternalAskBeforeOwnAsk_whenBidEditWouldEventuallySelfTrade_thenRejectWithoutPartialFill() {
+        val orderBook = SimpleOrderBook(pair, false, preventSelfTrade = true)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        val tradeEvents = mutableListOf<TradeEvent>()
+        val updateEvents = mutableListOf<UpdatedOrderEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        EventDispatcher.register(TradeEvent::class.java) { tradeEvents.add(it) }
+        EventDispatcher.register(UpdatedOrderEvent::class.java) { updateEvents.add(it) }
+        val externalUuid = UUID.randomUUID().toString()
+        val externalAskOuid = UUID.randomUUID().toString()
+        val externalAskOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                externalAskOuid,
+                externalUuid,
+                pair,
+                9,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+        val ownAskOuid = UUID.randomUUID().toString()
+        val ownAskOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                ownAskOuid,
+                uuid,
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+        val bidOuid = UUID.randomUUID().toString()
+        val bidOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                bidOuid,
+                uuid,
+                pair,
+                8,
+                5,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+
+        val editedOrder = orderBook.handleEditCommand(
+            OrderEditCommand(
+                bidOuid,
+                uuid,
+                bidOrder.id()!!,
+                pair,
+                10,
+                5
+            )
+        )
+
+        Assertions.assertNull(editedOrder)
+        Assertions.assertEquals(1, rejectEvents.count {
+            it.ouid == bidOuid &&
+                it.requestedOperation == RequestedOperation.EDIT_ORDER &&
+                it.reason == RejectReason.SELF_TRADE_PREVENTION
+        })
+        Assertions.assertTrue(tradeEvents.isEmpty())
+        Assertions.assertTrue(updateEvents.isEmpty())
+        Assertions.assertEquals(3, orderBook.orders.size)
+        Assertions.assertEquals(externalAskOrder, orderBook.bestAskOrder)
+        Assertions.assertEquals(bidOrder, orderBook.bestBidOrder)
+        Assertions.assertEquals(1, externalAskOrder.remainedQuantity())
+        Assertions.assertEquals(2, ownAskOrder.remainedQuantity())
+        Assertions.assertEquals(5, bidOrder.remainedQuantity())
+    }
+
+    @Test
     fun givenOrderBookWithBidOrder_whenInvalidEditRequested_thenRejectBeforeBookMutation() {
         val orderBook = SimpleOrderBook(pair, false)
         val rejectEvents = mutableListOf<RejectOrderEvent>()
