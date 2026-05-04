@@ -42,6 +42,30 @@ private class MarketControllerTest {
     }
 
     @Test
+    fun givenBlankSymbol_whenOrderBookRequested_thenThrowInvalidParamBeforeProxyCall(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.orderBook(" ", null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
+    @Test
+    fun givenBlankSymbol_whenRecentTradesRequested_thenThrowInvalidParamBeforeProxyCall(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.recentTrades(Principal { "public" }, " ", null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
+    @Test
     fun givenInvalidTickerDuration_whenPriceChangeRequested_thenThrowInvalidDurationBeforeProxyCall(): Unit = runBlocking {
         val marketDataProxy = RecordingMarketDataProxy()
         val controller = controller(marketDataProxy)
@@ -96,6 +120,18 @@ private class MarketControllerTest {
 
         assertThatThrownBy {
             runBlocking { controller.klines("ETHUSDT", "1m", -1, null, null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
+    @Test
+    fun givenBlankSymbol_whenKlinesRequested_thenThrowInvalidParamBeforeProxyCall(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.klines(" ", "1m", null, null, null) }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         marketDataProxy.assertNotCalled()

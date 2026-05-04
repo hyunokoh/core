@@ -43,6 +43,7 @@ class MarketController(
         limit: Int? // Default 100; max 5000. Valid limits:[5, 10, 20, 50, 100, 500, 1000, 5000]
     ): OrderBookResponse {
         val validLimit = limit ?: 100
+        validateRequiredSymbol(symbol)
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         if (!orderBookValidLimits.contains(validLimit))
             throw OpexError.InvalidLimitForOrderBook.exception()
@@ -82,6 +83,7 @@ class MarketController(
         limit: Int? // Default 500; max 1000.
     ): List<RecentTradeResponse> {
         val validLimit = limit ?: 500
+        validateRequiredSymbol(symbol)
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         if (validLimit !in 1..1000)
             throw OpexError.InvalidLimitForRecentTrades.exception()
@@ -227,6 +229,7 @@ class MarketController(
         limit: Int? // Default 500; max 1000.
     ): List<List<Any>> {
         val validLimit = limit ?: 500
+        validateRequiredSymbol(symbol)
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         if (validLimit !in 1..1000)
             throw OpexError.InvalidLimitForRecentTrades.exception()
@@ -268,6 +271,11 @@ class MarketController(
 
     private fun validateOptionalSymbol(symbol: String?) {
         if (symbol != null && symbol.isBlank())
+            throw OpexError.InvalidRequestParam.exception("Parameter 'symbol' is either missing or invalid")
+    }
+
+    private fun validateRequiredSymbol(symbol: String?) {
+        if (symbol.isNullOrBlank())
             throw OpexError.InvalidRequestParam.exception("Parameter 'symbol' is either missing or invalid")
     }
 
