@@ -2409,6 +2409,10 @@ main() {
   expect_http_status "withdraw processing user cancel rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-processing-cancel.json
   wait_withdraw_status "withdraw remains processing after cancel attempt" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-after-cancel.json
   assert_wallet_balance "withdraw owner still reserved while processing" "$withdraw_owner" "USDT" "6"
+  expect_http_status "withdraw zero dest amount accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-zero-dest&destAmount=0")" >/tmp/opex-e2e-withdraw-zero-dest-accept.json
+  expect_http_status "withdraw excessive dest amount accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-excessive-dest&destAmount=4.01")" >/tmp/opex-e2e-withdraw-excessive-dest-accept.json
+  wait_withdraw_status "withdraw remains processing after invalid accept attempts" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-after-invalid-accept.json
+  assert_wallet_balance "withdraw owner still reserved after invalid accept attempts" "$withdraw_owner" "USDT" "6"
   expect_2xx "withdraw accept action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=3.9")" >/tmp/opex-e2e-withdraw-done.json
   wait_withdraw_status "withdraw done" "$withdraw_accept_id" "DONE" /tmp/opex-e2e-withdraw-done-state.json
   assert_wallet_balance "withdraw owner final after accept" "$withdraw_owner" "USDT" "6"
@@ -3435,6 +3439,7 @@ main() {
       "fee": 0.1,
       "destAmount": 3.9,
       "processingCancelRejected": true,
+      "invalidDestAmountAcceptRejected": true,
       "finalStatus": "DONE",
       "duplicateAcceptRejected": true,
       "terminalTransitionsRejected": true,
