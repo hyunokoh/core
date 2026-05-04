@@ -33,7 +33,10 @@ class PaymentGatewayController(
         val convertedAmount = when (request.currency) {
             PaymentCurrency.RIALS -> (request.amount / BigDecimal.valueOf(10)).toLong()
             PaymentCurrency.TOMAN -> request.amount.toLong()
-        }
+        }.toBigDecimal()
+
+        if (convertedAmount <= BigDecimal.ZERO)
+            throw OpexError.InvalidAmount.exception()
 
         val currency = currencyService.getCurrency("IRT") ?: throw OpexError.CurrencyNotFound.exception()
         val sourceOwner = walletOwnerManager.findWalletOwner(walletOwnerManager.systemUuid)
@@ -55,11 +58,11 @@ class PaymentGatewayController(
             receiverWalletType
         )
 
-        val command = transferManager.transfer(
+        transferManager.transfer(
             TransferCommand(
                 sourceWallet,
                 receiverWallet,
-                Amount(sourceWallet.currency, convertedAmount.toBigDecimal()),
+                Amount(sourceWallet.currency, convertedAmount),
                 request.description,
                 request.reference,
                 TransferCategory.DEPOSIT
