@@ -199,10 +199,71 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
         assertThat(ticker).isNotNull
         assertThat(ticker!!.bidPrice).isEqualByComparingTo(BigDecimal.valueOf(100))
         assertThat(ticker.askPrice).isEqualByComparingTo(BigDecimal.valueOf(110))
+        assertThat(ticker.openPrice).isEqualByComparingTo(BigDecimal.valueOf(100))
         assertThat(ticker.weightedAvgPrice).isEqualByComparingTo(BigDecimal.valueOf(150))
         assertThat(bestPrices).hasSize(1)
         assertThat(bestPrices.first().bidPrice).isEqualByComparingTo(BigDecimal.valueOf(100))
         assertThat(bestPrices.first().askPrice).isEqualByComparingTo(BigDecimal.valueOf(110))
+    }
+
+    @Test
+    fun givenMultipleSymbols_whenMostVolumeAndMostTradesRequested_thenReturnHighestStats(): Unit = runBlocking {
+        val now = LocalDateTime.now()
+        seedTrade(
+            tradeWith(
+                tradeId = 2001,
+                symbol = "LOW_VOL_USDT",
+                matchedPrice = BigDecimal.valueOf(10),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(3)
+            )
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 2002,
+                symbol = "HIGH_VOL_USDT",
+                matchedPrice = BigDecimal.valueOf(10),
+                matchedQuantity = BigDecimal.valueOf(5),
+                createDate = now.minusMinutes(2)
+            )
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 2003,
+                symbol = "HIGH_TRADES_USDT",
+                matchedPrice = BigDecimal.valueOf(10),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(3)
+            )
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 2004,
+                symbol = "HIGH_TRADES_USDT",
+                matchedPrice = BigDecimal.valueOf(11),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(2)
+            )
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 2005,
+                symbol = "HIGH_TRADES_USDT",
+                matchedPrice = BigDecimal.valueOf(12),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(1)
+            )
+        )
+
+        val mostVolume = marketQueryHandler.mostVolume(Interval.TwentyFourHours)
+        val mostTrades = marketQueryHandler.mostTrades(Interval.TwentyFourHours)
+
+        assertThat(mostVolume).isNotNull
+        assertThat(mostVolume!!.symbol).isEqualTo("HIGH_VOL_USDT")
+        assertThat(mostVolume.volume).isEqualByComparingTo(BigDecimal.valueOf(5))
+        assertThat(mostTrades).isNotNull
+        assertThat(mostTrades!!.symbol).isEqualTo("HIGH_TRADES_USDT")
+        assertThat(mostTrades.tradeCount).isEqualByComparingTo(BigDecimal.valueOf(3))
     }
 
     private suspend fun seedOrder(

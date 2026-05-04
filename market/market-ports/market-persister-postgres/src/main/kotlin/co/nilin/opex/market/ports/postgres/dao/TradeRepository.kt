@@ -150,12 +150,7 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
             where symbol=t.symbol and side='ASK'
             order by price asc limit 1
         ) as ask_price,
-        (
-            select price from orders
-            inner join open_orders oo on orders.ouid = oo.ouid
-            where create_date > :date and symbol=t.symbol
-            order by create_date desc limit 1
-        ) as open_price,
+        (select matched_price from first_trade where symbol=t.symbol) as open_price,
         max(matched_price) as high_price, 
         min(matched_price) as low_price, 
         sum(matched_quantity) as volume, 
@@ -191,12 +186,7 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
             where symbol=t.symbol and side='ASK'
             order by price asc limit 1
         ) as ask_price,
-        (
-            select price from orders
-            inner join open_orders oo on orders.ouid = oo.ouid
-            where create_date > :date and symbol=t.symbol
-            order by create_date desc limit 1
-        ) as open_price,
+        (select matched_price from first_trade) as open_price,
         max(matched_price) as high_price, 
         min(matched_price) as low_price, 
         sum(matched_quantity) as volume, 
@@ -405,7 +395,7 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
         from trades t
         where create_date > :since
         group by symbol
-        order by volume
+        order by volume desc
         limit 1
     """
     )
@@ -429,7 +419,7 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
         from trades t
         where create_date > :since
         group by symbol
-        order by trade_count
+        order by trade_count desc
         limit 1
     """
     )
