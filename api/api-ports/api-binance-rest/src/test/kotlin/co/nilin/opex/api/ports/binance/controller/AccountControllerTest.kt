@@ -167,6 +167,29 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenBlankSymbol_whenMyTradesRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.fetchAllTrades(
+                    Principal { "user-1" },
+                    " ",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    signedTimestamp()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("not-called")
+    }
+
+    @Test
     fun givenNegativeStartTime_whenMyTradesRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val controller = controller(queryHandler)
@@ -265,6 +288,31 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenBlankSymbol_whenCancelOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.cancelOrder(
+                    principal = Principal { "user-1" },
+                    symbol = " ",
+                    orderId = 100,
+                    origClientOrderId = null,
+                    newClientOrderId = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.queryOrderCallCount).isZero()
+        assertThat(matchingGatewayProxy.cancelOrderCallCount).isZero()
+    }
+
+    @Test
     fun givenInvalidOrderId_whenCancelOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
@@ -340,6 +388,18 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenBlankSymbol_whenQueryOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking { controller.queryOrder(Principal { "user-1" }, " ", 100, null, null, signedTimestamp()) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.queryOrderCallCount).isZero()
+    }
+
+    @Test
     fun givenUnsupportedOrderType_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
@@ -356,6 +416,35 @@ private class AccountControllerTest {
                     price = null,
                     newClientOrderId = null,
                     stopPrice = BigDecimal("90"),
+                    icebergQty = null,
+                    newOrderRespType = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenBlankSymbol_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.createNewOrder(
+                    symbol = " ",
+                    side = OrderSide.BUY,
+                    type = OrderType.LIMIT,
+                    timeInForce = TimeInForce.GTC,
+                    quantity = BigDecimal("0.5"),
+                    quoteOrderQty = null,
+                    price = BigDecimal("100"),
+                    newClientOrderId = null,
+                    stopPrice = null,
                     icebergQty = null,
                     newOrderRespType = null,
                     recvWindow = null,

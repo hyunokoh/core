@@ -92,6 +92,7 @@ class AccountController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): NewOrderResponse {
         validateSignedRequest(recvWindow, timestamp)
+        validateRequiredSymbol(symbol)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateNewOrderParams(type, price, quantity, timeInForce, stopPrice, quoteOrderQty)
         validateUnsupportedNewOrderParams(newClientOrderId, icebergQty, newOrderRespType)
@@ -148,6 +149,7 @@ class AccountController(
         @CurrentSecurityContext securityContext: SecurityContext
     ): CancelOrderResponse {
         validateSignedRequest(recvWindow, timestamp)
+        validateRequiredSymbol(symbol)
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateOrderLookupParams(orderId, origClientOrderId)
         validateUnsupportedCancelOrderParams(newClientOrderId)
@@ -225,6 +227,7 @@ class AccountController(
         timestamp: Long
     ): QueryOrderResponse {
         validateSignedRequest(recvWindow, timestamp)
+        validateRequiredSymbol(symbol)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateOrderLookupParams(orderId, origClientOrderId)
         return queryHandler.queryOrder(principal, internalSymbol, orderId, origClientOrderId)
@@ -365,6 +368,7 @@ class AccountController(
         timestamp: Long
     ): List<TradeResponse> {
         validateSignedRequest(recvWindow, timestamp)
+        validateRequiredSymbol(symbol)
         validateAccountTimeRange(startTime, endTime)
         validateFromId(fromId)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
@@ -533,6 +537,11 @@ class AccountController(
 
     private fun validateOptionalSymbol(symbol: String?) {
         if (symbol != null && symbol.isBlank())
+            throw OpexError.InvalidRequestParam.exception("Parameter 'symbol' is either missing or invalid")
+    }
+
+    private fun validateRequiredSymbol(symbol: String?) {
+        if (symbol.isNullOrBlank())
             throw OpexError.InvalidRequestParam.exception("Parameter 'symbol' is either missing or invalid")
     }
 
