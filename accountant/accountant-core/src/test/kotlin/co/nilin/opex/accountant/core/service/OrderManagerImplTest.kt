@@ -374,6 +374,58 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenUpdateOrderPersistFails_whenLocalFound_doNotPublishRichOrderUpdate(): Unit = runBlocking {
+        val localRichOrderPublisher = RecordingRichOrderPublisher()
+        val localOrderPersister = InMemoryOrderPersister()
+        val failingFinancialActionStore = RecordingFinancialActionStore(
+            IllegalStateException("financial action persist failed")
+        )
+        val localOrderManager = OrderManagerImpl(
+            pairConfigLoader,
+            userLevelLoader,
+            failingFinancialActionStore,
+            failingFinancialActionStore,
+            localOrderPersister,
+            tempEventPersister,
+            localRichOrderPublisher,
+            financialActionPublisher,
+            JsonMapperTestImpl(),
+            RecordingProcessedEventPersister()
+        )
+        val orderEvent = UpdatedOrderEvent(
+            "persist_fail_update_ouid",
+            "user_id",
+            88,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            120000,
+            1000,
+            1000,
+            OrderDirection.BID
+        )
+        localOrderPersister.orders[orderEvent.ouid] = Valid.order.copy(
+            ouid = orderEvent.ouid,
+            uuid = orderEvent.uuid,
+            matchingEngineId = orderEvent.orderId,
+            price = orderEvent.oldPrice,
+            quantity = orderEvent.oldQuantity,
+            remainedTransferAmount = BigDecimal("1.000000000"),
+            firstTransferAmount = BigDecimal("1.000000000")
+        )
+
+        var thrown: Throwable? = null
+        try {
+            localOrderManager.handleUpdateOrder(orderEvent)
+        } catch (e: Throwable) {
+            thrown = e
+        }
+
+        assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
+        assertThat(localRichOrderPublisher.published).isEmpty()
+    }
+
+    @Test
     fun givenStaleUpdateOrderEvent_whenLocalOrderAlreadyMoved_thenIgnoreWithoutRegressingOrder(): Unit = runBlocking {
         val orderEvent = UpdatedOrderEvent(
             "stale_update_ouid",
@@ -498,6 +550,60 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenRejectOrderPersistFails_whenLocalFound_doNotPublishRichOrderUpdate(): Unit = runBlocking {
+        val localRichOrderPublisher = RecordingRichOrderPublisher()
+        val localOrderPersister = InMemoryOrderPersister()
+        val failingFinancialActionStore = RecordingFinancialActionStore(
+            IllegalStateException("financial action persist failed")
+        )
+        val localOrderManager = OrderManagerImpl(
+            pairConfigLoader,
+            userLevelLoader,
+            failingFinancialActionStore,
+            failingFinancialActionStore,
+            localOrderPersister,
+            tempEventPersister,
+            localRichOrderPublisher,
+            financialActionPublisher,
+            JsonMapperTestImpl(),
+            RecordingProcessedEventPersister()
+        )
+        val orderEvent = RejectOrderEvent(
+            "persist_fail_reject_ouid",
+            "user_1",
+            56,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER,
+            RequestedOperation.PLACE_ORDER,
+            RejectReason.ORDER_NOT_FOUND,
+        )
+        localOrderPersister.orders[orderEvent.ouid] = Valid.order.copy(
+            ouid = orderEvent.ouid,
+            uuid = orderEvent.uuid,
+            matchingEngineId = orderEvent.orderId,
+            price = orderEvent.price!!,
+            quantity = orderEvent.quantity!!,
+            direction = orderEvent.direction!!,
+            matchConstraint = orderEvent.matchConstraint!!,
+            orderType = orderEvent.orderType!!
+        )
+
+        var thrown: Throwable? = null
+        try {
+            localOrderManager.handleRejectOrder(orderEvent)
+        } catch (e: Throwable) {
+            thrown = e
+        }
+
+        assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
+        assertThat(localRichOrderPublisher.published).isEmpty()
+    }
+
+    @Test
     fun givenCancelOrderReceived_whenLocalOrderNull_saveTempEvent(): Unit = runBlocking {
         val orderEvent = CancelOrderEvent(
             "order_ouid",
@@ -541,6 +647,58 @@ internal class OrderManagerImplTest {
 
         assertThat(richOrderPublisher.published).hasSize(1)
         assertThat(orderPersister.saved).hasSize(1)
+    }
+
+    @Test
+    fun givenCancelOrderPersistFails_whenLocalFound_doNotPublishRichOrderUpdate(): Unit = runBlocking {
+        val localRichOrderPublisher = RecordingRichOrderPublisher()
+        val localOrderPersister = InMemoryOrderPersister()
+        val failingFinancialActionStore = RecordingFinancialActionStore(
+            IllegalStateException("financial action persist failed")
+        )
+        val localOrderManager = OrderManagerImpl(
+            pairConfigLoader,
+            userLevelLoader,
+            failingFinancialActionStore,
+            failingFinancialActionStore,
+            localOrderPersister,
+            tempEventPersister,
+            localRichOrderPublisher,
+            financialActionPublisher,
+            JsonMapperTestImpl(),
+            RecordingProcessedEventPersister()
+        )
+        val orderEvent = CancelOrderEvent(
+            "persist_fail_cancel_ouid",
+            "user_1",
+            88,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            500,
+            OrderDirection.BID
+        )
+        localOrderPersister.orders[orderEvent.ouid] = Valid.order.copy(
+            ouid = orderEvent.ouid,
+            uuid = orderEvent.uuid,
+            matchingEngineId = orderEvent.orderId,
+            price = orderEvent.price,
+            quantity = orderEvent.quantity,
+            direction = orderEvent.direction,
+            matchConstraint = orderEvent.matchConstraint,
+            orderType = orderEvent.orderType,
+            filledQuantity = 500
+        )
+
+        var thrown: Throwable? = null
+        try {
+            localOrderManager.handleCancelOrder(orderEvent)
+        } catch (e: Throwable) {
+            thrown = e
+        }
+
+        assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
+        assertThat(localRichOrderPublisher.published).isEmpty()
     }
 
     @Test

@@ -257,17 +257,16 @@ open class OrderManagerImpl(
             )
         }
 
-        richOrderPublisher.publish(
-            RichOrderUpdate(
-                updatedOrder.ouid,
-                updatedOrder.origPrice,
-                updatedOrder.origQuantity,
-                newRemainedQuantity.toBigDecimal().multiply(updatedOrder.leftSideFraction),
-                updatedStatus
-            )
+        val richOrderUpdate = RichOrderUpdate(
+            updatedOrder.ouid,
+            updatedOrder.origPrice,
+            updatedOrder.origQuantity,
+            newRemainedQuantity.toBigDecimal().multiply(updatedOrder.leftSideFraction),
+            updatedStatus
         )
 
         return financialActionPersister.persist(financialActions).also {
+            richOrderPublisher.publish(richOrderUpdate)
             tempEventPersister.removeTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
         }
     }
@@ -339,16 +338,15 @@ open class OrderManagerImpl(
         //update order status
         order.status = OrderStatus.REJECTED.code
         orderPersister.save(order)
-        richOrderPublisher.publish(
-            RichOrderUpdate(
-                order.ouid,
-                order.price.toBigDecimal(),
-                order.quantity.toBigDecimal(),
-                BigDecimal.ZERO,
-                OrderStatus.REJECTED
-            )
+        val richOrderUpdate = RichOrderUpdate(
+            order.ouid,
+            order.price.toBigDecimal(),
+            order.quantity.toBigDecimal(),
+            BigDecimal.ZERO,
+            OrderStatus.REJECTED
         )
         return financialActionPersister.persist(listOf(financialAction)).also {
+            richOrderPublisher.publish(richOrderUpdate)
             tempEventPersister.removeTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
         }
         /*publishFinancialAction(financialAction)
@@ -412,16 +410,15 @@ open class OrderManagerImpl(
         //update order status
         order.status = OrderStatus.CANCELED.code
         orderPersister.save(order)
-        richOrderPublisher.publish(
-            RichOrderUpdate(
-                order.ouid,
-                order.price.toBigDecimal(),
-                order.quantity.toBigDecimal(),
-                cancelOrderEvent.remainedQuantity.toBigDecimal(),
-                OrderStatus.CANCELED
-            )
+        val richOrderUpdate = RichOrderUpdate(
+            order.ouid,
+            order.price.toBigDecimal(),
+            order.quantity.toBigDecimal(),
+            cancelOrderEvent.remainedQuantity.toBigDecimal(),
+            OrderStatus.CANCELED
         )
         return financialActionPersister.persist(listOf(financialAction)).also {
+            richOrderPublisher.publish(richOrderUpdate)
             tempEventPersister.removeTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
         }
         /*publishFinancialAction(financialAction)
