@@ -16,6 +16,7 @@ class KafkaHealthIndicator(
 
     private val logger = LoggerFactory.getLogger(KafkaHealthIndicator::class.java)
     private val options = DescribeClusterOptions().timeoutMs(1000)
+    @Volatile
     private var pIsHealthy = false
     val isHealthy
         get() = pIsHealthy
