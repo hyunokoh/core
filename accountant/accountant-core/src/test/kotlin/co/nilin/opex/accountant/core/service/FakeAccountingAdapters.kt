@@ -23,11 +23,14 @@ import co.nilin.opex.matching.engine.core.eventh.events.CoreEvent
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import java.time.LocalDateTime
 
-internal class RecordingFinancialActionStore : FinancialActionPersister, FinancialActionLoader {
+internal class RecordingFinancialActionStore(
+    private val persistFailure: RuntimeException? = null
+) : FinancialActionPersister, FinancialActionLoader {
     val persisted = mutableListOf<FinancialAction>()
     val statusByUuid = mutableMapOf<String, FinancialActionStatus>()
 
     override suspend fun persist(financialActions: List<FinancialAction>): List<FinancialAction> {
+        persistFailure?.let { throw it }
         persisted.addAll(financialActions)
         return financialActions
     }

@@ -685,6 +685,99 @@ internal class TradeManagerImplTest {
         assertThat(localProcessedEventPersister.processed).hasSize(1)
     }
 
+    @Test
+    fun givenFinancialActionPersistFails_whenTradeHandled_thenDoNotPublishRichEvents(): Unit = runBlocking {
+        val localOrderPersister = InMemoryOrderPersister()
+        val localTempEventPersister = InMemoryTempEventPersister()
+        val localRichOrderPublisher = RecordingRichOrderPublisher()
+        val localRichTradePublisher = RecordingRichTradePublisher()
+        val actionLoader = RecordingFinancialActionStore()
+        val failingActionPersister = RecordingFinancialActionStore(IllegalStateException("financial action persist failed"))
+        val localOrderManager = OrderManagerImpl(
+            pairConfigLoader,
+            userLevelLoader,
+            actionLoader,
+            actionLoader,
+            localOrderPersister,
+            localTempEventPersister,
+            localRichOrderPublisher,
+            financialActionPublisher,
+            jsonMapper,
+            RecordingProcessedEventPersister()
+        )
+        val localTradeManager = TradeManagerImpl(
+            failingActionPersister,
+            actionLoader,
+            localOrderPersister,
+            localTempEventPersister,
+            localRichTradePublisher,
+            localRichOrderPublisher,
+            FeeCalculatorImpl("0x0", jsonMapper),
+            financialActionPublisher,
+            jsonMapper,
+            RecordingProcessedEventPersister()
+        )
+        val pair = Pair("eth", "btc")
+        val pairConfig = PairConfig(
+            pair.toString(),
+            pair.leftSideName,
+            pair.rightSideName,
+            BigDecimal.valueOf(1.0),
+            BigDecimal.valueOf(0.01)
+        )
+        val makerSubmitOrderEvent = SubmitOrderEvent(
+            "persist-fail-maker-ouid",
+            "persist-fail-maker-uuid",
+            null,
+            pair,
+            60000,
+            2,
+            2,
+            OrderDirection.ASK,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        val takerSubmitOrderEvent = SubmitOrderEvent(
+            "persist-fail-taker-ouid",
+            "persist-fail-taker-uuid",
+            null,
+            pair,
+            70000,
+            2,
+            2,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        prepareOrder(
+            pairConfig,
+            makerSubmitOrderEvent,
+            BigDecimal.valueOf(0.1),
+            BigDecimal.valueOf(0.12),
+            localOrderManager,
+            localOrderPersister
+        )
+        prepareOrder(
+            pairConfig,
+            takerSubmitOrderEvent,
+            BigDecimal.valueOf(0.08),
+            BigDecimal.valueOf(0.1),
+            localOrderManager,
+            localOrderPersister
+        )
+
+        var thrown: Throwable? = null
+        try {
+            localTradeManager.handleTrade(makeTradeEvent(pair, takerSubmitOrderEvent, makerSubmitOrderEvent, 1))
+        } catch (e: Throwable) {
+            thrown = e
+        }
+
+        assertThat(thrown).isInstanceOf(IllegalStateException::class.java)
+        assertThat(localRichOrderPublisher.published).isEmpty()
+        assertThat(localRichTradePublisher.published).isEmpty()
+    }
+
     private fun makeTradeEvent(
         pair: Pair,
         takerSubmitOrderEvent: SubmitOrderEvent,
@@ -765,7 +858,7 @@ internal class TradeManagerImplTest {
         makerFee: BigDecimal,
         takerFee: BigDecimal,
         orderManager: OrderManagerImpl,
-        orderPersister: CopyingInMemoryOrderPersister
+        orderPersister: InMemoryOrderPersister
     ) {
         pairConfigLoader.put(
             pairConfig,

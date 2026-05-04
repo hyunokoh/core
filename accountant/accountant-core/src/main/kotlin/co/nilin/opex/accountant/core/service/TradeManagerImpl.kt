@@ -129,7 +129,7 @@ open class TradeManagerImpl(
         }
         orderPersister.save(takerOrder)
         logger.info("Taker order saved: uuid=${takerOrder.uuid}")
-        publishTakerRichOrderUpdate(takerOrder, trade)
+        val takerRichOrderUpdate = createTakerRichOrderUpdate(takerOrder, trade)
 
         //create fa for transfer makerUuid symbol exchange wallet to taker symbol main wallet
         /*
@@ -165,7 +165,7 @@ open class TradeManagerImpl(
         }
         orderPersister.save(makerOrder)
         logger.info("Maker order saved: uuid=${makerOrder.uuid}")
-        publishMakerRichOrderUpdate(makerOrder, trade)
+        val makerRichOrderUpdate = createMakerRichOrderUpdate(makerOrder, trade)
 
         val feeActions = feeCalculator.createFeeActions(
             trade,
@@ -181,36 +181,38 @@ open class TradeManagerImpl(
         val takerPrice = trade.takerPrice.toBigDecimal().multiply(takerOrder.rightSideFraction)
         val makerPrice = trade.makerPrice.toBigDecimal().multiply(makerOrder.rightSideFraction)
 
-        richTradePublisher.publish(
-            RichTrade(
-                trade.tradeId,
-                trade.pair.toString(),
-                trade.takerOuid,
-                trade.takerUuid,
-                trade.takerOrderId,
-                trade.takerDirection,
-                takerPrice,
-                takerOrder.origQuantity,
-                takerOrder.origPrice.multiply(takerOrder.origQuantity),
-                trade.takerRemainedQuantity.toBigDecimal().multiply(takerOrder.leftSideFraction),
-                feeActions.takerFeeAction.amount,
-                feeActions.takerFeeAction.symbol,
-                trade.makerOuid,
-                trade.makerUuid,
-                trade.makerOrderId,
-                trade.makerDirection,
-                makerPrice,
-                makerOrder.origQuantity,
-                makerOrder.origPrice.multiply(makerOrder.origQuantity),
-                trade.makerRemainedQuantity.toBigDecimal().multiply(makerOrder.leftSideFraction),
-                feeActions.makerFeeAction.amount,
-                feeActions.makerFeeAction.symbol,
-                makerPrice,
-                trade.matchedQuantity.toBigDecimal().multiply(makerOrder.leftSideFraction),
-                trade.eventDate
-            )
+        val richTrade = RichTrade(
+            trade.tradeId,
+            trade.pair.toString(),
+            trade.takerOuid,
+            trade.takerUuid,
+            trade.takerOrderId,
+            trade.takerDirection,
+            takerPrice,
+            takerOrder.origQuantity,
+            takerOrder.origPrice.multiply(takerOrder.origQuantity),
+            trade.takerRemainedQuantity.toBigDecimal().multiply(takerOrder.leftSideFraction),
+            feeActions.takerFeeAction.amount,
+            feeActions.takerFeeAction.symbol,
+            trade.makerOuid,
+            trade.makerUuid,
+            trade.makerOrderId,
+            trade.makerDirection,
+            makerPrice,
+            makerOrder.origQuantity,
+            makerOrder.origPrice.multiply(makerOrder.origQuantity),
+            trade.makerRemainedQuantity.toBigDecimal().multiply(makerOrder.leftSideFraction),
+            feeActions.makerFeeAction.amount,
+            feeActions.makerFeeAction.symbol,
+            makerPrice,
+            trade.matchedQuantity.toBigDecimal().multiply(makerOrder.leftSideFraction),
+            trade.eventDate
         )
+
         return financeActionPersister.persist(financialActions).also {
+            richOrderPublisher.publish(takerRichOrderUpdate)
+            richOrderPublisher.publish(makerRichOrderUpdate)
+            richTradePublisher.publish(richTrade)
             tempEventPersister.removeTempEvent(trade.takerOuid, trade)
             if (trade.makerOuid != trade.takerOuid) {
                 tempEventPersister.removeTempEvent(trade.makerOuid, trade)
@@ -274,25 +276,25 @@ open class TradeManagerImpl(
         FinancialActionCategory.ORDER_FINALIZED
     )
 
-    private suspend fun publishTakerRichOrderUpdate(takerOrder: Order, trade: TradeEvent) {
+    private fun createTakerRichOrderUpdate(takerOrder: Order, trade: TradeEvent): RichOrderUpdate {
         val price = trade.takerPrice.toBigDecimal().multiply(takerOrder.rightSideFraction)
         val remained = trade.takerRemainedQuantity.toBigDecimal().multiply(takerOrder.leftSideFraction)
-        publishRichOrderUpdate(takerOrder, price, remained)
+        return createRichOrderUpdate(takerOrder, price, remained)
     }
 
-    private suspend fun publishMakerRichOrderUpdate(makerOrder: Order, trade: TradeEvent) {
+    private fun createMakerRichOrderUpdate(makerOrder: Order, trade: TradeEvent): RichOrderUpdate {
         val price = trade.makerPrice.toBigDecimal().multiply(makerOrder.rightSideFraction)
         val remained = trade.makerRemainedQuantity.toBigDecimal().multiply(makerOrder.leftSideFraction)
-        publishRichOrderUpdate(makerOrder, price, remained)
+        return createRichOrderUpdate(makerOrder, price, remained)
     }
 
-    private suspend fun publishRichOrderUpdate(order: Order, price: BigDecimal, remainedQty: BigDecimal) {
+    private fun createRichOrderUpdate(order: Order, price: BigDecimal, remainedQty: BigDecimal): RichOrderUpdate {
         val status = if (remainedQty.compareTo(BigDecimal.ZERO) == 0)
             OrderStatus.FILLED
         else
             OrderStatus.PARTIALLY_FILLED
 
-        richOrderPublisher.publish(RichOrderUpdate(order.ouid, price, order.origQuantity, remainedQty, status))
+        return RichOrderUpdate(order.ouid, price, order.origQuantity, remainedQty, status)
     }
 
     private suspend fun publishFinancialActions(financialActions: List<FinancialAction>) {
