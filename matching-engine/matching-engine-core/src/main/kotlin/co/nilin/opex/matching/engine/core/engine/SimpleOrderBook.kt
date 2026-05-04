@@ -33,37 +33,22 @@ class SimpleOrderBook(
 
     override fun handleNewOrderCommand(orderCommand: OrderCreateCommand): Order? {
         logNewOrder(orderCommand)
-        if (!isValidOrder(orderCommand)) {
-            rejectInvalidOrder(orderCommand)
-            return null
-        }
         if (!processedOrderOuids.add(orderCommand.ouid)) {
             logger.warn("Duplicate order create command ignored: ouid=${orderCommand.ouid}")
             return orders.values.find { it.ouid == orderCommand.ouid }
         }
+        if (!isValidOrder(orderCommand)) {
+            rejectOrder(orderCommand, RejectReason.INVALID_ORDER)
+            return null
+        }
         val order = when (orderCommand.matchConstraint) {
             MatchConstraint.GTC -> {
                 if (orderCommand.orderType == OrderType.MARKET_ORDER) {
-                    if (!replayMode) {
-                        EventDispatcher.emit(
-                            RejectOrderEvent(
-                                orderCommand.ouid,
-                                orderCommand.uuid,
-                                orderCommand.pair,
-                                orderCommand.price,
-                                orderCommand.quantity,
-                                orderCommand.direction,
-                                orderCommand.matchConstraint,
-                                orderCommand.orderType,
-                                RequestedOperation.PLACE_ORDER,
-                                RejectReason.ORDER_TYPE_NOT_MATCHED_MATCHC
-                            )
-                        )
-                    }
+                    rejectOrder(orderCommand, RejectReason.ORDER_TYPE_NOT_MATCHED_MATCHC)
                     return null
                 }
                 if (wouldSelfTrade(orderCommand)) {
-                    rejectSelfTrade(orderCommand)
+                    rejectOrder(orderCommand, RejectReason.SELF_TRADE_PREVENTION)
                     return null
                 }
                 val order = SimpleOrder(
@@ -107,7 +92,7 @@ class SimpleOrderBook(
 
             MatchConstraint.IOC -> {
                 if (wouldSelfTrade(orderCommand)) {
-                    rejectSelfTrade(orderCommand)
+                    rejectOrder(orderCommand, RejectReason.SELF_TRADE_PREVENTION)
                     return null
                 }
                 val order = SimpleOrder(
@@ -158,23 +143,8 @@ class SimpleOrderBook(
             }
 
             else -> {
-                if (!replayMode) {
-                    EventDispatcher.emit(
-                        RejectOrderEvent(
-                            orderCommand.ouid,
-                            orderCommand.uuid,
-                            orderCommand.pair,
-                            orderCommand.price,
-                            orderCommand.quantity,
-                            orderCommand.direction,
-                            orderCommand.matchConstraint,
-                            orderCommand.orderType,
-                            RequestedOperation.PLACE_ORDER,
-                            RejectReason.OPERATION_NOT_MATCHED_MATCHC
-                        )
-                    )
-                }
-                null
+                rejectOrder(orderCommand, RejectReason.OPERATION_NOT_MATCHED_MATCHC)
+                return null
             }
         }
         lastOrder = order
@@ -467,7 +437,7 @@ class SimpleOrderBook(
         }
     }
 
-    private fun rejectSelfTrade(orderCommand: OrderCreateCommand) {
+    private fun rejectOrder(orderCommand: OrderCreateCommand, reason: RejectReason) {
         if (replayMode) {
             return
         }
@@ -482,9 +452,10 @@ class SimpleOrderBook(
                 orderCommand.matchConstraint,
                 orderCommand.orderType,
                 RequestedOperation.PLACE_ORDER,
-                RejectReason.SELF_TRADE_PREVENTION
+                reason
             )
         )
+        EventDispatcher.emit(OrderBookPublishedEvent(persistent()))
     }
 
     private fun isValidOrder(orderCommand: OrderCreateCommand): Boolean {
@@ -495,26 +466,6 @@ class SimpleOrderBook(
             OrderType.LIMIT_ORDER -> orderCommand.price > 0
             OrderType.MARKET_ORDER -> orderCommand.price >= 0
         }
-    }
-
-    private fun rejectInvalidOrder(orderCommand: OrderCreateCommand) {
-        if (replayMode) {
-            return
-        }
-        EventDispatcher.emit(
-            RejectOrderEvent(
-                orderCommand.ouid,
-                orderCommand.uuid,
-                orderCommand.pair,
-                orderCommand.price,
-                orderCommand.quantity,
-                orderCommand.direction,
-                orderCommand.matchConstraint,
-                orderCommand.orderType,
-                RequestedOperation.PLACE_ORDER,
-                RejectReason.INVALID_ORDER
-            )
-        )
     }
 
     private fun putGtcInQueue(order: SimpleOrder): SimpleOrder {

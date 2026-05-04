@@ -68,12 +68,42 @@ class SimpleOrderBookUnitTest {
         }
 
         Assertions.assertEquals(3, rejectEvents.count { it.reason == RejectReason.INVALID_ORDER })
-        Assertions.assertEquals(0, publishedEvents.size)
+        Assertions.assertEquals(3, publishedEvents.size)
         Assertions.assertEquals(0, orderBook.orders.size)
         Assertions.assertEquals(0, orderBook.askOrders.entriesList().size)
         Assertions.assertEquals(0, orderBook.bidOrders.entriesList().size)
         Assertions.assertNull(orderBook.bestAskOrder)
         Assertions.assertNull(orderBook.bestBidOrder)
+    }
+
+    @Test
+    fun givenRejectedOrderSnapshot_whenCreateCommandReplayedAfterRebuild_thenDuplicateRejectIsIgnored() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        val publishedEvents = mutableListOf<OrderBookPublishedEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        EventDispatcher.register(OrderBookPublishedEvent::class.java) { publishedEvents.add(it) }
+        val rejectedOuid = UUID.randomUUID().toString()
+        val invalidCommand = OrderCreateCommand(
+            rejectedOuid,
+            uuid,
+            pair,
+            0,
+            1,
+            OrderDirection.ASK,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+
+        orderBook.handleNewOrderCommand(invalidCommand)
+        val rebuiltOrderBook = SimpleOrderBook(pair, false)
+        rebuiltOrderBook.rebuild(publishedEvents.last().persistentOrderBook)
+        rebuiltOrderBook.handleNewOrderCommand(invalidCommand)
+
+        Assertions.assertEquals(1, rejectEvents.count { it.ouid == rejectedOuid })
+        Assertions.assertEquals(0, rebuiltOrderBook.orders.size)
+        Assertions.assertNull(rebuiltOrderBook.bestAskOrder)
+        Assertions.assertNull(rebuiltOrderBook.bestBidOrder)
     }
 
     @Test
