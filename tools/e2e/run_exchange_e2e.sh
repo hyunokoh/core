@@ -1000,6 +1000,26 @@ wait_order_book_empty() {
   done
 }
 
+wait_best_prices() {
+  local symbol="$1"
+  local bid_price="$2"
+  local ask_price="$3"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/best-prices?symbols=${symbol}")" &&
+    printf '%s\n' "$body" | jq -e --arg symbol "$symbol" --argjson bid_price "$bid_price" --argjson ask_price "$ask_price" '
+      [.[] | select(.symbol == $symbol and .bidPrice == $bid_price and .askPrice == $ask_price)] | length == 1
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for best prices symbol=$symbol bid=$bid_price ask=$ask_price" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
 wait_recent_trades_distribution() {
   local symbol="$1"
   local output_file="$2"
@@ -2598,6 +2618,52 @@ main() {
     order by matched_price;
   "
   restart_market_and_verify_public_state
+
+  local best_price_low_bidder="e2e-best-low-bid-$(date +%s)"
+  local best_price_high_bidder="e2e-best-high-bid-$(date +%s)"
+  local best_price_low_asker="e2e-best-low-ask-$(date +%s)"
+  local best_price_high_asker="e2e-best-high-ask-$(date +%s)"
+  local best_price_ref="e2e-best-price-$(date +%s)"
+  expect_2xx "best-price low bidder USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${best_price_low_bidder}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-low-bid-usdt")" >/dev/null
+  expect_2xx "best-price high bidder USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${best_price_high_bidder}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-high-bid-usdt")" >/dev/null
+  expect_2xx "best-price low asker ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.1_test-ethereum_ETH/${best_price_low_asker}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-low-ask-eth")" >/dev/null
+  expect_2xx "best-price high asker ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.1_test-ethereum_ETH/${best_price_high_asker}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-high-ask-eth")" >/dev/null
+
+  local best_price_low_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local best_price_high_bid='{"uuid":null,"pair":"ETH_USDT","price":110,"quantity":0.1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local best_price_low_ask='{"uuid":null,"pair":"ETH_USDT","price":120,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local best_price_high_ask='{"uuid":null,"pair":"ETH_USDT","price":130,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "best-price low bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$best_price_low_bid' '$best_price_low_bidder'" >/tmp/opex-e2e-best-price-low-bid.json
+  wait_user_open_order "$best_price_low_bidder" "ETH_USDT" "100" "0.1" /tmp/opex-e2e-best-price-low-bid-open-orders.json
+  expect_2xx_retry "best-price high bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$best_price_high_bid' '$best_price_high_bidder'" >/tmp/opex-e2e-best-price-high-bid.json
+  wait_user_open_order "$best_price_high_bidder" "ETH_USDT" "110" "0.1" /tmp/opex-e2e-best-price-high-bid-open-orders.json
+  expect_2xx_retry "best-price low ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$best_price_low_ask' '$best_price_low_asker'" >/tmp/opex-e2e-best-price-low-ask.json
+  wait_user_open_order "$best_price_low_asker" "ETH_USDT" "120" "0.1" /tmp/opex-e2e-best-price-low-ask-open-orders.json
+  expect_2xx_retry "best-price high ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$best_price_high_ask' '$best_price_high_asker'" >/tmp/opex-e2e-best-price-high-ask.json
+  wait_user_open_order "$best_price_high_asker" "ETH_USDT" "130" "0.1" /tmp/opex-e2e-best-price-high-ask-open-orders.json
+  wait_best_prices "ETH_USDT" "110" "120"
+
+  for best_price_owner_file in \
+    "$best_price_low_bidder:/tmp/opex-e2e-best-price-low-bid-open-orders.json" \
+    "$best_price_high_bidder:/tmp/opex-e2e-best-price-high-bid-open-orders.json" \
+    "$best_price_low_asker:/tmp/opex-e2e-best-price-low-ask-open-orders.json" \
+    "$best_price_high_asker:/tmp/opex-e2e-best-price-high-ask-open-orders.json"; do
+    best_price_owner="${best_price_owner_file%%:*}"
+    best_price_file="${best_price_owner_file#*:}"
+    best_price_ouid="$(jq -r '.[0].ouid' "$best_price_file")"
+    best_price_order_id="$(jq -r '.[0].orderId' "$best_price_file")"
+    if [[ -z "$best_price_ouid" || "$best_price_ouid" == "null" || -z "$best_price_order_id" || "$best_price_order_id" == "null" ]]; then
+      echo "Best-price open order did not include ouid/orderId required for cancel owner=$best_price_owner" >&2
+      cat "$best_price_file" >&2
+      exit 1
+    fi
+    best_price_cancel_request="$(jq -nc --arg ouid "$best_price_ouid" --arg uuid "$best_price_owner" --argjson orderId "$best_price_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+    expect_2xx_retry "cancel best-price order" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$best_price_cancel_request' '$best_price_owner'" >/tmp/opex-e2e-best-price-cancel.json
+    wait_no_user_open_orders "$best_price_owner" "ETH_USDT"
+    wait_order_status "$best_price_owner" "$best_price_ouid" "CANCELED"
+  done
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_order_book_empty "ETH_USDT" "BID"
 
   local market_bid_cap_buyer="e2e-mkt-bid-cap-buyer-$(date +%s)"
   local market_bid_cap_low_seller="e2e-mkt-bid-cap-low-$(date +%s)"

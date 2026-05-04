@@ -135,20 +135,20 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
         select symbol, 
         (select matched_price from last_trade where symbol=t.symbol) - (select matched_price from first_trade where symbol=t.symbol) as price_change,
         ((((select matched_price from last_trade where symbol=t.symbol) - (select matched_price from first_trade where symbol=t.symbol))/(select matched_price from first_trade where symbol=t.symbol))*100) as price_change_percent, 
-        (sum(matched_quantity)/sum(matched_price)) as weighted_avg_price,
+        (sum(matched_price * matched_quantity) / nullif(sum(matched_quantity), 0)) as weighted_avg_price,
         (select matched_price from last_trade where symbol=t.symbol) as last_price, 
         (select matched_quantity from last_trade where symbol=t.symbol) as last_qty, 
         (
             select price from orders
             inner join open_orders oo on orders.ouid = oo.ouid
-            where create_date > :date and symbol=t.symbol and side='BID'
-            order by create_date desc limit 1
+            where symbol=t.symbol and side='BID'
+            order by price desc limit 1
         ) as bid_price,
         (
             select price from orders
             inner join open_orders oo on orders.ouid = oo.ouid
-            where create_date > :date and symbol=t.symbol and side='ASK'
-            order by create_date desc limit 1
+            where symbol=t.symbol and side='ASK'
+            order by price asc limit 1
         ) as ask_price,
         (
             select price from orders
@@ -176,20 +176,20 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
         select symbol, 
         (select matched_price from last_trade) - (select matched_price from first_trade) as price_change,
         ((((select matched_price from last_trade) - (select matched_price from first_trade))/(select matched_price from first_trade))*100) as price_change_percent, 
-        (sum(matched_quantity)/sum(matched_price)) as weighted_avg_price,
+        (sum(matched_price * matched_quantity) / nullif(sum(matched_quantity), 0)) as weighted_avg_price,
         (select matched_price from last_trade) as last_price, 
         (select matched_quantity from last_trade) as last_qty, 
         (
             select price from orders
             inner join open_orders oo on orders.ouid = oo.ouid
-            where create_date > :date and symbol=t.symbol and side='BID'
-            order by create_date desc limit 1
+            where symbol=t.symbol and side='BID'
+            order by price desc limit 1
         ) as bid_price,
         (
             select price from orders
             inner join open_orders oo on orders.ouid = oo.ouid
-            where create_date > :date and symbol=t.symbol and side='ASK'
-            order by create_date desc limit 1
+            where symbol=t.symbol and side='ASK'
+            order by price asc limit 1
         ) as ask_price,
         (
             select price from orders
@@ -222,13 +222,13 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
                 select price from orders
                 inner join open_orders oo on orders.ouid = oo.ouid
                 where symbol = t.symbol and side='BID'
-                order by create_date desc limit 1
+                order by price desc limit 1
             ) as bid_price,
             (
                 select price from orders
                 inner join open_orders oo on orders.ouid = oo.ouid
                 where symbol = t.symbol and side='ASK'
-                order by create_date limit 1
+                order by price asc limit 1
             ) as ask_price
             from trades as t
             group by symbol
@@ -243,13 +243,13 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
                 select price from orders
                 inner join open_orders oo on orders.ouid = oo.ouid
                 where symbol = t.symbol and side='BID'
-                order by create_date desc limit 1
+                order by price desc limit 1
             ) as bid_price,
             (
                 select price from orders
                 inner join open_orders oo on orders.ouid = oo.ouid
                 where symbol = t.symbol and side='ASK'
-                order by create_date limit 1
+                order by price asc limit 1
             ) as ask_price
             from trades as t 
             where symbol in (:symbols)
@@ -265,13 +265,13 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
                 select price from orders
                 inner join open_orders oo on orders.ouid = oo.ouid
                 where symbol = t.symbol and side='BID'
-                order by create_date desc limit 1
+                order by price desc limit 1
             ) as bid_price,
             (
                 select price from orders
                 inner join open_orders oo on orders.ouid = oo.ouid
                 where symbol = t.symbol and side='ASK'
-                order by create_date limit 1
+                order by price asc limit 1
             ) as ask_price
             from trades as t 
             where symbol = :symbol

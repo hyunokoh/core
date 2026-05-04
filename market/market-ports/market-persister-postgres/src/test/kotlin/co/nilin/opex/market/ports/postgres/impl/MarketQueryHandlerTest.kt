@@ -1,5 +1,6 @@
 package co.nilin.opex.market.ports.postgres.impl
 
+import co.nilin.opex.common.utils.Interval
 import co.nilin.opex.market.core.inout.OrderDirection
 import co.nilin.opex.market.core.inout.OrderStatus
 import co.nilin.opex.market.ports.postgres.MarketPostgresIntegrationTest
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.r2dbc.core.DatabaseClient
 import java.math.BigDecimal
+import java.time.LocalDateTime
 
 private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
     @Autowired
@@ -120,6 +122,89 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
         assertThat(prices.first().price).isEqualTo(VALID.TRADE_MODEL.matchedPrice.toString())
     }
 
+    @Test
+    fun givenOpenOrdersAndTrades_whenTickerRequested_thenReturnBestPricesAndWeightedAverage(): Unit = runBlocking {
+        val symbol = "BEST_USDT"
+        val now = LocalDateTime.now()
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "best-bid-old",
+                symbol = symbol,
+                direction = OrderDirection.BID,
+                price = BigDecimal.valueOf(100),
+                createDate = now.minusMinutes(5)
+            ),
+            status = OrderStatus.NEW,
+            open = true
+        )
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "best-bid-newer-but-worse",
+                symbol = symbol,
+                direction = OrderDirection.BID,
+                price = BigDecimal.valueOf(90),
+                createDate = now.minusMinutes(1)
+            ),
+            status = OrderStatus.NEW,
+            open = true
+        )
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "best-ask-old-but-worse",
+                symbol = symbol,
+                direction = OrderDirection.ASK,
+                price = BigDecimal.valueOf(120),
+                createDate = now.minusMinutes(5)
+            ),
+            status = OrderStatus.NEW,
+            open = true
+        )
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "best-ask-newer",
+                symbol = symbol,
+                direction = OrderDirection.ASK,
+                price = BigDecimal.valueOf(110),
+                createDate = now.minusMinutes(1)
+            ),
+            status = OrderStatus.NEW,
+            open = true
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 1001,
+                symbol = symbol,
+                matchedPrice = BigDecimal.valueOf(100),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(2)
+            )
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 1002,
+                symbol = symbol,
+                matchedPrice = BigDecimal.valueOf(200),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(1)
+            )
+        )
+
+        val ticker = marketQueryHandler.getTradeTickerDateBySymbol(symbol, Interval.TwentyFourHours)
+        val bestPrices = marketQueryHandler.getBestPriceForSymbols(listOf(symbol))
+
+        assertThat(ticker).isNotNull
+        assertThat(ticker!!.bidPrice).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(ticker.askPrice).isEqualByComparingTo(BigDecimal.valueOf(110))
+        assertThat(ticker.weightedAvgPrice).isEqualByComparingTo(BigDecimal.valueOf(150))
+        assertThat(bestPrices).hasSize(1)
+        assertThat(bestPrices.first().bidPrice).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(bestPrices.first().askPrice).isEqualByComparingTo(BigDecimal.valueOf(110))
+    }
+
     private suspend fun seedOrder(
         order: co.nilin.opex.market.ports.postgres.model.OrderModel = VALID.MAKER_ORDER_MODEL.copy(
             id = null,
@@ -191,6 +276,34 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
         takerOuid,
         makerUuid,
         takerUuid,
+        createDate
+    )
+
+    private fun tradeWith(
+        tradeId: Long,
+        symbol: String,
+        matchedPrice: BigDecimal,
+        matchedQuantity: BigDecimal,
+        createDate: LocalDateTime
+    ) = TradeModel(
+        null,
+        tradeId,
+        symbol,
+        VALID.TRADE_MODEL.baseAsset,
+        VALID.TRADE_MODEL.quoteAsset,
+        matchedPrice,
+        matchedQuantity,
+        matchedPrice,
+        matchedPrice,
+        VALID.TRADE_MODEL.takerCommission,
+        VALID.TRADE_MODEL.makerCommission,
+        VALID.TRADE_MODEL.takerCommissionAsset,
+        VALID.TRADE_MODEL.makerCommissionAsset,
+        createDate,
+        VALID.TRADE_MODEL.makerOuid,
+        VALID.TRADE_MODEL.takerOuid,
+        VALID.TRADE_MODEL.makerUuid,
+        VALID.TRADE_MODEL.takerUuid,
         createDate
     )
 }
