@@ -11,6 +11,10 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
+import org.springframework.security.core.context.SecurityContext
+import org.springframework.security.core.context.SecurityContextImpl
+import org.springframework.security.oauth2.jwt.Jwt
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 import java.math.BigDecimal
 import java.security.Principal
 import java.time.LocalDateTime
@@ -92,12 +96,114 @@ private class AccountControllerTest {
         assertThat(queryHandler.allTradesLimit).isEqualTo(500)
     }
 
-    private fun controller(queryHandler: RecordingMarketUserDataProxy) = AccountController(
+    @Test
+    fun givenUnsupportedOrderType_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.createNewOrder(
+                    symbol = "ETHUSDT",
+                    side = OrderSide.BUY,
+                    type = OrderType.STOP_LOSS,
+                    timeInForce = null,
+                    quantity = BigDecimal("0.5"),
+                    quoteOrderQty = null,
+                    price = null,
+                    newClientOrderId = null,
+                    stopPrice = BigDecimal("90"),
+                    icebergQty = null,
+                    newOrderRespType = null,
+                    recvWindow = null,
+                    timestamp = 1L,
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenQuoteOrderQuantityMarketOrder_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.createNewOrder(
+                    symbol = "ETHUSDT",
+                    side = OrderSide.BUY,
+                    type = OrderType.MARKET,
+                    timeInForce = null,
+                    quantity = null,
+                    quoteOrderQty = BigDecimal("100"),
+                    price = null,
+                    newClientOrderId = null,
+                    stopPrice = null,
+                    icebergQty = null,
+                    newOrderRespType = null,
+                    recvWindow = null,
+                    timestamp = 1L,
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenLimitOrder_whenCreateOrderRequested_thenSubmitExpectedMatchingOrder(): Unit = runBlocking {
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
+
+        controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("100"),
+            newClientOrderId = null,
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = null,
+            recvWindow = null,
+            timestamp = 1L,
+            securityContext = securityContext()
+        )
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderUuid).isEqualTo("user-1")
+        assertThat(matchingGatewayProxy.createOrderPair).isEqualTo("ETH_USDT")
+        assertThat(matchingGatewayProxy.createOrderPrice).isEqualByComparingTo("100")
+        assertThat(matchingGatewayProxy.createOrderQuantity).isEqualByComparingTo("0.5")
+        assertThat(matchingGatewayProxy.createOrderDirection).isEqualTo(OrderDirection.ASK)
+        assertThat(matchingGatewayProxy.createOrderConstraint).isEqualTo(MatchConstraint.GTC)
+        assertThat(matchingGatewayProxy.createOrderType).isEqualTo(MatchingOrderType.LIMIT_ORDER)
+        assertThat(matchingGatewayProxy.createOrderToken).isEqualTo("token-1")
+    }
+
+    private fun controller(
+        queryHandler: RecordingMarketUserDataProxy = RecordingMarketUserDataProxy(),
+        matchingGatewayProxy: RecordingMatchingGatewayProxy = RecordingMatchingGatewayProxy()
+    ) = AccountController(
         queryHandler,
-        RecordingMatchingGatewayProxy(),
+        matchingGatewayProxy,
         RecordingWalletProxy(),
         RecordingSymbolMapper()
     )
+
+    private fun securityContext(): SecurityContext {
+        val jwt = Jwt.withTokenValue("token-1")
+            .header("alg", "none")
+            .subject("user-1")
+            .build()
+        return SecurityContextImpl(JwtAuthenticationToken(jwt))
+    }
 
     private fun org.assertj.core.api.AbstractThrowableAssert<*, out Throwable>.isOpexError(error: OpexError) {
         isInstanceOf(OpexException::class.java)
@@ -194,6 +300,16 @@ private class AccountControllerTest {
     }
 
     private class RecordingMatchingGatewayProxy : MatchingGatewayProxy {
+        var createOrderCallCount = 0
+        var createOrderUuid: String? = null
+        var createOrderPair: String? = null
+        var createOrderPrice: BigDecimal? = null
+        var createOrderQuantity: BigDecimal? = null
+        var createOrderDirection: OrderDirection? = null
+        var createOrderConstraint: MatchConstraint? = null
+        var createOrderType: MatchingOrderType? = null
+        var createOrderToken: String? = null
+
         override suspend fun createNewOrder(
             uuid: String?,
             pair: String,
@@ -204,7 +320,18 @@ private class AccountControllerTest {
             orderType: MatchingOrderType,
             userLevel: String,
             token: String?
-        ): OrderSubmitResult? = null
+        ): OrderSubmitResult? {
+            createOrderCallCount += 1
+            createOrderUuid = uuid
+            createOrderPair = pair
+            createOrderPrice = price
+            createOrderQuantity = quantity
+            createOrderDirection = direction
+            createOrderConstraint = matchConstraint
+            createOrderType = orderType
+            createOrderToken = token
+            return OrderSubmitResult(1)
+        }
 
         override suspend fun cancelOrder(
             ouid: String,

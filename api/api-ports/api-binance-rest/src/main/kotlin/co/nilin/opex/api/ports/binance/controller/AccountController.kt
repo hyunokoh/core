@@ -427,6 +427,9 @@ class AccountController(
         stopPrice: BigDecimal?,
         quoteOrderQty: BigDecimal?,
     ) {
+        if (!OrderType.activeTypes().contains(type))
+            throw OpexError.InvalidRequestParam.exception("Parameter 'type' is either missing or invalid")
+
         when (type) {
             OrderType.LIMIT -> {
                 checkDecimal(price, "price")
@@ -435,40 +438,12 @@ class AccountController(
             }
 
             OrderType.MARKET -> {
-                if (quantity == null)
-                    checkDecimal(quoteOrderQty, "quoteOrderQty")
-                else
-                    checkDecimal(quantity, "quantity")
-            }
-
-            OrderType.STOP_LOSS -> {
-                checkDecimal(quantity, "quantity")
-                checkDecimal(stopPrice, "stopPrice")
-            }
-
-            OrderType.STOP_LOSS_LIMIT -> {
-                checkDecimal(price, "price")
-                checkDecimal(quantity, "quantity")
-                checkDecimal(stopPrice, "stopPrice")
-                checkNull(timeInForce, "timeInForce")
-            }
-
-            OrderType.TAKE_PROFIT -> {
-                checkDecimal(quantity, "quantity")
-                checkDecimal(stopPrice, "stopPrice")
-            }
-
-            OrderType.TAKE_PROFIT_LIMIT -> {
-                checkDecimal(price, "price")
-                checkDecimal(quantity, "quantity")
-                checkDecimal(stopPrice, "stopPrice")
-                checkNull(timeInForce, "timeInForce")
-            }
-
-            OrderType.LIMIT_MAKER -> {
-                checkDecimal(price, "price")
+                if (quoteOrderQty != null)
+                    throw OpexError.InvalidRequestParam.exception("Parameter 'quoteOrderQty' is either missing or invalid")
                 checkDecimal(quantity, "quantity")
             }
+
+            else -> throw OpexError.InvalidRequestParam.exception("Parameter 'type' is either missing or invalid")
         }
     }
 
