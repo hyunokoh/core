@@ -240,6 +240,46 @@ private class OrderServiceTest {
     }
 
     @Test
+    fun givenInconsistentPairConfig_whenSubmitNewOrder_thenThrowServiceUnavailableBeforeAccountantCheck(): Unit = runBlocking {
+        val accountant = RecordingAccountantApiProxy()
+        val mismatchedConfig = PairConfig(
+            "BTC_USDT",
+            VALID.ETH,
+            VALID.USDT,
+            BigDecimal.valueOf(0.01),
+            BigDecimal.valueOf(0.0001)
+        )
+        val service = orderService(accountant, RecordingPairConfigLoader(pairConfig = mismatchedConfig))
+
+        assertThatThrownBy {
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK) }
+        }.isOpexError(OpexError.ServiceUnavailable)
+
+        assertThat(accountant.lastSymbol).isNull()
+        assertThat(accountant.lastValue).isNull()
+    }
+
+    @Test
+    fun givenInvalidPairFractions_whenSubmitNewOrder_thenThrowServiceUnavailableBeforeAccountantCheck(): Unit = runBlocking {
+        val accountant = RecordingAccountantApiProxy()
+        val invalidConfig = PairConfig(
+            VALID.ETH_USDT,
+            VALID.ETH,
+            VALID.USDT,
+            BigDecimal.ZERO,
+            BigDecimal.valueOf(0.0001)
+        )
+        val service = orderService(accountant, RecordingPairConfigLoader(pairConfig = invalidConfig))
+
+        assertThatThrownBy {
+            runBlocking { service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK) }
+        }.isOpexError(OpexError.ServiceUnavailable)
+
+        assertThat(accountant.lastSymbol).isNull()
+        assertThat(accountant.lastValue).isNull()
+    }
+
+    @Test
     fun givenKafkaUnhealthy_whenCancelOrder_thenThrowServiceUnavailable(): Unit = runBlocking {
         val unhealthyIndicator = KafkaHealthIndicator(adminClient, healthyNodeSize = 2)
         unhealthyIndicator.check()
@@ -335,10 +375,13 @@ private class OrderServiceTest {
         override suspend fun fetchPairConfig(pair: String, direction: OrderDirection): PairConfig = VALID.PAIR_CONFIG
     }
 
-    private class RecordingPairConfigLoader(private val allowPair: Boolean = true) : PairConfigLoader {
+    private class RecordingPairConfigLoader(
+        private val allowPair: Boolean = true,
+        private val pairConfig: PairConfig = VALID.PAIR_CONFIG
+    ) : PairConfigLoader {
         override suspend fun load(pair: String, direction: OrderDirection): PairConfig {
             check(allowPair && pair == VALID.ETH_USDT) { "Unknown pair: $pair" }
-            return VALID.PAIR_CONFIG
+            return pairConfig
         }
     }
 

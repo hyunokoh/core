@@ -7,6 +7,7 @@ import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.engine.core.model.Pair
 import co.nilin.opex.matching.gateway.app.inout.CancelOrderRequest
 import co.nilin.opex.matching.gateway.app.inout.CreateOrderRequest
+import co.nilin.opex.matching.gateway.app.inout.PairConfig
 import co.nilin.opex.matching.gateway.app.spi.AccountantApiProxy
 import co.nilin.opex.matching.gateway.app.spi.PairConfigLoader
 import co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderCancelRequestEvent
@@ -55,6 +56,7 @@ class OrderService(
 
         //TODO cache
         val pairConfig = pairConfigLoader.load(createOrderRequest.pair, createOrderRequest.direction)
+        validatePairConfig(createOrderRequest.pair, symbolSides, pairConfig)
 
         val canCreateOrder = runCatching {
             accountantApiProxy.canCreateOrder(
@@ -104,6 +106,17 @@ class OrderService(
 
         val event = OrderCancelRequestEvent(request.ouid, request.uuid, Pair(symbols[0], symbols[1]), request.orderId)
         return orderRequestEventSubmitter.submit(event)
+    }
+
+    private fun validatePairConfig(pair: String, symbolSides: List<String>, pairConfig: PairConfig) {
+        if (
+            pairConfig.pair != pair ||
+            pairConfig.leftSideWalletSymbol != symbolSides[0] ||
+            pairConfig.rightSideWalletSymbol != symbolSides[1] ||
+            pairConfig.leftSideFraction <= BigDecimal.ZERO ||
+            pairConfig.rightSideFraction <= BigDecimal.ZERO
+        )
+            throw OpexError.ServiceUnavailable.exception("pair config is inconsistent")
     }
 
     private fun parsePair(pair: String): List<String> {
