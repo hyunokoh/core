@@ -32,6 +32,12 @@ BUILD=0
 KEEP_RUNNING=0
 RESET=0
 EVENTUAL_TIMEOUT=240
+CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-5}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-20}"
+
+curl() {
+  command curl --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" "$@"
+}
 
 usage() {
   cat <<EOF
