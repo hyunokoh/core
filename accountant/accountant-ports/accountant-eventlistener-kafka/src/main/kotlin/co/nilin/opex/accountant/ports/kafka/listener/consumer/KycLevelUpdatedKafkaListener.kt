@@ -7,10 +7,11 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.listener.MessageListener
 import org.springframework.stereotype.Component
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Component
 class KycLevelUpdatedKafkaListener : MessageListener<String, KycLevelUpdatedEvent> {
-    val eventListeners = arrayListOf<KycLevelUpdatedEventListener>()
+    val eventListeners = CopyOnWriteArrayList<KycLevelUpdatedEventListener>()
     private val logger = LoggerFactory.getLogger(KycLevelUpdatedKafkaListener::class.java)
     override fun onMessage(data: ConsumerRecord<String, KycLevelUpdatedEvent>) {
 
@@ -21,6 +22,7 @@ class KycLevelUpdatedKafkaListener : MessageListener<String, KycLevelUpdatedEven
     }
 
     fun addEventListener(tl: KycLevelUpdatedEventListener) {
+        removeEventListener(tl)
         eventListeners.add(tl)
     }
 

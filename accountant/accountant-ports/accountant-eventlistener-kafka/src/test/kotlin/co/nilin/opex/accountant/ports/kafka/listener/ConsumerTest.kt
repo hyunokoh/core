@@ -23,13 +23,14 @@ class ConsumerTest {
     }
 
     @Test
-    fun givenEventConsumer_onMessageWith2Listeners_callListener() {
+    fun givenEventConsumer_whenAddingSameListenerTwice_replacesListener() {
         consumer.addListener(listener)
         consumer.addListener(listener)
         consumer.onMessage(ConsumerRecord("topic", 1, 0, null, "value"))
 
-        assertThat(listener.receivedEvents).hasSize(2)
-        assertThat(listener.receivedEvents.map { it.event }).containsExactly("value", "value")
+        assertThat(consumer.countListeners()).isEqualTo(1)
+        assertThat(listener.receivedEvents).hasSize(1)
+        assertThat(listener.receivedEvents.map { it.event }).containsExactly("value")
     }
 
     @Test
@@ -44,6 +45,25 @@ class ConsumerTest {
         listener.listenerId = "L1"
         consumer.removeListener(listener)
         assertThat(consumer.countListeners()).isEqualTo(0)
+    }
+
+    @Test
+    fun givenEventConsumer_whenListenerRemovedDuringDispatch_dispatchCompletes() {
+        val removingListener = object : ListenerObject() {
+            override fun onEvent(event: Any, partition: Int, offset: Long, timestamp: Long) {
+                super.onEvent(event, partition, offset, timestamp)
+                consumer.removeListener(this)
+            }
+        }
+        val stableListener = ListenerObject().apply { listenerId = "StableListener" }
+
+        consumer.addListener(removingListener)
+        consumer.addListener(stableListener)
+        consumer.onMessage(ConsumerRecord("topic", 1, 0, null, "value"))
+
+        assertThat(removingListener.receivedEvents).hasSize(1)
+        assertThat(stableListener.receivedEvents).hasSize(1)
+        assertThat(consumer.getListener(removingListener.id())).isNull()
     }
 
 }

@@ -3,10 +3,11 @@ package co.nilin.opex.accountant.ports.kafka.listener.consumer
 import co.nilin.opex.accountant.ports.kafka.listener.spi.Listener
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.listener.MessageListener
+import java.util.concurrent.CopyOnWriteArrayList
 
 abstract class EventConsumer<L : Listener<V>, K, V> : MessageListener<K, V> {
 
-    protected val listeners = arrayListOf<L>()
+    protected val listeners = CopyOnWriteArrayList<L>()
 
     override fun onMessage(data: ConsumerRecord<K, V>) {
         listeners.forEach { it.onEvent(data.value(), data.partition(), data.offset(), data.timestamp()) }
@@ -21,6 +22,7 @@ abstract class EventConsumer<L : Listener<V>, K, V> : MessageListener<K, V> {
     }
 
     fun addListener(listener: L) {
+        removeListener(listener)
         listeners.add(listener)
     }
 

@@ -2,7 +2,7 @@ package co.nilin.opex.accountant.ports.kafka.listener.consumer
 
 import co.nilin.opex.accountant.ports.kafka.listener.spi.Listener
 
-class ListenerObject : Listener<Any> {
+open class ListenerObject : Listener<Any> {
 
     val receivedEvents = mutableListOf<ReceivedEvent>()
     var listenerId = "AnyListener"
@@ -11,7 +11,7 @@ class ListenerObject : Listener<Any> {
         return listenerId
     }
 
-    override fun onEvent(event: Any, partition: Int, offset: Long, timestamp: Long) {
+    open override fun onEvent(event: Any, partition: Int, offset: Long, timestamp: Long) {
         receivedEvents.add(ReceivedEvent(event, partition, offset, timestamp))
     }
 }
