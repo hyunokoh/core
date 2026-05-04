@@ -8,13 +8,10 @@ import co.nilin.opex.accountant.core.inout.RichTrade
 import co.nilin.opex.accountant.core.model.*
 import co.nilin.opex.accountant.core.spi.*
 import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.LocalDateTime
-import java.util.concurrent.ConcurrentHashMap
 
 open class TradeManagerImpl(
     private val financeActionPersister: FinancialActionPersister,
@@ -30,11 +27,10 @@ open class TradeManagerImpl(
 ) : TradeManager {
 
     private val logger = LoggerFactory.getLogger(TradeManagerImpl::class.java)
-    private val orderLocks = ConcurrentHashMap<String, Mutex>()
 
     @Transactional
     override suspend fun handleTrade(trade: TradeEvent): List<FinancialAction> {
-        return withTradeOrderLocks(trade) {
+        return OrderEventLocks.withOrderLocks(listOf(trade.takerOuid, trade.makerOuid)) {
             handleTradeLocked(trade)
         }
     }
@@ -205,21 +201,6 @@ open class TradeManagerImpl(
             }
         }
         //return financeActionPersister.persist(financialActions).also { publishFinancialActions(it) }
-    }
-
-    private suspend fun <T> withTradeOrderLocks(trade: TradeEvent, block: suspend () -> T): T {
-        val lockKeys = listOf(trade.takerOuid, trade.makerOuid).distinct().sorted()
-        val locks = lockKeys.map { orderLocks.computeIfAbsent(it) { Mutex() } }
-        return withLocks(locks, block)
-    }
-
-    private suspend fun <T> withLocks(locks: List<Mutex>, block: suspend () -> T): T {
-        if (locks.isEmpty())
-            return block()
-
-        return locks.first().withLock {
-            withLocks(locks.drop(1), block)
-        }
     }
 
     private suspend fun loadTradeOrdersForUpdate(trade: TradeEvent): Pair<Order?, Order?> {

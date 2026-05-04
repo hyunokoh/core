@@ -31,6 +31,12 @@ open class OrderManagerImpl(
 
     @Transactional
     override suspend fun handleRequestOrder(submitOrderEvent: SubmitOrderEvent): List<FinancialAction> {
+        return OrderEventLocks.withOrderLock(submitOrderEvent.ouid) {
+            handleRequestOrderLocked(submitOrderEvent)
+        }
+    }
+
+    private suspend fun handleRequestOrderLocked(submitOrderEvent: SubmitOrderEvent): List<FinancialAction> {
         if (orderPersister.load(submitOrderEvent.ouid) != null)
             return emptyList()
 
@@ -117,6 +123,12 @@ open class OrderManagerImpl(
 
     @Transactional
     override suspend fun handleNewOrder(createOrderEvent: CreateOrderEvent): List<FinancialAction> {
+        return OrderEventLocks.withOrderLock(createOrderEvent.ouid) {
+            handleNewOrderLocked(createOrderEvent)
+        }
+    }
+
+    private suspend fun handleNewOrderLocked(createOrderEvent: CreateOrderEvent): List<FinancialAction> {
         //update order add id to other fields
         val order = orderPersister.load(createOrderEvent.ouid)
         if (order != null) {
@@ -136,6 +148,12 @@ open class OrderManagerImpl(
     }
 
     override suspend fun handleUpdateOrder(updatedOrderEvent: UpdatedOrderEvent): List<FinancialAction> {
+        return OrderEventLocks.withOrderLock(updatedOrderEvent.ouid) {
+            handleUpdateOrderLocked(updatedOrderEvent)
+        }
+    }
+
+    private suspend fun handleUpdateOrderLocked(updatedOrderEvent: UpdatedOrderEvent): List<FinancialAction> {
         val order = orderPersister.load(updatedOrderEvent.ouid)
         if (order == null) {
             tempEventPersister.saveTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
@@ -229,10 +247,10 @@ open class OrderManagerImpl(
     private suspend fun replayDeferredOrderEvents(ouid: String) {
         tempEventPersister.loadTempEvents(ouid).toList().forEach { event ->
             when (event) {
-                is CreateOrderEvent -> handleNewOrder(event)
-                is UpdatedOrderEvent -> handleUpdateOrder(event)
-                is RejectOrderEvent -> handleRejectOrder(event)
-                is CancelOrderEvent -> handleCancelOrder(event)
+                is CreateOrderEvent -> handleNewOrderLocked(event)
+                is UpdatedOrderEvent -> handleUpdateOrderLocked(event)
+                is RejectOrderEvent -> handleRejectOrderLocked(event)
+                is CancelOrderEvent -> handleCancelOrderLocked(event)
                 else -> Unit
             }
         }
@@ -241,6 +259,12 @@ open class OrderManagerImpl(
 
     @Transactional
     override suspend fun handleRejectOrder(rejectOrderEvent: RejectOrderEvent): List<FinancialAction> {
+        return OrderEventLocks.withOrderLock(rejectOrderEvent.ouid) {
+            handleRejectOrderLocked(rejectOrderEvent)
+        }
+    }
+
+    private suspend fun handleRejectOrderLocked(rejectOrderEvent: RejectOrderEvent): List<FinancialAction> {
         if (rejectOrderEvent.requestedOperation != RequestedOperation.PLACE_ORDER)
             return emptyList()
 
@@ -301,6 +325,12 @@ open class OrderManagerImpl(
 
     @Transactional
     override suspend fun handleCancelOrder(cancelOrderEvent: CancelOrderEvent): List<FinancialAction> {
+        return OrderEventLocks.withOrderLock(cancelOrderEvent.ouid) {
+            handleCancelOrderLocked(cancelOrderEvent)
+        }
+    }
+
+    private suspend fun handleCancelOrderLocked(cancelOrderEvent: CancelOrderEvent): List<FinancialAction> {
         //order by ouid
         val order = orderPersister.load(cancelOrderEvent.ouid)
         if (order == null) {
