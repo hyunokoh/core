@@ -237,9 +237,12 @@ class SimpleOrderBook(
                 )
             }
             return order
-        } else {
-            orders.remove(simpleOrder.key)
         }
+        if (!isValidEditOrder(orderCommand, order)) {
+            rejectEditOrder(orderCommand, order, RejectReason.INVALID_ORDER)
+            return null
+        }
+        orders.remove(simpleOrder.key)
         if (order.direction == OrderDirection.BID) {
             handleCancelOrder(order, bidOrders, bestBidOrder) { newBestOrder: SimpleOrder? ->
                 bestBidOrder = newBestOrder
@@ -456,6 +459,37 @@ class SimpleOrderBook(
             )
         )
         EventDispatcher.emit(OrderBookPublishedEvent(persistent()))
+    }
+
+    private fun rejectEditOrder(orderCommand: OrderEditCommand, order: SimpleOrder, reason: RejectReason) {
+        if (replayMode) {
+            return
+        }
+        EventDispatcher.emit(
+            RejectOrderEvent(
+                orderCommand.ouid,
+                orderCommand.uuid,
+                orderCommand.orderId,
+                orderCommand.pair,
+                orderCommand.price,
+                orderCommand.quantity,
+                order.direction,
+                order.matchConstraint,
+                order.orderType,
+                RequestedOperation.EDIT_ORDER,
+                reason
+            )
+        )
+    }
+
+    private fun isValidEditOrder(orderCommand: OrderEditCommand, order: SimpleOrder): Boolean {
+        if (orderCommand.quantity <= order.filledQuantity) {
+            return false
+        }
+        return when (order.orderType) {
+            OrderType.LIMIT_ORDER -> orderCommand.price > 0
+            OrderType.MARKET_ORDER -> orderCommand.price >= 0
+        }
     }
 
     private fun isValidOrder(orderCommand: OrderCreateCommand): Boolean {

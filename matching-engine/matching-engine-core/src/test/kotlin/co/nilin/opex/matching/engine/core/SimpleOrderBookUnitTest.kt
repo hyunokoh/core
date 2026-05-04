@@ -9,6 +9,7 @@ import co.nilin.opex.matching.engine.core.inout.OrderCancelCommand
 import co.nilin.opex.matching.engine.core.inout.OrderCreateCommand
 import co.nilin.opex.matching.engine.core.inout.OrderEditCommand
 import co.nilin.opex.matching.engine.core.inout.RejectReason
+import co.nilin.opex.matching.engine.core.inout.RequestedOperation
 import co.nilin.opex.matching.engine.core.model.MatchConstraint
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.matching.engine.core.model.OrderType
@@ -884,6 +885,58 @@ class SimpleOrderBookUnitTest {
         Assertions.assertEquals(orderBook.bestBidOrder, order)
         Assertions.assertEquals(orderBook.bidOrders.entriesList().size, 1)
         Assertions.assertEquals(orderBook.orders.size, 1)
+    }
+
+    @Test
+    fun givenOrderBookWithBidOrder_whenInvalidEditRequested_thenRejectBeforeBookMutation() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        val orderOuid = UUID.randomUUID().toString()
+        val order = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                orderOuid,
+                uuid,
+                pair,
+                2,
+                5,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+
+        val invalidPriceEdit = orderBook.handleEditCommand(
+            OrderEditCommand(
+                orderOuid,
+                uuid,
+                order.id()!!,
+                pair,
+                0,
+                5
+            )
+        )
+        val invalidQuantityEdit = orderBook.handleEditCommand(
+            OrderEditCommand(
+                orderOuid,
+                uuid,
+                order.id()!!,
+                pair,
+                2,
+                0
+            )
+        )
+
+        Assertions.assertNull(invalidPriceEdit)
+        Assertions.assertNull(invalidQuantityEdit)
+        Assertions.assertEquals(2, rejectEvents.count {
+            it.requestedOperation == RequestedOperation.EDIT_ORDER && it.reason == RejectReason.INVALID_ORDER
+        })
+        Assertions.assertEquals(1, orderBook.orders.size)
+        Assertions.assertEquals(order, orderBook.bestBidOrder)
+        Assertions.assertEquals(1, orderBook.bidOrders.entriesList().size)
+        Assertions.assertEquals(5, orderBook.bidOrders.get(2).totalQuantity)
+        Assertions.assertEquals(1, orderBook.bidOrders.get(2).ordersCount)
     }
 
 
