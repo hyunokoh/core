@@ -456,6 +456,8 @@ class AccountController(
             }
 
             OrderType.MARKET -> {
+                if (timeInForce != null)
+                    throw OpexError.InvalidRequestParam.exception("Parameter 'timeInForce' is either missing or invalid")
                 if (quoteOrderQty != null)
                     throw OpexError.InvalidRequestParam.exception("Parameter 'quoteOrderQty' is either missing or invalid")
                 checkDecimal(quantity, "quantity")
