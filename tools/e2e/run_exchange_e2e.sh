@@ -2423,6 +2423,21 @@ main() {
   wait_withdraw_status "withdraw remains done after terminal attempts" "$withdraw_accept_id" "DONE" /tmp/opex-e2e-withdraw-done-terminal.json
   assert_wallet_balance "withdraw owner unchanged after done terminal attempts" "$withdraw_owner" "USDT" "6"
 
+  local withdraw_duplicate_ref_body='{"currency":"USDT","amount":1.1,"destSymbol":"USDT","destAddress":"0xwithdrawduplicateref","destNetwork":"test-ethereum","destNote":"duplicate-ref","description":"e2e withdraw duplicate destination ref"}'
+  expect_2xx "withdraw duplicate destination ref request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_duplicate_ref_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-duplicate-ref-request.json
+  local withdraw_duplicate_ref_id
+  withdraw_duplicate_ref_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-duplicate-ref-request.json)"
+  wait_withdraw_status "withdraw duplicate destination ref created" "$withdraw_duplicate_ref_id" "CREATED" /tmp/opex-e2e-withdraw-duplicate-ref-created.json
+  assert_wallet_balance "withdraw owner reserved for duplicate destination ref" "$withdraw_owner" "USDT" "4.9"
+  expect_2xx "withdraw duplicate destination ref process action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/process")" >/tmp/opex-e2e-withdraw-duplicate-ref-processing.json
+  wait_withdraw_status "withdraw duplicate destination ref processing" "$withdraw_duplicate_ref_id" "PROCESSING" /tmp/opex-e2e-withdraw-duplicate-ref-processing-state.json
+  expect_http_status "withdraw duplicate destination ref accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=1.0")" >/tmp/opex-e2e-withdraw-duplicate-ref-accept.json
+  wait_withdraw_status "withdraw duplicate destination ref remains processing" "$withdraw_duplicate_ref_id" "PROCESSING" /tmp/opex-e2e-withdraw-duplicate-ref-after-accept.json
+  assert_wallet_balance "withdraw owner still reserved after duplicate destination ref" "$withdraw_owner" "USDT" "4.9"
+  expect_2xx "withdraw duplicate destination ref reject action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/reject?reason=e2e-duplicate-ref")" >/tmp/opex-e2e-withdraw-duplicate-ref-rejected.json
+  wait_withdraw_status "withdraw duplicate destination ref rejected" "$withdraw_duplicate_ref_id" "REJECTED" /tmp/opex-e2e-withdraw-duplicate-ref-rejected-state.json
+  assert_wallet_balance "withdraw owner restored after duplicate destination ref reject" "$withdraw_owner" "USDT" "6"
+
   local withdraw_reject_body='{"currency":"USDT","amount":2,"destSymbol":"USDT","destAddress":"0xwithdrawreject","destNetwork":"test-ethereum","destNote":"reject","description":"e2e withdraw reject"}'
   expect_2xx "withdraw reject request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_reject_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-reject-request.json
   local withdraw_reject_id
@@ -2448,7 +2463,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,48\nFEE,32\nORDER_CANCEL,18\nORDER_CREATE,44\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,1\nWITHDRAW_REQUEST,3' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,48\nFEE,32\nORDER_CANCEL,18\nORDER_CREATE,44\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -2467,7 +2482,7 @@ main() {
     group by w.currency
     order by w.currency;
   "
-  wait_query_eq "wallet withdraw status ledger" "postgres-wallet" $'CANCELED,1,2.90000000,0.10000000\nDONE,1,3.90000000,0.10000000\nREJECTED,1,1.90000000,0.10000000' "
+  wait_query_eq "wallet withdraw status ledger" "postgres-wallet" $'CANCELED,1,2.90000000,0.10000000\nDONE,1,3.90000000,0.10000000\nREJECTED,2,2.90000000,0.20000000' "
     select status,
            count(*),
            to_char(sum(amount), 'FM9999999990.00000000'),
@@ -3445,6 +3460,12 @@ main() {
       "terminalTransitionsRejected": true,
       "finalBalance": 6
     },
+    "duplicateDestinationRefFlow": {
+      "requestedAmount": 1.1,
+      "duplicateDestinationRefRejected": true,
+      "finalStatus": "REJECTED",
+      "balanceAfterReject": 6
+    },
     "rejectFlow": {
       "requestedAmount": 2,
       "finalStatus": "REJECTED",
@@ -3486,8 +3507,8 @@ main() {
       "TRADE": 32,
       "WITHDRAW_ACCEPT": 1,
       "WITHDRAW_CANCEL": 1,
-      "WITHDRAW_REJECT": 1,
-      "WITHDRAW_REQUEST": 3
+      "WITHDRAW_REJECT": 2,
+      "WITHDRAW_REQUEST": 4
     },
     "walletAggregateBalances": {
       "ETH": 26.054,
@@ -3496,7 +3517,7 @@ main() {
     "walletWithdrawStatuses": {
       "CANCELED": 1,
       "DONE": 1,
-      "REJECTED": 1
+      "REJECTED": 2
     },
     "walletAcceptedWithdrawChainReference": true,
     "walletRejectedWithdrawReason": true,

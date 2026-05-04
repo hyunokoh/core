@@ -139,6 +139,8 @@ class WithdrawService(
         if (!withdraw.canBeAccepted())
             throw OpexError.WithdrawAlreadyProcessed.exception()
         validateAcceptedDestAmount(acceptCommand.destAmount, withdraw.amount)
+        if (withdrawPersister.countByCriteria(null, null, acceptCommand.destTransactionRef, null, listOf(WithdrawStatus.DONE)) > 0)
+            throw OpexError.DuplicateWithdrawTransactionRef.exception()
 
         val sourceWallet = walletManager.findWalletById(withdraw.wallet) ?: throw OpexError.WalletNotFound.exception()
         val receiverWallet =

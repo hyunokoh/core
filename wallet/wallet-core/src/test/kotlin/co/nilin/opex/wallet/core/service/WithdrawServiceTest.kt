@@ -160,6 +160,32 @@ private class WithdrawServiceTest {
         assertThat(withdrawPersister.persistCallCount).isZero()
     }
 
+    @Test
+    fun givenDuplicateDestinationTransactionRef_whenAcceptWithdrawRequested_thenRejectBeforeTransfer(): Unit = runBlocking {
+        val transferManager = RecordingTransferManager()
+        val withdrawPersister = RecordingWithdrawPersister(
+            existingWithdraw = createdWithdraw(),
+            existingDestinationRefs = setOf("chain-tx-1")
+        )
+        val service = service(transferManager = transferManager, withdrawPersister = withdrawPersister)
+
+        assertThatThrownBy {
+            runBlocking {
+                service.acceptWithdraw(
+                    WithdrawAcceptCommand(
+                        withdrawId = 1,
+                        destAmount = BigDecimal("9.9"),
+                        destTransactionRef = "chain-tx-1",
+                        destNote = null
+                    )
+                )
+            }
+        }.isOpexError(OpexError.DuplicateWithdrawTransactionRef)
+
+        assertThat(transferManager.transferCallCount).isZero()
+        assertThat(withdrawPersister.persistCallCount).isZero()
+    }
+
     private fun createdWithdraw(): Withdraw = Withdraw(
         withdrawId = 1,
         ownerUuid = "user-1",
@@ -214,7 +240,8 @@ private class WithdrawServiceTest {
     }
 
     private class RecordingWithdrawPersister(
-        private val existingWithdraw: Withdraw? = null
+        private val existingWithdraw: Withdraw? = null,
+        private val existingDestinationRefs: Set<String> = emptySet()
     ) : WithdrawPersister {
         var persistCallCount = 0
 
@@ -252,7 +279,7 @@ private class WithdrawServiceTest {
             destTxRef: String?,
             destAddress: String?,
             status: List<WithdrawStatus>
-        ): Long = 0
+        ): Long = if (destTxRef != null && destTxRef in existingDestinationRefs) 1 else 0
 
         override suspend fun findWithdrawHistory(
             uuid: String,

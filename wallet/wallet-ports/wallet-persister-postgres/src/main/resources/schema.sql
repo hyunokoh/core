@@ -150,6 +150,10 @@ CREATE TABLE IF NOT EXISTS withdraws
     accept_date          TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_withdraws_dest_transaction_ref_unique
+    ON withdraws (dest_transaction_ref)
+    WHERE dest_transaction_ref IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS rate
 (
     id               SERIAL PRIMARY KEY,

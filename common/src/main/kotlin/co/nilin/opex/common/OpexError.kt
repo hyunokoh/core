@@ -71,6 +71,7 @@ enum class OpexError(val code: Int, val message: String?, val status: HttpStatus
     WithdrawAmountLessThanMinimum(6025, "Withdraw amount is less than minimum", HttpStatus.BAD_REQUEST),
     WithdrawCannotBeCanceled(6026, "Withdraw cannot be canceled", HttpStatus.BAD_REQUEST),
     WithdrawCannotBeRejected(6027, "Withdraw cannot be rejected", HttpStatus.BAD_REQUEST),
+    DuplicateWithdrawTransactionRef(6028, "Withdraw destination transaction reference already exists", HttpStatus.BAD_REQUEST),
 
     // code 7000: api
     OrderNotFound(7001, "No order found", HttpStatus.NOT_FOUND),
