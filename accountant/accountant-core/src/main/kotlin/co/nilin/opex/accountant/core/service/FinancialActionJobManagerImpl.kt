@@ -36,7 +36,7 @@ class FinancialActionJobManagerImpl(
                         it.receiver,
                         it.amount,
                         it.eventType + it.pointer,
-                        "accountant:fiActions:${it.uuid}",
+                        it.transferRef(),
                         it.category.toString()
                     )
                     financialActionPersister.updateStatusNewTx(it, FinancialActionStatus.PROCESSED)
@@ -68,7 +68,7 @@ class FinancialActionJobManagerImpl(
                         it.receiver,
                         it.amount,
                         it.eventType + it.pointer,
-                        "accountant:fiActions:${it.id.toString()}",
+                        it.transferRef(),
                         it.category.toString()
                     )
                     with(financialActionPersister) {
@@ -96,5 +96,9 @@ class FinancialActionJobManagerImpl(
 
         if (!list.contains(financialAction))
             list.add(financialAction)
+    }
+
+    private fun FinancialAction.transferRef(): String {
+        return "accountant:fiActions:$uuid"
     }
 }
