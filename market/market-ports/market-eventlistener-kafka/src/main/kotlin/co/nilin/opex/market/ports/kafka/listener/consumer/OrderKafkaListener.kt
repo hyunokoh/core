@@ -5,11 +5,12 @@ import co.nilin.opex.market.ports.kafka.listener.spi.RichOrderListener
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.listener.MessageListener
 import org.springframework.stereotype.Component
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Component
 class OrderKafkaListener : MessageListener<String, RichOrderEvent> {
 
-    val orderListeners = arrayListOf<RichOrderListener>()
+    val orderListeners = CopyOnWriteArrayList<RichOrderListener>()
 
     override fun onMessage(data: ConsumerRecord<String, RichOrderEvent>) {
         orderListeners.forEach { tl ->
@@ -18,6 +19,7 @@ class OrderKafkaListener : MessageListener<String, RichOrderEvent> {
     }
 
     fun addOrderListener(tl: RichOrderListener) {
+        removeOrderListener(tl)
         orderListeners.add(tl)
     }
 

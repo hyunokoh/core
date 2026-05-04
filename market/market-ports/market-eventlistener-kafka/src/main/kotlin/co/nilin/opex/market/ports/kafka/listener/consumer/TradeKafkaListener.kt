@@ -5,11 +5,12 @@ import co.nilin.opex.market.ports.kafka.listener.spi.RichTradeListener
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.listener.MessageListener
 import org.springframework.stereotype.Component
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Component
 class TradeKafkaListener : MessageListener<String, RichTrade> {
 
-    val tradeListeners = arrayListOf<RichTradeListener>()
+    val tradeListeners = CopyOnWriteArrayList<RichTradeListener>()
 
     override fun onMessage(data: ConsumerRecord<String, RichTrade>) {
         tradeListeners.forEach { tl ->
@@ -18,6 +19,7 @@ class TradeKafkaListener : MessageListener<String, RichTrade> {
     }
 
     fun addTradeListener(tl: RichTradeListener) {
+        removeTradeListener(tl)
         tradeListeners.add(tl)
     }
 
