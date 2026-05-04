@@ -74,6 +74,8 @@ class WalletController(
     ): List<DepositResponse> {
         validateSignedRequest(recvWindow, timestamp)
         val validLimit = validWalletHistoryLimit(limit)
+        val validOffset = validWalletHistoryOffset(offset)
+        validateWalletHistoryTimeRange(startTime, endTime)
         val deposits = walletProxy.getDepositTransactions(
             securityContext.jwtAuthentication().name,
             securityContext.jwtAuthentication().tokenValue(),
@@ -81,7 +83,7 @@ class WalletController(
             startTime ?: null,
             endTime ?: null,
             validLimit,
-            offset ?: 0,
+            validOffset,
             ascendingByTime
         )
         if (deposits.isEmpty())
@@ -117,6 +119,8 @@ class WalletController(
     ): List<WithdrawResponse> {
         validateSignedRequest(recvWindow, timestamp)
         val validLimit = validWalletHistoryLimit(limit)
+        val validOffset = validWalletHistoryOffset(offset)
+        validateWalletHistoryTimeRange(startTime, endTime)
         val response = walletProxy.getWithdrawTransactions(
             securityContext.jwtAuthentication().name,
             securityContext.jwtAuthentication().tokenValue(),
@@ -124,7 +128,7 @@ class WalletController(
             startTime ?: null,
             endTime ?: null,
             validLimit,
-            offset ?: 0,
+            validOffset,
             ascendingByTime
         )
         return response.map {
@@ -163,6 +167,8 @@ class WalletController(
     ): List<WithdrawResponse> {
         validateSignedRequest(withdrawRequest.recvWindow, withdrawRequest.timestamp)
         val validLimit = validWalletHistoryLimit(withdrawRequest.limit)
+        val validOffset = validWalletHistoryOffset(withdrawRequest.offset)
+        validateWalletHistoryTimeRange(withdrawRequest.startTime, withdrawRequest.endTime)
         val response = walletProxy.getWithdrawTransactions(
             securityContext.jwtAuthentication().name,
             securityContext.jwtAuthentication().tokenValue(),
@@ -170,7 +176,7 @@ class WalletController(
             withdrawRequest.startTime ?: null,
             withdrawRequest.endTime ?: null,
             validLimit,
-            withdrawRequest.offset ?: 0,
+            validOffset,
             withdrawRequest.ascendingByTime
         )
         return response.map {
@@ -341,5 +347,21 @@ class WalletController(
         if (validLimit !in 1..1000)
             throw OpexError.InvalidRequestParam.exception("Parameter 'limit' is either missing or invalid")
         return validLimit
+    }
+
+    private fun validWalletHistoryOffset(offset: Int?): Int {
+        val validOffset = offset ?: 0
+        if (validOffset < 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'offset' is either missing or invalid")
+        return validOffset
+    }
+
+    private fun validateWalletHistoryTimeRange(startTime: Long?, endTime: Long?) {
+        if (startTime != null && startTime <= 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
+        if (endTime != null && endTime <= 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'endTime' is either missing or invalid")
+        if (startTime != null && endTime != null && startTime > endTime)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
     }
 }

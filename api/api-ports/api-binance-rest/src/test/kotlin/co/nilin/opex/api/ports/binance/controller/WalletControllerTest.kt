@@ -133,6 +133,81 @@ private class WalletControllerTest {
         assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
     }
 
+    @Test
+    fun givenNegativeOffset_whenWithdrawHistoryRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.getWithdrawTransactions(
+                    coin = "USDT",
+                    withdrawOrderId = null,
+                    withdrawStatus = null,
+                    offset = -1,
+                    limit = null,
+                    startTime = null,
+                    endTime = null,
+                    ascendingByTime = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
+    }
+
+    @Test
+    fun givenInvertedTimeRange_whenDepositHistoryRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.getDepositTransactions(
+                    coin = "USDT",
+                    status = null,
+                    startTime = 2000,
+                    endTime = 1000,
+                    offset = null,
+                    limit = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    ascendingByTime = null,
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getDepositTransactionsCallCount).isZero()
+    }
+
+    @Test
+    fun givenNegativeStartTime_whenWithdrawHistoryV2Requested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+        val request = WithDrawRequest(
+            coin = "USDT",
+            withdrawOrderId = null,
+            withdrawStatus = null,
+            offset = null,
+            limit = null,
+            startTime = -1,
+            endTime = null,
+            ascendingByTime = null,
+            recvWindow = null,
+            timestamp = signedTimestamp()
+        )
+
+        assertThatThrownBy {
+            runBlocking { controller.getWithdrawTransactionsV2(request, securityContext()) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
+    }
+
     private fun controller(
         walletProxy: RecordingWalletProxy = RecordingWalletProxy(),
         blockchainGatewayProxy: RecordingBlockchainGatewayProxy = RecordingBlockchainGatewayProxy()
