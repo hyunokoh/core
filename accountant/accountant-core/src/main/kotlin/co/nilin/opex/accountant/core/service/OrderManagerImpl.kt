@@ -168,6 +168,19 @@ open class OrderManagerImpl(
             return emptyList()
         }
 
+        if (order.price != updatedOrderEvent.oldPrice || order.quantity != updatedOrderEvent.oldQuantity) {
+            logger.warn(
+                "Stale update order event ignored: ouid={}, currentPrice={}, currentQuantity={}, eventOldPrice={}, eventOldQuantity={}",
+                updatedOrderEvent.ouid,
+                order.price,
+                order.quantity,
+                updatedOrderEvent.oldPrice,
+                updatedOrderEvent.oldQuantity
+            )
+            tempEventPersister.removeTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
+            return emptyList()
+        }
+
         val filledQuantity = updatedOrderEvent.oldQuantity - updatedOrderEvent.remainedQuantity
         val newRemainedQuantity = updatedOrderEvent.quantity - filledQuantity
         val newRemainedTransferAmount = reserveAmount(

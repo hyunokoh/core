@@ -371,6 +371,45 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenStaleUpdateOrderEvent_whenLocalOrderAlreadyMoved_thenIgnoreWithoutRegressingOrder(): Unit = runBlocking {
+        val orderEvent = UpdatedOrderEvent(
+            "stale_update_ouid",
+            "user_id",
+            91,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            110000,
+            1000,
+            1000,
+            OrderDirection.BID
+        )
+        val order = Valid.order.copy(
+            ouid = orderEvent.ouid,
+            uuid = orderEvent.uuid,
+            matchingEngineId = orderEvent.orderId,
+            price = 120000,
+            quantity = 1000,
+            remainedTransferAmount = BigDecimal("1.200000000"),
+            firstTransferAmount = BigDecimal("1.200000000")
+        )
+        orderPersister.orders[orderEvent.ouid] = order
+        tempEventPersister.saveTempEvent(orderEvent.ouid, orderEvent)
+
+        val financialActions = orderManager.handleUpdateOrder(orderEvent)
+
+        val persistedOrder = orderPersister.orders.getValue(orderEvent.ouid)
+        assertThat(financialActions).isEmpty()
+        assertThat(persistedOrder.price).isEqualTo(120000)
+        assertThat(persistedOrder.quantity).isEqualTo(1000)
+        assertThat(persistedOrder.remainedTransferAmount).isEqualByComparingTo(BigDecimal("1.200000000"))
+        assertThat(financialActionStore.persisted).isEmpty()
+        assertThat(richOrderPublisher.published).isEmpty()
+        assertThat(orderPersister.saved).isEmpty()
+        assertThat(tempEventPersister.loadTempEvents(orderEvent.ouid)).isEmpty()
+    }
+
+    @Test
     fun givenUpdateOrderEventReceived_whenLocalOrderNull_saveTempEvent(): Unit = runBlocking {
         val orderEvent = UpdatedOrderEvent(
             "missing_ouid",
