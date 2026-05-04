@@ -46,7 +46,7 @@ class TransferControllerIT : KafkaEnabledTest() {
     }
 
     @Test
-    suspend fun givenCategory_whenTransfer_thenCategoryMatches() {
+    fun givenCategory_whenTransfer_thenCategoryMatches() = runBlocking {
         val t = System.currentTimeMillis()
         val sender = walletOwnerManager.createWalletOwner(UUID.randomUUID().toString(), "sender", "")
         val receiver = sender.uuid
@@ -68,7 +68,7 @@ class TransferControllerIT : KafkaEnabledTest() {
         Assertions.assertEquals(BigDecimal.ONE, transfer.amount.amount)
         Assertions.assertEquals("ETH", transfer.amount.currency.symbol)
         val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(
-            walletOwnerManager.findWalletOwner(receiver)!!, WalletType.MAIN, srcCurrency
+            walletOwnerManager.findWalletOwner(receiver)!!, WalletType.EXCHANGE, srcCurrency
         )
         Assertions.assertEquals(BigDecimal.ONE, receiverWallet!!.balance.amount)
         val txList = webClient.post().uri("/transaction/$receiver").accept(MediaType.APPLICATION_JSON)
@@ -86,5 +86,35 @@ class TransferControllerIT : KafkaEnabledTest() {
             Assertions.assertEquals(sender.uuid, this.senderUuid)
             Assertions.assertEquals(receiverUuid, this.receiverUuid)
         }
+    }
+
+    @Test
+    fun givenNegativeAmount_whenTransferRequested_thenBadRequestAndBalancesUnchanged() = runBlocking {
+        val sender = walletOwnerManager.createWalletOwner(UUID.randomUUID().toString(), "sender", "")
+        val receiver = sender.uuid
+        val srcCurrency = currencyService.getCurrency("USDT")!!
+        walletManager.createWallet(
+            sender,
+            Amount(srcCurrency, BigDecimal.valueOf(100)),
+            srcCurrency,
+            WalletType.MAIN
+        )
+        walletManager.createWallet(
+            sender,
+            Amount(srcCurrency, BigDecimal.ZERO),
+            srcCurrency,
+            WalletType.EXCHANGE
+        )
+
+        webClient.post().uri("/v2/transfer/-1_USDT/from/${sender.uuid}_MAIN/to/${receiver}_EXCHANGE")
+            .accept(MediaType.APPLICATION_JSON)
+            .bodyValue(TransferController.TransferBody("negative transfer", "negative-ref-${UUID.randomUUID()}", TransferCategory.NORMAL))
+            .exchange()
+            .expectStatus().isBadRequest
+
+        val sourceWallet = walletManager.findWalletByOwnerAndCurrencyAndType(sender, WalletType.MAIN, srcCurrency)
+        val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(sender, WalletType.EXCHANGE, srcCurrency)
+        Assertions.assertEquals(BigDecimal.valueOf(100), sourceWallet!!.balance.amount)
+        Assertions.assertEquals(BigDecimal.ZERO, receiverWallet!!.balance.amount)
     }
 }
