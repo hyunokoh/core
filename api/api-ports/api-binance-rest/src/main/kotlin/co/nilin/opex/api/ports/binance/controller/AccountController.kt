@@ -29,6 +29,9 @@ class AccountController(
     val symbolMapper: SymbolMapper
 ) {
 
+    private val defaultAccountQueryLimit = 500
+    private val maxAccountQueryLimit = 1000
+
     /*
     Send in a new order.
     Weight: 1
@@ -302,7 +305,8 @@ class AccountController(
         timestamp: Long
     ): List<QueryOrderResponse> {
         val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
-        return queryHandler.allOrders(principal, internalSymbol, startTime, endTime, limit).map {
+        val validLimit = validAccountQueryLimit(limit)
+        return queryHandler.allOrders(principal, internalSymbol, startTime, endTime, validLimit).map {
             it.asQueryOrderResponse().apply { this.symbol = responseSymbol(symbol, it.symbol) }
         }
     }
@@ -349,8 +353,9 @@ class AccountController(
         timestamp: Long
     ): List<TradeResponse> {
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
+        val validLimit = validAccountQueryLimit(limit)
 
-        return queryHandler.allTrades(principal, internalSymbol, fromId, startTime, endTime, limit)
+        return queryHandler.allTrades(principal, internalSymbol, fromId, startTime, endTime, validLimit)
             .map {
                 TradeResponse(
                     symbol ?: "",
@@ -475,6 +480,13 @@ class AccountController(
     private fun checkNull(obj: Any?, paramName: String) {
         if (obj == null)
             throw OpexError.InvalidRequestParam.exception("Parameter '$paramName' is either missing or invalid")
+    }
+
+    private fun validAccountQueryLimit(limit: Int?): Int {
+        val validLimit = limit ?: defaultAccountQueryLimit
+        if (validLimit !in 1..maxAccountQueryLimit)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'limit' is either missing or invalid")
+        return validLimit
     }
 
     private suspend fun responseSymbol(requestSymbol: String?, internalSymbol: String): String {

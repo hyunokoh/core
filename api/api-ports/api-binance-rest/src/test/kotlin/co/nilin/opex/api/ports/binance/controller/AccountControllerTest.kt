@@ -5,8 +5,11 @@ import co.nilin.opex.api.core.spi.MarketUserDataProxy
 import co.nilin.opex.api.core.spi.MatchingGatewayProxy
 import co.nilin.opex.api.core.spi.SymbolMapper
 import co.nilin.opex.api.core.spi.WalletProxy
+import co.nilin.opex.common.OpexError
+import co.nilin.opex.utility.error.data.OpexException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
 import java.security.Principal
@@ -43,6 +46,52 @@ private class AccountControllerTest {
         assertThat(responses.first().symbol).isEqualTo("ETHUSDT")
     }
 
+    @Test
+    fun givenNoLimit_whenAllOrdersRequested_thenUseBinanceDefaultLimit(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        controller.fetchAllOrders(Principal { "user-1" }, "ETHUSDT", null, null, null, null, 1L)
+
+        assertThat(queryHandler.allOrdersSymbol).isEqualTo("ETH_USDT")
+        assertThat(queryHandler.allOrdersLimit).isEqualTo(500)
+    }
+
+    @Test
+    fun givenTooLargeLimit_whenAllOrdersRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking { controller.fetchAllOrders(Principal { "user-1" }, "ETHUSDT", null, null, 1001, null, 1L) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.allOrdersSymbol).isEqualTo("not-called")
+    }
+
+    @Test
+    fun givenInvalidLimit_whenMyTradesRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking { controller.fetchAllTrades(Principal { "user-1" }, "ETHUSDT", null, null, null, 0, null, 1L) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("not-called")
+    }
+
+    @Test
+    fun givenNoLimit_whenMyTradesRequested_thenUseBinanceDefaultLimit(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        controller.fetchAllTrades(Principal { "user-1" }, "ETHUSDT", null, null, null, null, null, 1L)
+
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("ETH_USDT")
+        assertThat(queryHandler.allTradesLimit).isEqualTo(500)
+    }
+
     private fun controller(queryHandler: RecordingMarketUserDataProxy) = AccountController(
         queryHandler,
         RecordingMatchingGatewayProxy(),
@@ -50,11 +99,19 @@ private class AccountControllerTest {
         RecordingSymbolMapper()
     )
 
+    private fun org.assertj.core.api.AbstractThrowableAssert<*, out Throwable>.isOpexError(error: OpexError) {
+        isInstanceOf(OpexException::class.java)
+            .extracting("error")
+            .isEqualTo(error)
+    }
+
     private class RecordingMarketUserDataProxy : MarketUserDataProxy {
         var openOrdersSymbol: String? = "not-called"
         var openOrdersLimit: Int? = null
         var allOrdersSymbol: String? = "not-called"
         var allOrdersLimit: Int? = null
+        var allTradesSymbol: String? = "not-called"
+        var allTradesLimit: Int? = null
 
         override suspend fun queryOrder(
             principal: Principal,
@@ -88,7 +145,11 @@ private class AccountControllerTest {
             startTime: Date?,
             endTime: Date?,
             limit: Int?
-        ): List<Trade> = emptyList()
+        ): List<Trade> {
+            allTradesSymbol = symbol
+            allTradesLimit = limit
+            return emptyList()
+        }
 
         private fun order() = Order(
             id = 1,
