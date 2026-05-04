@@ -1,6 +1,7 @@
 package co.nilin.opex.matching.engine.core
 
 import co.nilin.opex.matching.engine.core.eventh.EventDispatcher
+import co.nilin.opex.matching.engine.core.eventh.events.CoreEvent
 import co.nilin.opex.matching.engine.core.eventh.events.OrderBookPublishedEvent
 import co.nilin.opex.matching.engine.core.eventh.events.RejectOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
@@ -1055,6 +1056,84 @@ class SimpleOrderBookUnitTest {
             Assertions.assertEquals(OrderDirection.BID, it.direction)
             Assertions.assertEquals(MatchConstraint.GTC, it.matchConstraint)
             Assertions.assertEquals(OrderType.LIMIT_ORDER, it.orderType)
+        }
+    }
+
+    @Test
+    fun givenBidEditCrossesAsk_whenEditOrder_thenEmitUpdateBeforeTradeAndPublish() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val askOuid = UUID.randomUUID().toString()
+        val askUuid = UUID.randomUUID().toString()
+        val askOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                askOuid,
+                askUuid,
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+        val bidOuid = UUID.randomUUID().toString()
+        val bidOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                bidOuid,
+                uuid,
+                pair,
+                9,
+                3,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+        val editEvents = mutableListOf<CoreEvent>()
+        EventDispatcher.register(CoreEvent::class.java) { editEvents.add(it) }
+
+        val editedOrder = orderBook.handleEditCommand(
+            OrderEditCommand(
+                bidOuid,
+                uuid,
+                bidOrder.id()!!,
+                pair,
+                11,
+                3
+            )
+        )
+
+        Assertions.assertEquals(bidOrder.id(), editedOrder?.id())
+        Assertions.assertEquals(1, (editedOrder as SimpleOrder).remainedQuantity())
+        Assertions.assertEquals(1, orderBook.orders.size)
+        Assertions.assertEquals(editedOrder, orderBook.bestBidOrder)
+        Assertions.assertNull(orderBook.bestAskOrder)
+        Assertions.assertEquals(
+            listOf(
+                UpdatedOrderEvent::class.java,
+                TradeEvent::class.java,
+                OrderBookPublishedEvent::class.java
+            ),
+            editEvents.map { it::class.java }
+        )
+        (editEvents[0] as UpdatedOrderEvent).also {
+            Assertions.assertEquals(bidOuid, it.ouid)
+            Assertions.assertEquals(9, it.oldPrice)
+            Assertions.assertEquals(3, it.oldQuantity)
+            Assertions.assertEquals(11, it.price)
+            Assertions.assertEquals(3, it.quantity)
+            Assertions.assertEquals(3, it.remainedQuantity)
+        }
+        (editEvents[1] as TradeEvent).also {
+            Assertions.assertEquals(bidOuid, it.takerOuid)
+            Assertions.assertEquals(bidOrder.id(), it.takerOrderId)
+            Assertions.assertEquals(askOuid, it.makerOuid)
+            Assertions.assertEquals(askOrder.id(), it.makerOrderId)
+            Assertions.assertEquals(11, it.takerPrice)
+            Assertions.assertEquals(10, it.makerPrice)
+            Assertions.assertEquals(1, it.takerRemainedQuantity)
+            Assertions.assertEquals(0, it.makerRemainedQuantity)
+            Assertions.assertEquals(2, it.matchedQuantity)
         }
     }
 
