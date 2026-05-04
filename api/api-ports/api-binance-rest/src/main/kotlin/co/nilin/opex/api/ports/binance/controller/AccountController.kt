@@ -268,6 +268,7 @@ class AccountController(
         limit: Int?
     ): List<QueryOrderResponse> {
         validateSignedRequest(recvWindow, timestamp)
+        validateOptionalSymbol(symbol)
         val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
         val validLimit = validOptionalAccountQueryLimit(limit)
         return queryHandler.openOrders(principal, internalSymbol, validLimit).map {
@@ -313,6 +314,7 @@ class AccountController(
         timestamp: Long
     ): List<QueryOrderResponse> {
         validateSignedRequest(recvWindow, timestamp)
+        validateOptionalSymbol(symbol)
         validateAccountTimeRange(startTime, endTime)
         val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
         val validLimit = validAccountQueryLimit(limit)
@@ -523,6 +525,11 @@ class AccountController(
     private fun validateFromId(fromId: Long?) {
         if (fromId != null && fromId < 0)
             throw OpexError.InvalidRequestParam.exception("Parameter 'fromId' is either missing or invalid")
+    }
+
+    private fun validateOptionalSymbol(symbol: String?) {
+        if (symbol != null && symbol.isBlank())
+            throw OpexError.InvalidRequestParam.exception("Parameter 'symbol' is either missing or invalid")
     }
 
     private suspend fun responseSymbol(requestSymbol: String?, internalSymbol: String): String {

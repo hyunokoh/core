@@ -49,6 +49,18 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenBlankSymbol_whenOpenOrdersRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking { controller.fetchOpenOrders(Principal { "user-1" }, " ", null, signedTimestamp(), null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.openOrdersSymbol).isEqualTo("not-called")
+    }
+
+    @Test
     fun givenNoSymbol_whenAllOrdersRequested_thenQueryAllOrdersAndReturnAliasSymbols(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val controller = controller(queryHandler)
@@ -80,6 +92,18 @@ private class AccountControllerTest {
 
         assertThatThrownBy {
             runBlocking { controller.fetchAllOrders(Principal { "user-1" }, "ETHUSDT", null, null, 1001, null, signedTimestamp()) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.allOrdersSymbol).isEqualTo("not-called")
+    }
+
+    @Test
+    fun givenBlankSymbol_whenAllOrdersRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking { controller.fetchAllOrders(Principal { "user-1" }, " ", null, null, null, null, signedTimestamp()) }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(queryHandler.allOrdersSymbol).isEqualTo("not-called")
