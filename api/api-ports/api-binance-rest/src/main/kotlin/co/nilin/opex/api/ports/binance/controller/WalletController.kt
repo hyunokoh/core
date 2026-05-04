@@ -235,9 +235,9 @@ class WalletController(
 
         val prices = marketDataProxy.getBestPriceForSymbols(
             result.map { "${it.asset.uppercase()}_${quoteAsset.uppercase()}" }
-        ).associateBy { it.symbol.split("_")[0] }
+        ).associateBy { it.symbol.split("_")[0].uppercase() }
 
-        result.associateWith { prices[it.asset] }
+        result.associateWith { prices[it.asset.uppercase()] }
             .forEach { (asset, price) -> asset.valuation = price?.bidPrice ?: BigDecimal.ZERO }
 
         if (calculateEvaluation == true)
@@ -262,12 +262,12 @@ class WalletController(
         val wallets = walletProxy.getWallets(auth.name, auth.tokenValue())
         val rates = marketDataProxy.getBestPriceForSymbols(
             wallets.map { "${it.asset.uppercase()}_${quoteAsset.uppercase()}" }
-        ).associateBy { it.symbol.split("_")[0] }
+        ).associateBy { it.symbol.split("_")[0].uppercase() }
 
         var value = BigDecimal.ZERO
         val zeroAssets = arrayListOf<String>()
         wallets.filter { !it.asset.equals(quoteAsset, true) }
-            .associateWith { rates[it.asset] }
+            .associateWith { rates[it.asset.uppercase()] }
             .forEach { (asset, price) ->
                 if (price == null || (price.bidPrice ?: BigDecimal.ZERO) == BigDecimal.ZERO)
                     zeroAssets.add(asset.asset)

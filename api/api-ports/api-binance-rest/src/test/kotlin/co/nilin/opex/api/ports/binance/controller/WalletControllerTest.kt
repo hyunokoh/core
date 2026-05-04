@@ -485,13 +485,52 @@ private class WalletControllerTest {
         assertThat(walletProxy.getWalletsCallCount).isZero()
     }
 
+    @Test
+    fun givenLowercaseAsset_whenUserAssetsEvaluated_thenMatchesUppercaseBestPrice(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            wallets = listOf(Wallet("eth", BigDecimal("2"), BigDecimal("0.5"), BigDecimal("0.25")))
+        )
+        val marketDataProxy = RecordingMarketDataProxy(
+            bestPrices = listOf(BestPrice("ETH_USDT", BigDecimal("100"), BigDecimal("101")))
+        )
+        val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
+
+        val assets = controller.getUserAssets(securityContext(), null, "USDT", true)
+
+        assertThat(assets).hasSize(1)
+        assertThat(assets[0].valuation).isEqualByComparingTo("100")
+        assertThat(assets[0].free).isEqualByComparingTo("200")
+        assertThat(assets[0].locked).isEqualByComparingTo("50")
+        assertThat(assets[0].withdrawing).isEqualByComparingTo("25")
+    }
+
+    @Test
+    fun givenLowercaseAsset_whenEstimatedValueRequested_thenMatchesUppercaseBestPrice(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            wallets = listOf(
+                Wallet("eth", BigDecimal("2"), BigDecimal.ZERO, BigDecimal.ZERO),
+                Wallet("usdt", BigDecimal("10"), BigDecimal.ZERO, BigDecimal.ZERO)
+            )
+        )
+        val marketDataProxy = RecordingMarketDataProxy(
+            bestPrices = listOf(BestPrice("ETH_USDT", BigDecimal("100"), BigDecimal("101")))
+        )
+        val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
+
+        val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT")
+
+        assertThat(estimatedValue.value).isEqualByComparingTo("210")
+        assertThat(estimatedValue.zeroValueAssets).isEmpty()
+    }
+
     private fun controller(
         walletProxy: RecordingWalletProxy = RecordingWalletProxy(),
-        blockchainGatewayProxy: RecordingBlockchainGatewayProxy = RecordingBlockchainGatewayProxy()
+        blockchainGatewayProxy: RecordingBlockchainGatewayProxy = RecordingBlockchainGatewayProxy(),
+        marketDataProxy: RecordingMarketDataProxy = RecordingMarketDataProxy()
     ) = WalletController(
         walletProxy,
         RecordingSymbolMapper(),
-        RecordingMarketDataProxy(),
+        marketDataProxy,
         RecordingAccountantProxy(),
         blockchainGatewayProxy
     )
@@ -533,7 +572,8 @@ private class WalletControllerTest {
 
     private class RecordingWalletProxy(
         private val deposits: List<TransactionHistoryResponse> = emptyList(),
-        private val withdraws: List<WithdrawHistoryResponse> = emptyList()
+        private val withdraws: List<WithdrawHistoryResponse> = emptyList(),
+        private val wallets: List<Wallet> = emptyList()
     ) : WalletProxy {
         var getDepositTransactionsCallCount = 0
         var getWithdrawTransactionsCallCount = 0
@@ -543,7 +583,7 @@ private class WalletControllerTest {
 
         override suspend fun getWallets(uuid: String?, token: String?): List<Wallet> {
             getWalletsCallCount += 1
-            return emptyList()
+            return wallets
         }
 
         override suspend fun getWallet(uuid: String?, token: String?, symbol: String): Wallet {
@@ -592,7 +632,9 @@ private class WalletControllerTest {
         override suspend fun symbolToAliasMap(): Map<String, String> = emptyMap()
     }
 
-    private class RecordingMarketDataProxy : MarketDataProxy {
+    private class RecordingMarketDataProxy(
+        private val bestPrices: List<BestPrice> = emptyList()
+    ) : MarketDataProxy {
         override suspend fun getTradeTickerData(interval: Interval): List<PriceChange> = emptyList()
 
         override suspend fun getTradeTickerDataBySymbol(symbol: String, interval: Interval): PriceChange =
@@ -608,7 +650,7 @@ private class WalletControllerTest {
 
         override suspend fun lastPrice(symbol: String?): List<PriceTicker> = emptyList()
 
-        override suspend fun getBestPriceForSymbols(symbols: List<String>): List<BestPrice> = emptyList()
+        override suspend fun getBestPriceForSymbols(symbols: List<String>): List<BestPrice> = bestPrices
 
         override suspend fun getCandleInfo(
             symbol: String,
