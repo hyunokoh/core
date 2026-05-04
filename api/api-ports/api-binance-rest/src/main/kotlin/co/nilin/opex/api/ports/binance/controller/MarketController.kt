@@ -45,7 +45,7 @@ class MarketController(
         val validLimit = limit ?: 100
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         if (!orderBookValidLimits.contains(validLimit))
-            OpexError.InvalidLimitForOrderBook.exception()
+            throw OpexError.InvalidLimitForOrderBook.exception()
 
         val mappedBidOrders = ArrayList<ArrayList<BigDecimal>>()
         val mappedAskOrders = ArrayList<ArrayList<BigDecimal>>()
@@ -84,7 +84,7 @@ class MarketController(
         val validLimit = limit ?: 500
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         if (validLimit !in 1..1000)
-            OpexError.InvalidLimitForRecentTrades.exception()
+            throw OpexError.InvalidLimitForRecentTrades.exception()
 
         return marketDataProxy.recentTrades(localSymbol, validLimit)
             .map {
@@ -112,7 +112,7 @@ class MarketController(
             symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
 
         if (!validDurations.contains(duration))
-            OpexError.InvalidPriceChangeDuration.exception()
+            throw OpexError.InvalidPriceChangeDuration.exception()
 
         val interval = Interval.findByLabel(duration) ?: Interval.Week
 
