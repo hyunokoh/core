@@ -166,6 +166,12 @@ open class OrderManagerImpl(
     }
 
     private suspend fun handleUpdateOrderLocked(updatedOrderEvent: UpdatedOrderEvent): List<FinancialAction> {
+        if (!isValidUpdateEventQuantities(updatedOrderEvent)) {
+            logger.warn("Invalid update order event quantities ignored: ouid={}", updatedOrderEvent.ouid)
+            tempEventPersister.removeTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
+            return emptyList()
+        }
+
         val order = orderPersister.load(updatedOrderEvent.ouid)
         if (order == null) {
             tempEventPersister.saveTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
@@ -173,11 +179,6 @@ open class OrderManagerImpl(
         }
         if (!isUpdateEventForOrder(updatedOrderEvent, order)) {
             logger.warn("Inconsistent update order event ignored: ouid={}", updatedOrderEvent.ouid)
-            tempEventPersister.removeTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
-            return emptyList()
-        }
-        if (!isValidUpdateEventQuantities(updatedOrderEvent)) {
-            logger.warn("Invalid update order event quantities ignored: ouid={}", updatedOrderEvent.ouid)
             tempEventPersister.removeTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
             return emptyList()
         }

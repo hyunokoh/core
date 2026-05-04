@@ -528,6 +528,30 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenUpdateOrderEventWithImpossibleRemainder_whenLocalOrderNull_ignoreWithoutSavingTempEvent(): Unit = runBlocking {
+        val orderEvent = UpdatedOrderEvent(
+            "invalid_missing_update_ouid",
+            "user_id",
+            90,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            120000,
+            1000,
+            1001,
+            OrderDirection.BID
+        )
+
+        val financialActions = orderManager.handleUpdateOrder(orderEvent)
+
+        assertThat(financialActions).isEmpty()
+        assertThat(tempEventPersister.saved).isEmpty()
+        assertThat(financialActionStore.persisted).isEmpty()
+        assertThat(richOrderPublisher.published).isEmpty()
+        assertThat(orderPersister.saved).isEmpty()
+    }
+
+    @Test
     fun givenRejectOrderReceived_whenLocalOrderNull_saveTempEvent(): Unit = runBlocking {
         val orderEvent = RejectOrderEvent(
             "ouid",
