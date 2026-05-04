@@ -448,6 +448,43 @@ private class WalletControllerTest {
         assertThat(pendingDeposits).isEmpty()
     }
 
+    @Test
+    fun givenBlankSymbol_whenUserAssetsRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.getUserAssets(securityContext(), " ", null, null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWalletCallCount).isZero()
+        assertThat(walletProxy.getWalletsCallCount).isZero()
+    }
+
+    @Test
+    fun givenBlankQuoteAsset_whenUserAssetsRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.getUserAssets(securityContext(), null, " ", null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWalletsCallCount).isZero()
+    }
+
+    @Test
+    fun givenBlankQuoteAsset_whenEstimatedValueRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.assetsEstimatedValue(securityContext(), " ") }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWalletsCallCount).isZero()
+    }
+
     private fun controller(
         walletProxy: RecordingWalletProxy = RecordingWalletProxy(),
         blockchainGatewayProxy: RecordingBlockchainGatewayProxy = RecordingBlockchainGatewayProxy()
@@ -500,12 +537,19 @@ private class WalletControllerTest {
     ) : WalletProxy {
         var getDepositTransactionsCallCount = 0
         var getWithdrawTransactionsCallCount = 0
+        var getWalletCallCount = 0
+        var getWalletsCallCount = 0
         var lastWithdrawCoin: String? = null
 
-        override suspend fun getWallets(uuid: String?, token: String?): List<Wallet> = emptyList()
+        override suspend fun getWallets(uuid: String?, token: String?): List<Wallet> {
+            getWalletsCallCount += 1
+            return emptyList()
+        }
 
-        override suspend fun getWallet(uuid: String?, token: String?, symbol: String): Wallet =
-            Wallet(symbol, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)
+        override suspend fun getWallet(uuid: String?, token: String?, symbol: String): Wallet {
+            getWalletCallCount += 1
+            return Wallet(symbol, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)
+        }
 
         override suspend fun getOwnerLimits(uuid: String?, token: String?): OwnerLimitsResponse =
             OwnerLimitsResponse(canTrade = true, canWithdraw = true, canDeposit = true)

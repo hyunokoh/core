@@ -178,6 +178,7 @@ class WalletController(
         timestamp: Long
     ): List<PairFeeResponse> {
         validateSignedRequest(recvWindow, timestamp)
+        validateOptionalAssetParam(symbol, "symbol")
         return if (symbol != null) {
             val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
 
@@ -214,6 +215,8 @@ class WalletController(
         @RequestParam(required = false)
         calculateEvaluation: Boolean?
     ): List<AssetResponse> {
+        validateOptionalAssetParam(symbol, "symbol")
+        validateOptionalAssetParam(quoteAsset, "quoteAsset")
         val auth = securityContext.jwtAuthentication()
         val result = arrayListOf<AssetResponse>()
 
@@ -254,6 +257,7 @@ class WalletController(
         @RequestParam
         quoteAsset: String
     ): AssetsEstimatedValue {
+        validateRequiredAssetParam(quoteAsset, "quoteAsset")
         val auth = securityContext.jwtAuthentication()
         val wallets = walletProxy.getWallets(auth.name, auth.tokenValue())
         val rates = marketDataProxy.getBestPriceForSymbols(
@@ -339,6 +343,16 @@ class WalletController(
     private fun validateWithdrawHistoryStatus(status: Int?) {
         if (status != null && status !in 0..2)
             throw OpexError.InvalidRequestParam.exception("Parameter 'status' is either missing or invalid")
+    }
+
+    private fun validateOptionalAssetParam(value: String?, paramName: String) {
+        if (value != null && value.isBlank())
+            throw OpexError.InvalidRequestParam.exception("Parameter '$paramName' is either missing or invalid")
+    }
+
+    private fun validateRequiredAssetParam(value: String, paramName: String) {
+        if (value.isBlank())
+            throw OpexError.InvalidRequestParam.exception("Parameter '$paramName' is either missing or invalid")
     }
 
     private fun WithdrawHistoryResponse.asWithdrawResponse(): WithdrawResponse {
