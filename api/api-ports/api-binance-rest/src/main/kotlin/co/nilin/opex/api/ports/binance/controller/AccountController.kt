@@ -31,9 +31,6 @@ class AccountController(
 
     private val defaultAccountQueryLimit = 500
     private val maxAccountQueryLimit = 1000
-    private val defaultRecvWindow = 5000L
-    private val maxRecvWindow = 60000L
-    private val maxFutureTimestampSkew = 1000L
 
     /*
     Send in a new order.
@@ -472,16 +469,6 @@ class AccountController(
     private fun validateOrderLookupParams(orderId: Long?, origClientOrderId: String?) {
         if (orderId == null && origClientOrderId == null)
             throw OpexError.BadRequest.exception("'orderId' or 'origClientOrderId' must be sent")
-    }
-
-    private fun validateSignedRequest(recvWindow: Long?, timestamp: Long) {
-        val validWindow = recvWindow ?: defaultRecvWindow
-        if (validWindow !in 1..maxRecvWindow)
-            throw OpexError.InvalidRequestParam.exception("Parameter 'recvWindow' is either missing or invalid")
-
-        val now = Date().time
-        if (timestamp <= 0 || timestamp >= now + maxFutureTimestampSkew || now - timestamp > validWindow)
-            throw OpexError.InvalidRequestParam.exception("Parameter 'timestamp' is either missing or invalid")
     }
 
     private fun validAccountQueryLimit(limit: Int?): Int {

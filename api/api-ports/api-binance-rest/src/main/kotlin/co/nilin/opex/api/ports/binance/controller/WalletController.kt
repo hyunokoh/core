@@ -6,6 +6,7 @@ import co.nilin.opex.api.core.spi.*
 import co.nilin.opex.api.ports.binance.data.*
 import co.nilin.opex.api.ports.binance.util.jwtAuthentication
 import co.nilin.opex.api.ports.binance.util.tokenValue
+import co.nilin.opex.api.ports.binance.util.validateSignedRequest
 import co.nilin.opex.common.OpexError
 import co.nilin.opex.common.utils.Interval
 import org.springframework.security.core.annotation.CurrentSecurityContext
@@ -42,6 +43,7 @@ class WalletController(
         timestamp: Long,
         @CurrentSecurityContext securityContext: SecurityContext
     ): AssignAddressResponse {
+        validateSignedRequest(recvWindow, timestamp)
         val response = bcGatewayProxy.assignAddress(securityContext.jwtAuthentication().name, coin, network)
         val address = response?.addresses
         if (address.isNullOrEmpty()) throw OpexError.InternalServerError.exception()
@@ -70,6 +72,7 @@ class WalletController(
         ascendingByTime: Boolean? = false,
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<DepositResponse> {
+        validateSignedRequest(recvWindow, timestamp)
         val validLimit = limit ?: 1000
         val deposits = walletProxy.getDepositTransactions(
             securityContext.jwtAuthentication().name,
@@ -112,6 +115,7 @@ class WalletController(
         timestamp: Long,
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<WithdrawResponse> {
+        validateSignedRequest(recvWindow, timestamp)
         val validLimit = limit ?: 1000
         val response = walletProxy.getWithdrawTransactions(
             securityContext.jwtAuthentication().name,
@@ -157,6 +161,7 @@ class WalletController(
         @RequestBody withdrawRequest: WithDrawRequest,
         @CurrentSecurityContext securityContext: SecurityContext
     ): List<WithdrawResponse> {
+        validateSignedRequest(withdrawRequest.recvWindow, withdrawRequest.timestamp)
         val validLimit = withdrawRequest.limit ?: 1000
         val response = walletProxy.getWithdrawTransactions(
             securityContext.jwtAuthentication().name,
@@ -205,6 +210,7 @@ class WalletController(
         @RequestParam
         timestamp: Long
     ): List<PairFeeResponse> {
+        validateSignedRequest(recvWindow, timestamp)
         return if (symbol != null) {
             val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
 

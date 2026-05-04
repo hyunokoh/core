@@ -1,0 +1,233 @@
+package co.nilin.opex.api.ports.binance.controller
+
+import co.nilin.opex.api.core.inout.*
+import co.nilin.opex.api.core.spi.*
+import co.nilin.opex.api.ports.binance.data.WithDrawRequest
+import co.nilin.opex.common.OpexError
+import co.nilin.opex.common.utils.Interval
+import co.nilin.opex.utility.error.data.OpexException
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.Test
+import org.springframework.security.core.context.SecurityContext
+import org.springframework.security.core.context.SecurityContextImpl
+import org.springframework.security.oauth2.jwt.Jwt
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
+import java.math.BigDecimal
+import java.time.LocalDateTime
+import java.util.Date
+
+private class WalletControllerTest {
+
+    @Test
+    fun givenExpiredTimestamp_whenAssignAddressRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+        val blockchainGatewayProxy = RecordingBlockchainGatewayProxy()
+        val controller = controller(blockchainGatewayProxy = blockchainGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.assignAddress("USDT", "ETH", null, signedTimestamp() - 6000, securityContext())
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(blockchainGatewayProxy.assignAddressCallCount).isZero()
+    }
+
+    @Test
+    fun givenTooLargeRecvWindow_whenWithdrawHistoryRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.getWithdrawTransactions(
+                    coin = "USDT",
+                    withdrawOrderId = null,
+                    withdrawStatus = null,
+                    offset = null,
+                    limit = null,
+                    startTime = null,
+                    endTime = null,
+                    ascendingByTime = null,
+                    recvWindow = 60001,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
+    }
+
+    @Test
+    fun givenExpiredTimestamp_whenWithdrawHistoryV2Requested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+        val request = WithDrawRequest(
+            coin = "USDT",
+            withdrawOrderId = null,
+            withdrawStatus = null,
+            offset = null,
+            limit = null,
+            startTime = null,
+            endTime = null,
+            ascendingByTime = null,
+            recvWindow = null,
+            timestamp = signedTimestamp() - 6000
+        )
+
+        assertThatThrownBy {
+            runBlocking { controller.getWithdrawTransactionsV2(request, securityContext()) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWithdrawTransactionsCallCount).isZero()
+    }
+
+    private fun controller(
+        walletProxy: RecordingWalletProxy = RecordingWalletProxy(),
+        blockchainGatewayProxy: RecordingBlockchainGatewayProxy = RecordingBlockchainGatewayProxy()
+    ) = WalletController(
+        walletProxy,
+        RecordingSymbolMapper(),
+        RecordingMarketDataProxy(),
+        RecordingAccountantProxy(),
+        blockchainGatewayProxy
+    )
+
+    private fun securityContext(): SecurityContext {
+        val jwt = Jwt.withTokenValue("token-1")
+            .header("alg", "none")
+            .subject("user-1")
+            .build()
+        return SecurityContextImpl(JwtAuthenticationToken(jwt))
+    }
+
+    private fun signedTimestamp(): Long = Date().time
+
+    private fun org.assertj.core.api.AbstractThrowableAssert<*, out Throwable>.isOpexError(error: OpexError) {
+        isInstanceOf(OpexException::class.java)
+            .extracting("error")
+            .isEqualTo(error)
+    }
+
+    private class RecordingWalletProxy : WalletProxy {
+        var getWithdrawTransactionsCallCount = 0
+
+        override suspend fun getWallets(uuid: String?, token: String?): List<Wallet> = emptyList()
+
+        override suspend fun getWallet(uuid: String?, token: String?, symbol: String): Wallet =
+            Wallet(symbol, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)
+
+        override suspend fun getOwnerLimits(uuid: String?, token: String?): OwnerLimitsResponse =
+            OwnerLimitsResponse(canTrade = true, canWithdraw = true, canDeposit = true)
+
+        override suspend fun getDepositTransactions(
+            uuid: String,
+            token: String?,
+            coin: String?,
+            startTime: Long?,
+            endTime: Long?,
+            limit: Int,
+            offset: Int,
+            ascendingByTime: Boolean?
+        ): List<TransactionHistoryResponse> = emptyList()
+
+        override suspend fun getWithdrawTransactions(
+            uuid: String,
+            token: String?,
+            coin: String?,
+            startTime: Long?,
+            endTime: Long?,
+            limit: Int,
+            offset: Int,
+            ascendingByTime: Boolean?
+        ): List<WithdrawHistoryResponse> {
+            getWithdrawTransactionsCallCount += 1
+            return emptyList()
+        }
+    }
+
+    private class RecordingSymbolMapper : SymbolMapper {
+        override suspend fun fromInternalSymbol(symbol: String?): String? = symbol
+
+        override suspend fun toInternalSymbol(alias: String?): String? = alias
+
+        override suspend fun symbolToAliasMap(): Map<String, String> = emptyMap()
+    }
+
+    private class RecordingMarketDataProxy : MarketDataProxy {
+        override suspend fun getTradeTickerData(interval: Interval): List<PriceChange> = emptyList()
+
+        override suspend fun getTradeTickerDataBySymbol(symbol: String, interval: Interval): PriceChange =
+            throw UnsupportedOperationException()
+
+        override suspend fun openBidOrders(symbol: String, limit: Int): List<OrderBook> = emptyList()
+
+        override suspend fun openAskOrders(symbol: String, limit: Int): List<OrderBook> = emptyList()
+
+        override suspend fun lastOrder(symbol: String): Order? = null
+
+        override suspend fun recentTrades(symbol: String, limit: Int): List<MarketTrade> = emptyList()
+
+        override suspend fun lastPrice(symbol: String?): List<PriceTicker> = emptyList()
+
+        override suspend fun getBestPriceForSymbols(symbols: List<String>): List<BestPrice> = emptyList()
+
+        override suspend fun getCandleInfo(
+            symbol: String,
+            interval: String,
+            startTime: Long?,
+            endTime: Long?,
+            limit: Int
+        ): List<CandleData> = emptyList()
+
+        override suspend fun getMarketCurrencyRates(quote: String, base: String?): List<CurrencyRate> = emptyList()
+
+        override suspend fun getExternalCurrencyRates(quote: String, base: String?): List<CurrencyRate> = emptyList()
+
+        override suspend fun countActiveUsers(interval: Interval): Long = 0
+
+        override suspend fun countTotalOrders(interval: Interval): Long = 0
+
+        override suspend fun countTotalTrades(interval: Interval): Long = 0
+    }
+
+    private class RecordingAccountantProxy : AccountantProxy {
+        override suspend fun getPairConfigs(): List<PairInfoResponse> = emptyList()
+
+        override suspend fun getFeeConfigs(): List<co.nilin.opex.api.core.inout.PairFeeResponse> = emptyList()
+
+        override suspend fun getFeeConfig(symbol: String): co.nilin.opex.api.core.inout.PairFeeResponse =
+            co.nilin.opex.api.core.inout.PairFeeResponse(
+                pair = symbol,
+                direction = "*",
+                userLevel = "*",
+                makerFee = BigDecimal.ZERO,
+                takerFee = BigDecimal.ZERO
+            )
+    }
+
+    private class RecordingBlockchainGatewayProxy : BlockchainGatewayProxy {
+        var assignAddressCallCount = 0
+
+        override suspend fun assignAddress(uuid: String, currency: String, chain: String): AssignResponse? {
+            assignAddressCallCount += 1
+            return AssignResponse(
+                listOf(
+                    AssignedAddress(
+                        uuid = uuid,
+                        address = "0x1",
+                        memo = null,
+                        type = AddressType(1, "address", ".*", null),
+                        chains = mutableListOf()
+                    )
+                )
+            )
+        }
+
+        override suspend fun getDepositDetails(refs: List<String>): List<DepositDetails> = emptyList()
+
+        override suspend fun getCurrencyImplementations(currency: String?): List<CurrencyImplementation> = emptyList()
+    }
+}
