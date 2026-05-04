@@ -1,6 +1,7 @@
 package co.nilin.opex.api.ports.binance.controller
 
 import co.nilin.opex.api.core.inout.*
+import co.nilin.opex.api.core.spi.AccountantProxy
 import co.nilin.opex.api.core.spi.MarketUserDataProxy
 import co.nilin.opex.api.core.spi.MatchingGatewayProxy
 import co.nilin.opex.api.core.spi.SymbolMapper
@@ -26,6 +27,7 @@ class AccountController(
     val queryHandler: MarketUserDataProxy,
     val matchingGatewayProxy: MatchingGatewayProxy,
     val walletProxy: WalletProxy,
+    val accountantProxy: AccountantProxy,
     val symbolMapper: SymbolMapper
 ) {
 
@@ -421,12 +423,14 @@ class AccountController(
         val auth = securityContext.jwtAuthentication()
         val wallets = walletProxy.getWallets(auth.name, auth.tokenValue())
         val limits = walletProxy.getOwnerLimits(auth.name, auth.tokenValue())
+        val feeConfigs = accountantProxy.getFeeConfigs()
+        val makerCommission = feeConfigs.maxOfOrNull { it.makerFee.toBinanceCommission() } ?: 0
+        val takerCommission = feeConfigs.maxOfOrNull { it.takerFee.toBinanceCommission() } ?: 0
         val accountType = "SPOT"
 
-        //TODO replace commissions and accountType with actual data
         return AccountInfoResponse(
-            0,
-            0,
+            makerCommission,
+            takerCommission,
             0,
             0,
             limits.canTrade,
@@ -438,6 +442,8 @@ class AccountController(
             listOf(accountType)
         )
     }
+
+    private fun BigDecimal.toBinanceCommission(): Long = multiply(BigDecimal("10000")).toLong()
 
     private fun validateNewOrderParams(
         type: OrderType,

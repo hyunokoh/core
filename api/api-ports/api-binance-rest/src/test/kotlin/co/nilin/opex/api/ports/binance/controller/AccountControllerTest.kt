@@ -1,6 +1,7 @@
 package co.nilin.opex.api.ports.binance.controller
 
 import co.nilin.opex.api.core.inout.*
+import co.nilin.opex.api.core.spi.AccountantProxy
 import co.nilin.opex.api.core.spi.MarketUserDataProxy
 import co.nilin.opex.api.core.spi.MatchingGatewayProxy
 import co.nilin.opex.api.core.spi.SymbolMapper
@@ -245,6 +246,24 @@ private class AccountControllerTest {
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(walletProxy.getWalletsCallCount).isZero()
+    }
+
+    @Test
+    fun givenFeeConfigs_whenAccountInfoRequested_thenReturnBinanceCommissions(): Unit = runBlocking {
+        val accountantProxy = RecordingAccountantProxy(
+            fees = listOf(
+                PairFeeResponse("ETH_USDT", "BID", "*", BigDecimal("0.001"), BigDecimal("0.002")),
+                PairFeeResponse("BTC_USDT", "BID", "*", BigDecimal("0.0005"), BigDecimal("0.0015"))
+            )
+        )
+        val controller = controller(accountantProxy = accountantProxy)
+
+        val response = controller.accountInfo(securityContext(), null, signedTimestamp())
+
+        assertThat(response.makerCommission).isEqualTo(10)
+        assertThat(response.takerCommission).isEqualTo(20)
+        assertThat(response.buyerCommission).isZero()
+        assertThat(response.sellerCommission).isZero()
     }
 
     @Test
@@ -667,11 +686,13 @@ private class AccountControllerTest {
     private fun controller(
         queryHandler: RecordingMarketUserDataProxy = RecordingMarketUserDataProxy(),
         matchingGatewayProxy: RecordingMatchingGatewayProxy = RecordingMatchingGatewayProxy(),
-        walletProxy: RecordingWalletProxy = RecordingWalletProxy()
+        walletProxy: RecordingWalletProxy = RecordingWalletProxy(),
+        accountantProxy: RecordingAccountantProxy = RecordingAccountantProxy()
     ) = AccountController(
         queryHandler,
         matchingGatewayProxy,
         walletProxy,
+        accountantProxy,
         RecordingSymbolMapper()
     )
 
@@ -875,5 +896,17 @@ private class AccountControllerTest {
             offset: Int,
             ascendingByTime: Boolean?
         ): List<WithdrawHistoryResponse> = emptyList()
+    }
+
+    private class RecordingAccountantProxy(
+        private val fees: List<PairFeeResponse> = emptyList()
+    ) : AccountantProxy {
+        override suspend fun getPairConfigs(): List<PairInfoResponse> = emptyList()
+
+        override suspend fun getFeeConfigs(): List<PairFeeResponse> = fees
+
+        override suspend fun getFeeConfig(symbol: String): PairFeeResponse {
+            throw UnsupportedOperationException("Not used by this test")
+        }
     }
 }
