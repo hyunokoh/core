@@ -5,8 +5,10 @@ import co.nilin.opex.accountant.ports.kafka.listener.consumer.*
 import co.nilin.opex.accountant.ports.kafka.listener.inout.FinancialActionResponseEvent
 import co.nilin.opex.matching.engine.core.eventh.events.CoreEvent
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.kafka.common.serialization.StringSerializer
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
@@ -17,6 +19,7 @@ import org.springframework.kafka.core.*
 import org.springframework.kafka.listener.*
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
 import org.springframework.kafka.support.serializer.JsonDeserializer
+import org.springframework.kafka.support.serializer.JsonSerializer
 import org.springframework.util.backoff.FixedBackOff
 import java.util.regex.Pattern
 
@@ -39,6 +42,17 @@ class AccountantKafkaConfig {
             ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS to JsonDeserializer::class.java,
             JsonDeserializer.TRUSTED_PACKAGES to "co.nilin.opex.*",
             JsonDeserializer.TYPE_MAPPINGS to "order_request_event:co.nilin.opex.accountant.ports.kafka.listener.inout.OrderRequestEvent,order_request_submit:co.nilin.opex.accountant.ports.kafka.listener.inout.OrderSubmitRequestEvent,order_request_cancel:co.nilin.opex.accountant.ports.kafka.listener.inout.OrderCancelRequestEvent,kyc_level_updated_event:co.nilin.opex.accountant.core.inout.KycLevelUpdatedEvent,fiAction_response_event:co.nilin.opex.accountant.ports.kafka.listener.inout.FinancialActionResponseEvent"
+        )
+    }
+
+    @Bean("accountantListenerProducerConfig")
+    fun producerConfigs(): Map<String, Any> {
+        return mapOf(
+            ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to bootstrapServers,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to JsonSerializer::class.java,
+            ProducerConfig.ACKS_CONFIG to "all",
+            JsonSerializer.TYPE_MAPPINGS to "kyc_level_updated_event:co.nilin.opex.accountant.core.inout.KycLevelUpdatedEvent,fiAction_response_event:co.nilin.opex.accountant.ports.kafka.listener.inout.FinancialActionResponseEvent"
         )
     }
 
@@ -121,25 +135,34 @@ class AccountantKafkaConfig {
     @ConditionalOnBean(FAResponseKafkaListener::class)
     fun configureEventListener(
         eventListener: FAResponseKafkaListener,
-        //@Qualifier("accountantEventKafkaTemplate") template: KafkaTemplate<String?, CoreEvent>,
+        @Qualifier("faResponseDltKafkaTemplate") template: KafkaTemplate<String?, FinancialActionResponseEvent>,
         @Qualifier("faResponseConsumerFactory") consumerFactory: ConsumerFactory<String, FinancialActionResponseEvent>
     ) {
         val containerProps = ContainerProperties(Pattern.compile("fiAction_response"))
         containerProps.messageListener = eventListener
         val container = ConcurrentMessageListenerContainer(consumerFactory, containerProps)
         container.setBeanName("FAResponseKafkaListenerContainer")
-        //TODO add error handler
-        //container.commonErrorHandler = createConsumerErrorHandler(template, "events.DLT")
+        container.commonErrorHandler = createConsumerErrorHandler(template, "fiAction_response.DLT")
         container.start()
     }
 
     @Bean("kycLevelUpdatedProducerFactory")
-    fun producerFactory(@Qualifier("consumerConfig") producerConfigs: Map<String, Any>): ProducerFactory<String, KycLevelUpdatedEvent> {
+    fun producerFactory(@Qualifier("accountantListenerProducerConfig") producerConfigs: Map<String, Any>): ProducerFactory<String, KycLevelUpdatedEvent> {
         return DefaultKafkaProducerFactory(producerConfigs)
     }
 
     @Bean("kycLevelUpdatedKafkaTemplate")
     fun kafkaTemplate(@Qualifier("kycLevelUpdatedProducerFactory") producerFactory: ProducerFactory<String, KycLevelUpdatedEvent>): KafkaTemplate<String, KycLevelUpdatedEvent> {
+        return KafkaTemplate(producerFactory)
+    }
+
+    @Bean("faResponseDltProducerFactory")
+    fun faResponseDltProducerFactory(@Qualifier("accountantListenerProducerConfig") producerConfigs: Map<String, Any>): ProducerFactory<String?, FinancialActionResponseEvent> {
+        return DefaultKafkaProducerFactory(producerConfigs)
+    }
+
+    @Bean("faResponseDltKafkaTemplate")
+    fun faResponseDltKafkaTemplate(@Qualifier("faResponseDltProducerFactory") producerFactory: ProducerFactory<String?, FinancialActionResponseEvent>): KafkaTemplate<String?, FinancialActionResponseEvent> {
         return KafkaTemplate(producerFactory)
     }
 
