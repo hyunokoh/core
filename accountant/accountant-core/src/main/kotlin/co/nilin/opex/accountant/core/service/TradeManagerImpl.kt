@@ -1,13 +1,18 @@
 package co.nilin.opex.accountant.core.service
 
 import co.nilin.opex.accountant.core.api.FeeCalculator
+import co.nilin.opex.accountant.core.api.OrderManager
 import co.nilin.opex.accountant.core.api.TradeManager
 import co.nilin.opex.accountant.core.inout.OrderStatus
 import co.nilin.opex.accountant.core.inout.RichOrderUpdate
 import co.nilin.opex.accountant.core.inout.RichTrade
 import co.nilin.opex.accountant.core.model.*
 import co.nilin.opex.accountant.core.spi.*
+import co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent
+import co.nilin.opex.matching.engine.core.eventh.events.CreateOrderEvent
+import co.nilin.opex.matching.engine.core.eventh.events.RejectOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
+import co.nilin.opex.matching.engine.core.eventh.events.UpdatedOrderEvent
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -23,7 +28,8 @@ open class TradeManagerImpl(
     private val feeCalculator: FeeCalculator,
     private val financialActionPublisher: FinancialActionPublisher,
     private val jsonMapper: JsonMapper,
-    private val processedEventPersister: ProcessedEventPersister
+    private val processedEventPersister: ProcessedEventPersister,
+    private val deferredOrderManager: OrderManager? = null
 ) : TradeManager {
 
     private val logger = LoggerFactory.getLogger(TradeManagerImpl::class.java)
@@ -32,6 +38,8 @@ open class TradeManagerImpl(
     override suspend fun handleTrade(trade: TradeEvent): List<FinancialAction> {
         return OrderEventLocks.withOrderLocks(listOf(trade.takerOuid, trade.makerOuid)) {
             handleTradeLocked(trade)
+        }.also {
+            replayDeferredOrderEvents(trade)
         }
     }
 
@@ -299,5 +307,20 @@ open class TradeManagerImpl(
         val orderMap: Map<String, Any> = jsonMapper.toMap(order)
         val eventMap: Map<String, Any> = jsonMapper.toMap(tradeEvent)
         return orderMap + eventMap
+    }
+
+    private suspend fun replayDeferredOrderEvents(trade: TradeEvent) {
+        val orderManager = deferredOrderManager ?: return
+        listOf(trade.takerOuid, trade.makerOuid).distinct().forEach { ouid ->
+            tempEventPersister.loadTempEvents(ouid).toList().forEach { event ->
+                when (event) {
+                    is CreateOrderEvent -> orderManager.handleNewOrder(event)
+                    is UpdatedOrderEvent -> orderManager.handleUpdateOrder(event)
+                    is RejectOrderEvent -> orderManager.handleRejectOrder(event)
+                    is CancelOrderEvent -> orderManager.handleCancelOrder(event)
+                    else -> Unit
+                }
+            }
+        }
     }
 }

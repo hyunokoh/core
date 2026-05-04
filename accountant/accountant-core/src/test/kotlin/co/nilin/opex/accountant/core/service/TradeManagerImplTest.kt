@@ -1,6 +1,8 @@
 package co.nilin.opex.accountant.core.service
 
+import co.nilin.opex.accountant.core.inout.OrderStatus
 import co.nilin.opex.accountant.core.model.*
+import co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.SubmitOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
 import co.nilin.opex.matching.engine.core.model.MatchConstraint
@@ -381,6 +383,88 @@ internal class TradeManagerImplTest {
         assertThat(finalizers).hasSize(1)
         assertThat(finalizers.single().amount).isEqualByComparingTo(BigDecimal.valueOf(31_000_000))
     }
+
+    @Test
+    fun givenIocMarketBidCancelArrivesBeforeTrade_whenTradeHandled_thenReplayCancelAndReleaseRemainder(): Unit =
+        runBlocking {
+            val replayingTradeManager = TradeManagerImpl(
+                financialActionStore,
+                financialActionStore,
+                orderPersister,
+                tempEventPersister,
+                richTradePublisher,
+                richOrderPublisher,
+                FeeCalculatorImpl("0x0", jsonMapper),
+                financialActionPublisher,
+                jsonMapper,
+                processedEventPersister,
+                orderManager
+            )
+            val pair = Pair("ETH", "USDT")
+            val pairConfig = PairConfig(
+                pair.toString(),
+                pair.leftSideName,
+                pair.rightSideName,
+                BigDecimal.ONE,
+                BigDecimal.valueOf(0.01)
+            )
+            val takerBid = SubmitOrderEvent(
+                "market-bid-ouid",
+                "market-bid-uuid",
+                null,
+                pair,
+                9500,
+                200000,
+                200000,
+                OrderDirection.BID,
+                MatchConstraint.IOC,
+                OrderType.MARKET_ORDER
+            )
+            val lowAsk = SubmitOrderEvent(
+                "low-ask-ouid",
+                "low-ask-uuid",
+                null,
+                pair,
+                9000,
+                100000,
+                100000,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+
+            prepareOrder(pairConfig, takerBid, BigDecimal.valueOf(0.01), BigDecimal.valueOf(0.01))
+            prepareOrder(pairConfig, lowAsk, BigDecimal.valueOf(0.01), BigDecimal.valueOf(0.01))
+
+            val cancelEvent = CancelOrderEvent(
+                takerBid.ouid,
+                takerBid.uuid,
+                48,
+                pair,
+                takerBid.price,
+                takerBid.quantity,
+                100000,
+                takerBid.direction,
+                takerBid.matchConstraint,
+                takerBid.orderType
+            )
+            assertThat(orderManager.handleCancelOrder(cancelEvent)).isEmpty()
+            assertThat(tempEventPersister.loadTempEvents(takerBid.ouid)).containsExactly(cancelEvent)
+
+            replayingTradeManager.handleTrade(makeTradeEvent(pair, takerBid, lowAsk, 100000))
+
+            val takerOrder = orderPersister.orders.getValue(takerBid.ouid)
+            assertThat(takerOrder.status).isEqualTo(OrderStatus.CANCELED.code)
+            assertThat(tempEventPersister.loadTempEvents(takerBid.ouid)).isEmpty()
+            val releaseAction = financialActionStore.persisted.single {
+                it.pointer == takerBid.ouid && it.category == FinancialActionCategory.ORDER_CANCEL
+            }
+            assertThat(releaseAction.amount).isEqualByComparingTo(BigDecimal.valueOf(10_000_000))
+            assertThat(releaseAction.sender).isEqualTo(takerBid.uuid)
+            assertThat(releaseAction.senderWalletType).isEqualTo(WalletType.EXCHANGE)
+            assertThat(releaseAction.receiver).isEqualTo(takerBid.uuid)
+            assertThat(releaseAction.receiverWalletType).isEqualTo(WalletType.MAIN)
+        }
 
     @Test
     fun givenDuplicateTradeEvent_whenHandledAgain_thenIgnoredWithoutExtraFinancialActions(): Unit = runBlocking {

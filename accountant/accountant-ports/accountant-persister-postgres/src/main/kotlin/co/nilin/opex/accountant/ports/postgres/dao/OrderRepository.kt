@@ -15,4 +15,10 @@ interface OrderRepository : ReactiveCrudRepository<OrderModel, Long> {
 
     @Query("select * from orders where ouid = :ouid for update")
     fun findByOuidForUpdate(@Param("ouid") ouid: String): Mono<OrderModel>
+
+    @Query("update orders set matching_engine_id = :matchingEngineId where ouid = :ouid")
+    fun updateMatchingEngineId(
+        @Param("ouid") ouid: String,
+        @Param("matchingEngineId") matchingEngineId: Long
+    ): Mono<Int>
 }

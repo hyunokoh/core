@@ -92,6 +92,10 @@ internal open class InMemoryOrderPersister : OrderPersister {
         saved.add(order)
         return order
     }
+
+    override suspend fun updateMatchingEngineId(ouid: String, matchingEngineId: Long): Order? {
+        return orders[ouid]?.also { it.matchingEngineId = matchingEngineId }
+    }
 }
 
 internal class RecordingProcessedEventPersister : ProcessedEventPersister {

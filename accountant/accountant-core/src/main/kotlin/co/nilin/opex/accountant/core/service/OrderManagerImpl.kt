@@ -136,10 +136,10 @@ open class OrderManagerImpl(
                 tempEventPersister.removeTempEvent(createOrderEvent.ouid, createOrderEvent)
                 return emptyList()
             }
-            order.matchingEngineId = createOrderEvent.orderId
-            orderPersister.save(order)
+            val updatedOrder = orderPersister.updateMatchingEngineId(createOrderEvent.ouid, createOrderEvent.orderId)
+                ?: order.apply { matchingEngineId = createOrderEvent.orderId }
             //new order accepted by engine
-            publishRichOrder(order, createOrderEvent.remainedQuantity.toBigDecimal())
+            publishRichOrder(updatedOrder, createOrderEvent.remainedQuantity.toBigDecimal())
             tempEventPersister.removeTempEvent(createOrderEvent.ouid, createOrderEvent)
         } else {
             tempEventPersister.saveTempEvent(createOrderEvent.ouid, createOrderEvent)

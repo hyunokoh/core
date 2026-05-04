@@ -32,6 +32,8 @@ class OrderService(
         val uuid = createOrderRequest.uuid ?: badRequest("uuid is required")
         if (uuid.isBlank())
             badRequest("uuid is required")
+        if (createOrderRequest.matchConstraint !in setOf(MatchConstraint.GTC, MatchConstraint.IOC))
+            badRequest("match constraint is not supported")
         if (createOrderRequest.orderType == OrderType.LIMIT_ORDER) {
             if (createOrderRequest.price <= BigDecimal.ZERO)
                 badRequest("limit order price must be greater than zero")

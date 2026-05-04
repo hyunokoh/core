@@ -80,4 +80,9 @@ class OrderPersisterImpl(private val orderRepository: OrderRepository) : OrderPe
         ).awaitFirstOrNull()
         return order
     }
+
+    override suspend fun updateMatchingEngineId(ouid: String, matchingEngineId: Long): Order? {
+        orderRepository.updateMatchingEngineId(ouid, matchingEngineId).awaitFirstOrNull()
+        return load(ouid)
+    }
 }

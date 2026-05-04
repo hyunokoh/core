@@ -193,6 +193,37 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenNewOrderEventReceivedAfterTradeStateChanged_whenUpdatingMatchingId_thenPreserveTradeState(): Unit =
+        runBlocking {
+            val orderEvent = CreateOrderEvent(
+                "partially_filled_ouid",
+                "user_1",
+                56,
+                Pair("BTC", "USDT"),
+                100000,
+                1000,
+                500,
+                OrderDirection.BID
+            )
+            val order = Valid.order.copy(
+                ouid = orderEvent.ouid,
+                filledQuantity = 500,
+                remainedTransferAmount = BigDecimal.valueOf(50),
+                status = OrderStatus.PARTIALLY_FILLED.code
+            )
+            orderPersister.orders[orderEvent.ouid] = order
+
+            val fa = orderManager.handleNewOrder(orderEvent)
+
+            val persistedOrder = orderPersister.orders.getValue(orderEvent.ouid)
+            assertThat(fa).isEmpty()
+            assertThat(persistedOrder.matchingEngineId).isEqualTo(56)
+            assertThat(persistedOrder.filledQuantity).isEqualTo(500)
+            assertThat(persistedOrder.remainedTransferAmount).isEqualByComparingTo(BigDecimal.valueOf(50))
+            assertThat(persistedOrder.status).isEqualTo(OrderStatus.PARTIALLY_FILLED.code)
+        }
+
+    @Test
     fun givenNewOrderEventDeferred_whenRequestOrderArrives_thenReplayTempEvent(): Unit = runBlocking {
         val pair = Pair("BTC", "USDT")
         val pairConfig = PairConfig(

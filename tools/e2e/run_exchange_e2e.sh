@@ -61,7 +61,7 @@ Runs a real Docker-backed exchange E2E flow:
   15. Verify a different user cannot cancel someone else's open order.
   16. Verify a duplicate cancel of an already canceled order does not release funds twice.
   17. Verify malformed cancel requests are rejected before they reach market state.
-  18. Verify an unsupported FOK order does not remain in market state and releases reserved funds.
+  18. Verify an unsupported FOK order is rejected at the gateway before it reaches market state.
   19. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
   19b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
   20. Verify underfunded ask/bid orders are rejected before they reach market state.
@@ -2159,19 +2159,10 @@ main() {
   local fok_ref="e2e-fok-$(date +%s)"
   expect_2xx "fok owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${fok_owner}_MAIN?description=e2e-fok&transferRef=${fok_ref}-eth")" >/dev/null
   local fok_ask='{"uuid":null,"pair":"ETH_USDT","price":777,"quantity":0.5,"direction":"ASK","matchConstraint":"FOK","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "unsupported fok ask" "curl_json POST 'http://127.0.0.1:8093/order' '$fok_ask' '$fok_owner'" >/tmp/opex-e2e-fok-ask.json
+  expect_http_status "unsupported fok ask" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$fok_ask" "$fok_owner")" >/tmp/opex-e2e-fok-ask.json
   wait_no_user_open_orders "$fok_owner" "ETH_USDT"
   assert_no_user_orders "$fok_owner" "ETH_USDT"
-  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  until try_wallet_balance "$fok_owner" "ETH" "1"; do
-    if (( SECONDS > deadline )); then
-      echo "Timed out waiting for FOK reject release settlement" >&2
-      assert_wallet_balance "fok owner released ETH" "$fok_owner" "ETH" "1" >&2 || true
-      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine >&2 || true
-      exit 1
-    fi
-    sleep 2
-  done
+  assert_wallet_balance "fok owner ETH unchanged after gateway reject" "$fok_owner" "ETH" "1"
 
   local self_trade_owner="e2e-self-trade-$(date +%s)"
   local self_trade_ref="e2e-self-trade-$(date +%s)"
@@ -2471,7 +2462,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,48\nFEE,32\nORDER_CANCEL,18\nORDER_CREATE,44\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,48\nFEE,32\nORDER_CANCEL,17\nORDER_CREATE,43\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -2546,7 +2537,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,18\nSubmitOrderEvent,PROCESSED,44\nTradeEvent,PROCESSED,65' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,17\nSubmitOrderEvent,PROCESSED,43\nTradeEvent,PROCESSED,65' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -3398,7 +3389,7 @@ main() {
   "unsupportedFokScenario": {
     "price": 777,
     "quantity": 0.5,
-    "status": "NO_MARKET_ORDER"
+    "status": "HTTP_400_GATEWAY_REJECT"
   },
   "selfTradePreventionScenario": {
     "restingAskPrice": 118,
