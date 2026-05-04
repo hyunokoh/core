@@ -125,6 +125,10 @@ internal class FinancialActionJobManagerImplTest {
             errors.add(error)
         }
 
+        override suspend fun updateWithError(faUuid: String, error: String, message: String?, body: String?) {
+            errors.add(error)
+        }
+
         override suspend fun updateStatus(financialAction: FinancialAction, status: FinancialActionStatus) {
             statusUpdates.add(financialAction.uuid to status)
         }

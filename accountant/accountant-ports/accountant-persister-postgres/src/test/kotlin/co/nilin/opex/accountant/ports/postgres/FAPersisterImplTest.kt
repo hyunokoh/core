@@ -80,4 +80,23 @@ class FAPersisterImplTest : AccountantPostgresIntegrationTest() {
         val updated = financialActionRepository.findById(persisted.id!!).awaitSingle()
         assertThat(updated.status).isEqualTo(FinancialActionStatus.PROCESSED)
     }
+
+    @Test
+    fun givenFAUuidAndWalletError_whenUpdatingWithError_persistsErrorDetails(): Unit = runBlocking {
+        val persisted = financialActionRepository.save(Valid.faModel.copy(id = null)).awaitSingle()
+
+        faPersister.updateWithError(persisted.uuid, "6018", "NotEnoughBalance", "wallet rejected transfer")
+
+        val updated = financialActionRepository.findById(persisted.id!!).awaitSingle()
+        val errors = faErrorRepository.findAll().collectList().awaitSingle()
+        assertThat(updated.status).isEqualTo(FinancialActionStatus.ERROR)
+        assertThat(errors).hasSize(1)
+        with(errors.single()) {
+            assertThat(faId).isEqualTo(persisted.id)
+            assertThat(error).isEqualTo("6018")
+            assertThat(message).isEqualTo("NotEnoughBalance")
+            assertThat(body).isEqualTo("wallet rejected transfer")
+            assertThat(retryId).isNull()
+        }
+    }
 }

@@ -38,6 +38,9 @@ interface FinancialActionRepository : ReactiveCrudRepository<FinancialActionMode
     @Query("update fi_actions set status = :status where uuid = :uuid")
     fun updateStatus(uuid: String, status: FinancialActionStatus): Mono<Int>
 
+    @Query("select * from fi_actions where uuid = :uuid")
+    fun findByUuid(uuid: String): Mono<FinancialActionModel>
+
     @Query("update fi_actions set status = :status where id in (:ids)")
     fun updateBatchStatus(ids: List<Long>, status: FinancialActionStatus): Mono<Int>
 

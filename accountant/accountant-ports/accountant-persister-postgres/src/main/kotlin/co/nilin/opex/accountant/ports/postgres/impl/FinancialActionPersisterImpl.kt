@@ -119,6 +119,18 @@ class FinancialActionPersisterImpl(
             .awaitSingleOrNull()
     }
 
+    override suspend fun updateWithError(faUuid: String, error: String, message: String?, body: String?) {
+        val financialAction = repository.findByUuid(faUuid).awaitSingleOrNull()
+        if (financialAction == null) {
+            repository.updateStatus(faUuid, FinancialActionStatus.ERROR).awaitSingleOrNull()
+            return
+        }
+
+        repository.updateStatus(financialAction.id!!, FinancialActionStatus.ERROR).awaitSingleOrNull()
+        faErrorRepository.save(FinancialActionErrorModel(financialAction.id!!, error, message, body))
+            .awaitSingleOrNull()
+    }
+
     override suspend fun updateStatus(financialAction: FinancialAction, status: FinancialActionStatus) {
         repository.updateStatus(financialAction.id!!, status).awaitSingleOrNull()
     }

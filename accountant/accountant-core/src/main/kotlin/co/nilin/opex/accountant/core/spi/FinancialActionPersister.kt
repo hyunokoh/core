@@ -11,6 +11,8 @@ interface FinancialActionPersister {
 
     suspend fun updateWithError(financialAction: FinancialAction, error: String, message: String?, body: String? = null)
 
+    suspend fun updateWithError(faUuid: String, error: String, message: String?, body: String? = null)
+
     suspend fun updateStatus(financialAction: FinancialAction, status: FinancialActionStatus)
 
     suspend fun updateStatus(faUuid: String, status: FinancialActionStatus)

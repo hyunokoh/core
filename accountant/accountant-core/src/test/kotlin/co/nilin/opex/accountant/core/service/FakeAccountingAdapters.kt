@@ -46,6 +46,10 @@ internal class RecordingFinancialActionStore : FinancialActionPersister, Financi
         statusByUuid[financialAction.uuid] = FinancialActionStatus.ERROR
     }
 
+    override suspend fun updateWithError(faUuid: String, error: String, message: String?, body: String?) {
+        statusByUuid[faUuid] = FinancialActionStatus.ERROR
+    }
+
     override suspend fun updateStatus(financialAction: FinancialAction, status: FinancialActionStatus) {
         statusByUuid[financialAction.uuid] = status
     }
