@@ -241,8 +241,20 @@ open class TradeManagerImpl(
             makerOrder.uuid == trade.makerUuid &&
             takerOrder.direction == trade.takerDirection &&
             makerOrder.direction == trade.makerDirection &&
+            !isTerminalOrderStatus(takerOrder.status) &&
+            !isTerminalOrderStatus(makerOrder.status) &&
             takerOrder.quantity - takerOrder.filledQuantity >= trade.matchedQuantity &&
             makerOrder.quantity - makerOrder.filledQuantity >= trade.matchedQuantity
+    }
+
+    private fun isTerminalOrderStatus(statusCode: Int): Boolean {
+        return when (OrderStatus.fromCode(statusCode)) {
+            OrderStatus.FILLED,
+            OrderStatus.CANCELED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED -> true
+            else -> false
+        }
     }
 
     private suspend fun loadTradeOrdersForUpdate(trade: TradeEvent): Pair<Order?, Order?> {

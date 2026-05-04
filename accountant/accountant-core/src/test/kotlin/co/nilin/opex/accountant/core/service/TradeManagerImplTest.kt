@@ -623,6 +623,61 @@ internal class TradeManagerImplTest {
     }
 
     @Test
+    fun givenTradeForTerminalOrder_whenHandled_thenIgnoredBeforeStateMutation(): Unit = runBlocking {
+        val pair = Pair("eth", "btc")
+        val pairConfig = PairConfig(
+            pair.toString(),
+            pair.leftSideName,
+            pair.rightSideName,
+            BigDecimal.valueOf(1.0),
+            BigDecimal.valueOf(0.01)
+        )
+        val makerSubmitOrderEvent = SubmitOrderEvent(
+            "terminal-maker-ouid",
+            "terminal-maker-uuid",
+            null,
+            pair,
+            60000,
+            2,
+            2,
+            OrderDirection.ASK,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        val takerSubmitOrderEvent = SubmitOrderEvent(
+            "terminal-taker-ouid",
+            "terminal-taker-uuid",
+            null,
+            pair,
+            70000,
+            2,
+            2,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        prepareOrder(pairConfig, makerSubmitOrderEvent, BigDecimal.valueOf(0.1), BigDecimal.valueOf(0.12))
+        prepareOrder(pairConfig, takerSubmitOrderEvent, BigDecimal.valueOf(0.08), BigDecimal.valueOf(0.1))
+        orderPersister.orders[takerSubmitOrderEvent.ouid] =
+            orderPersister.orders.getValue(takerSubmitOrderEvent.ouid).copy(status = OrderStatus.CANCELED.code)
+        orderPersister.orders[makerSubmitOrderEvent.ouid] =
+            orderPersister.orders.getValue(makerSubmitOrderEvent.ouid).copy(status = OrderStatus.REJECTED.code)
+        val persistedCountBefore = financialActionStore.persisted.size
+        val richOrderCountBefore = richOrderPublisher.published.size
+
+        val result = tradeManager.handleTrade(makeTradeEvent(pair, takerSubmitOrderEvent, makerSubmitOrderEvent, 1))
+
+        assertThat(result).isEmpty()
+        assertThat(financialActionStore.persisted).hasSize(persistedCountBefore)
+        assertThat(processedEventPersister.processed).isEmpty()
+        assertThat(tempEventPersister.saved).isEmpty()
+        assertThat(richOrderPublisher.published).hasSize(richOrderCountBefore)
+        assertThat(richTradePublisher.published).isEmpty()
+        assertThat(orderPersister.orders.getValue(takerSubmitOrderEvent.ouid).filledQuantity).isZero()
+        assertThat(orderPersister.orders.getValue(makerSubmitOrderEvent.ouid).filledQuantity).isZero()
+    }
+
+    @Test
     fun givenTradeBeforeBothOrdersExist_whenReplayedFromTempEvents_thenProcessedAfterOrdersExist(): Unit = runBlocking {
         val localProcessedEventPersister = RecordingProcessedEventPersister()
         val localTradeManager = TradeManagerImpl(
