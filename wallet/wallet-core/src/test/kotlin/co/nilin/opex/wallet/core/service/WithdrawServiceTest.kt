@@ -114,6 +114,71 @@ private class WithdrawServiceTest {
         assertThat(withdrawPersister.persistCallCount).isZero()
     }
 
+    @Test
+    fun givenZeroDestAmount_whenAcceptWithdrawRequested_thenRejectBeforeTransfer(): Unit = runBlocking {
+        val transferManager = RecordingTransferManager()
+        val withdrawPersister = RecordingWithdrawPersister(existingWithdraw = createdWithdraw())
+        val service = service(transferManager = transferManager, withdrawPersister = withdrawPersister)
+
+        assertThatThrownBy {
+            runBlocking {
+                service.acceptWithdraw(
+                    WithdrawAcceptCommand(
+                        withdrawId = 1,
+                        destAmount = BigDecimal.ZERO,
+                        destTransactionRef = "chain-tx-1",
+                        destNote = null
+                    )
+                )
+            }
+        }.isOpexError(OpexError.InvalidAmount)
+
+        assertThat(transferManager.transferCallCount).isZero()
+        assertThat(withdrawPersister.persistCallCount).isZero()
+    }
+
+    @Test
+    fun givenDestAmountAboveNetAmount_whenAcceptWithdrawRequested_thenRejectBeforeTransfer(): Unit = runBlocking {
+        val transferManager = RecordingTransferManager()
+        val withdrawPersister = RecordingWithdrawPersister(existingWithdraw = createdWithdraw())
+        val service = service(transferManager = transferManager, withdrawPersister = withdrawPersister)
+
+        assertThatThrownBy {
+            runBlocking {
+                service.acceptWithdraw(
+                    WithdrawAcceptCommand(
+                        withdrawId = 1,
+                        destAmount = BigDecimal("9.91"),
+                        destTransactionRef = "chain-tx-1",
+                        destNote = null
+                    )
+                )
+            }
+        }.isOpexError(OpexError.InvalidAppliedFee)
+
+        assertThat(transferManager.transferCallCount).isZero()
+        assertThat(withdrawPersister.persistCallCount).isZero()
+    }
+
+    private fun createdWithdraw(): Withdraw = Withdraw(
+        withdrawId = 1,
+        ownerUuid = "user-1",
+        currency = "USDT",
+        wallet = 2,
+        amount = BigDecimal("9.9"),
+        requestTransaction = "request-tx-1",
+        finalizedTransaction = null,
+        appliedFee = BigDecimal("0.1"),
+        destAmount = null,
+        destSymbol = "USDT",
+        destAddress = "addr-1",
+        destNetwork = "ETH",
+        destNote = null,
+        destTransactionRef = null,
+        statusReason = null,
+        status = WithdrawStatus.CREATED
+    )
+
     private fun service(
         transferManager: RecordingTransferManager = RecordingTransferManager(),
         withdrawPersister: RecordingWithdrawPersister = RecordingWithdrawPersister(),
@@ -148,7 +213,9 @@ private class WithdrawServiceTest {
             .isEqualTo(error)
     }
 
-    private class RecordingWithdrawPersister : WithdrawPersister {
+    private class RecordingWithdrawPersister(
+        private val existingWithdraw: Withdraw? = null
+    ) : WithdrawPersister {
         var persistCallCount = 0
 
         override suspend fun persist(withdraw: Withdraw): Withdraw {
@@ -156,7 +223,8 @@ private class WithdrawServiceTest {
             return withdraw.copy(withdrawId = withdraw.withdrawId ?: 1)
         }
 
-        override suspend fun findById(withdrawId: Long): Withdraw? = null
+        override suspend fun findById(withdrawId: Long): Withdraw? =
+            existingWithdraw?.takeIf { it.withdrawId == withdrawId }
 
         override suspend fun findWithdrawResponseById(withdrawId: Long): WithdrawResponse? = null
 
@@ -244,11 +312,14 @@ private class WithdrawServiceTest {
     }
 
     private class RecordingWalletOwnerManager(private val owner: WalletOwner) : WalletOwnerManager {
+        private val systemOwner = WalletOwner(2, "system", "System", "*", true, true, true)
+
         override suspend fun isDepositAllowed(owner: WalletOwner, amount: Amount): Boolean = true
 
         override suspend fun isWithdrawAllowed(owner: WalletOwner, amount: Amount): Boolean = true
 
-        override suspend fun findWalletOwner(uuid: String): WalletOwner? = owner.takeIf { it.uuid == uuid }
+        override suspend fun findWalletOwner(uuid: String): WalletOwner? =
+            listOf(owner, systemOwner).find { it.uuid == uuid }
 
         override suspend fun createWalletOwner(uuid: String, title: String, userLevel: String): WalletOwner = owner
 

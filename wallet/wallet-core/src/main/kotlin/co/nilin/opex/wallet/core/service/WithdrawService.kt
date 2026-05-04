@@ -138,6 +138,7 @@ class WithdrawService(
 
         if (!withdraw.canBeAccepted())
             throw OpexError.WithdrawAlreadyProcessed.exception()
+        validateAcceptedDestAmount(acceptCommand.destAmount, withdraw.amount)
 
         val sourceWallet = walletManager.findWalletById(withdraw.wallet) ?: throw OpexError.WalletNotFound.exception()
         val receiverWallet =
@@ -184,6 +185,15 @@ class WithdrawService(
         )
 
         return WithdrawActionResult(updateWithdraw.withdrawId!!, updateWithdraw.status)
+    }
+
+    private fun validateAcceptedDestAmount(destAmount: BigDecimal?, withdrawAmount: BigDecimal) {
+        if (destAmount == null)
+            return
+        if (destAmount <= BigDecimal.ZERO)
+            throw OpexError.InvalidAmount.exception()
+        if (destAmount > withdrawAmount)
+            throw OpexError.InvalidAppliedFee.exception()
     }
 
     suspend fun processWithdraw(withdrawId: Long): WithdrawActionResult {
