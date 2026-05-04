@@ -258,9 +258,9 @@ class AccountController(
         @RequestParam(required = false)
         limit: Int?
     ): List<QueryOrderResponse> {
-        val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
+        val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
         return queryHandler.openOrders(principal, internalSymbol, limit).map {
-            it.asQueryOrderResponse().apply { symbol?.let { s -> this.symbol = s } }
+            it.asQueryOrderResponse().apply { this.symbol = responseSymbol(symbol, it.symbol) }
         }
     }
 
@@ -301,9 +301,9 @@ class AccountController(
         @RequestParam
         timestamp: Long
     ): List<QueryOrderResponse> {
-        val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
+        val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
         return queryHandler.allOrders(principal, internalSymbol, startTime, endTime, limit).map {
-            it.asQueryOrderResponse().apply { symbol?.let { s -> this.symbol = s } }
+            it.asQueryOrderResponse().apply { this.symbol = responseSymbol(symbol, it.symbol) }
         }
     }
 
@@ -475,6 +475,10 @@ class AccountController(
     private fun checkNull(obj: Any?, paramName: String) {
         if (obj == null)
             throw OpexError.InvalidRequestParam.exception("Parameter '$paramName' is either missing or invalid")
+    }
+
+    private suspend fun responseSymbol(requestSymbol: String?, internalSymbol: String): String {
+        return requestSymbol ?: symbolMapper.fromInternalSymbol(internalSymbol) ?: internalSymbol
     }
 
     private fun Order.asQueryOrderResponse() = QueryOrderResponse(

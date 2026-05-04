@@ -53,7 +53,7 @@ class MarketUserDataProxyImpl(private val webClient: WebClient) : MarketUserData
     override suspend fun openOrders(principal: Principal, symbol: String?, limit: Int?): List<Order> {
         return withContext(ProxyDispatchers.market) {
             webClient.get()
-                .uri("$baseUrl/v1/user/${principal.name}/orders/$symbol/open") {
+                .uri(openOrdersUri(principal, symbol)) {
                     it.queryParam("limit", limit ?: 100)
                     it.build()
                 }.accept(MediaType.APPLICATION_JSON)
@@ -64,6 +64,13 @@ class MarketUserDataProxyImpl(private val webClient: WebClient) : MarketUserData
                 .collectList()
                 .awaitFirstOrElse { emptyList() }
         }
+    }
+
+    private fun openOrdersUri(principal: Principal, symbol: String?): String {
+        return if (symbol == null)
+            "$baseUrl/v1/user/${principal.name}/orders/open"
+        else
+            "$baseUrl/v1/user/${principal.name}/orders/$symbol/open"
     }
 
     override suspend fun allOrders(
