@@ -445,6 +445,8 @@ class AccountController(
     ) {
         if (!OrderType.activeTypes().contains(type))
             throw OpexError.InvalidRequestParam.exception("Parameter 'type' is either missing or invalid")
+        if (stopPrice != null)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'stopPrice' is either missing or invalid")
 
         when (type) {
             OrderType.LIMIT -> {

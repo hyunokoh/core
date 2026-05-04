@@ -398,6 +398,35 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenStopPriceLimitOrder_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.createNewOrder(
+                    symbol = "ETHUSDT",
+                    side = OrderSide.BUY,
+                    type = OrderType.LIMIT,
+                    timeInForce = TimeInForce.GTC,
+                    quantity = BigDecimal("0.5"),
+                    quoteOrderQty = null,
+                    price = BigDecimal("100"),
+                    newClientOrderId = null,
+                    stopPrice = BigDecimal("90"),
+                    icebergQty = null,
+                    newOrderRespType = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
+    }
+
+    @Test
     fun givenClientOrderId_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
