@@ -223,7 +223,7 @@ private class AccountControllerTest {
             symbol = "ETHUSDT",
             orderId = null,
             origClientOrderId = "client-1",
-            newClientOrderId = "cancel-1",
+            newClientOrderId = null,
             recvWindow = null,
             timestamp = signedTimestamp(),
             securityContext = securityContext()
@@ -234,10 +234,85 @@ private class AccountControllerTest {
         assertThat(queryHandler.queryOrigClientOrderId).isEqualTo("client-1")
         assertThat(response.orderId).isEqualTo(100)
         assertThat(response.origClientOrderId).isEqualTo("client-1")
-        assertThat(response.clientOrderId).isEqualTo("cancel-1")
+        assertThat(response.clientOrderId).isEqualTo("client-1")
         assertThat(matchingGatewayProxy.cancelOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.cancelOrderUuid).isEqualTo("user-1")
         assertThat(matchingGatewayProxy.cancelOrderToken).isEqualTo("token-1")
+    }
+
+    @Test
+    fun givenInvalidOrderId_whenCancelOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.cancelOrder(
+                    principal = Principal { "user-1" },
+                    symbol = "ETHUSDT",
+                    orderId = 0,
+                    origClientOrderId = null,
+                    newClientOrderId = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.queryOrderCallCount).isZero()
+        assertThat(matchingGatewayProxy.cancelOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenBlankOrigClientOrderId_whenCancelOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.cancelOrder(
+                    principal = Principal { "user-1" },
+                    symbol = "ETHUSDT",
+                    orderId = null,
+                    origClientOrderId = " ",
+                    newClientOrderId = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.queryOrderCallCount).isZero()
+        assertThat(matchingGatewayProxy.cancelOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenNewClientOrderId_whenCancelOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.cancelOrder(
+                    principal = Principal { "user-1" },
+                    symbol = "ETHUSDT",
+                    orderId = 100,
+                    origClientOrderId = null,
+                    newClientOrderId = "cancel-1",
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.queryOrderCallCount).isZero()
+        assertThat(matchingGatewayProxy.cancelOrderCallCount).isZero()
     }
 
     @Test
