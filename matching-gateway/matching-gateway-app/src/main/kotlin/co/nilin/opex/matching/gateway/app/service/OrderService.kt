@@ -93,9 +93,6 @@ class OrderService(
     }
 
     suspend fun cancelOrder(request: CancelOrderRequest): OrderSubmitResult {
-        if (!kafkaHealthIndicator.isHealthy)
-            throw OpexError.ServiceUnavailable.exception()
-
         if (request.uuid.isBlank())
             badRequest("uuid is required")
         if (request.ouid.isBlank())
@@ -103,6 +100,9 @@ class OrderService(
         val symbols = parsePair(request.symbol)
         if (request.orderId < 0)
             badRequest("orderId must be zero or greater")
+
+        if (!kafkaHealthIndicator.isHealthy)
+            throw OpexError.ServiceUnavailable.exception()
 
         val event = OrderCancelRequestEvent(request.ouid, request.uuid, Pair(symbols[0], symbols[1]), request.orderId)
         return orderRequestEventSubmitter.submit(event)

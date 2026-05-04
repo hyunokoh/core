@@ -293,6 +293,17 @@ private class OrderServiceTest {
     }
 
     @Test
+    fun givenInvalidCancelRequestAndKafkaUnhealthy_whenCancelOrder_thenThrowBadRequestBeforeHealthCheck(): Unit = runBlocking {
+        val unhealthyIndicator = KafkaHealthIndicator(adminClient, healthyNodeSize = 2)
+        unhealthyIndicator.check()
+        val service = orderService(healthIndicator = unhealthyIndicator)
+
+        assertThatThrownBy {
+            runBlocking { service.cancelOrder(CancelOrderRequest(VALID.OUID, VALID.UUID, -1, VALID.ETH_USDT)) }
+        }.isBadRequest()
+    }
+
+    @Test
     fun givenInvalidCancelRequest_whenCancelOrder_thenThrowBeforeKafkaPublish(): Unit = runBlocking {
         val service = orderService()
 
