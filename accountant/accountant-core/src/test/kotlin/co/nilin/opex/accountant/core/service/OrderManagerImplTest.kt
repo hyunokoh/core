@@ -465,6 +465,47 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenUpdateOrderEventWithImpossibleRemainder_whenLocalFound_ignoreWithoutMutatingOrder(): Unit = runBlocking {
+        val orderEvent = UpdatedOrderEvent(
+            "invalid_update_quantity_ouid",
+            "user_id",
+            91,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            120000,
+            1000,
+            1001,
+            OrderDirection.BID
+        )
+        val order = Valid.order.copy(
+            ouid = orderEvent.ouid,
+            uuid = orderEvent.uuid,
+            matchingEngineId = orderEvent.orderId,
+            price = orderEvent.oldPrice,
+            quantity = orderEvent.oldQuantity,
+            filledQuantity = 0,
+            remainedTransferAmount = BigDecimal("1.000000000"),
+            firstTransferAmount = BigDecimal("1.000000000")
+        )
+        orderPersister.orders[orderEvent.ouid] = order
+        tempEventPersister.saveTempEvent(orderEvent.ouid, orderEvent)
+
+        val financialActions = orderManager.handleUpdateOrder(orderEvent)
+
+        val persistedOrder = orderPersister.orders.getValue(orderEvent.ouid)
+        assertThat(financialActions).isEmpty()
+        assertThat(persistedOrder.price).isEqualTo(orderEvent.oldPrice)
+        assertThat(persistedOrder.quantity).isEqualTo(orderEvent.oldQuantity)
+        assertThat(persistedOrder.filledQuantity).isZero()
+        assertThat(persistedOrder.remainedTransferAmount).isEqualByComparingTo(BigDecimal("1.000000000"))
+        assertThat(financialActionStore.persisted).isEmpty()
+        assertThat(richOrderPublisher.published).isEmpty()
+        assertThat(orderPersister.saved).isEmpty()
+        assertThat(tempEventPersister.loadTempEvents(orderEvent.ouid)).isEmpty()
+    }
+
+    @Test
     fun givenUpdateOrderEventReceived_whenLocalOrderNull_saveTempEvent(): Unit = runBlocking {
         val orderEvent = UpdatedOrderEvent(
             "missing_ouid",

@@ -175,6 +175,11 @@ open class OrderManagerImpl(
             tempEventPersister.removeTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
             return emptyList()
         }
+        if (!isValidUpdateEventQuantities(updatedOrderEvent)) {
+            logger.warn("Invalid update order event quantities ignored: ouid={}", updatedOrderEvent.ouid)
+            tempEventPersister.removeTempEvent(updatedOrderEvent.ouid, updatedOrderEvent)
+            return emptyList()
+        }
 
         if (order.matchingEngineId == updatedOrderEvent.orderId &&
             order.price == updatedOrderEvent.price &&
@@ -499,6 +504,15 @@ open class OrderManagerImpl(
             order.pair == event.pair.toString() &&
             order.direction == event.direction &&
             (order.matchingEngineId == null || order.matchingEngineId == event.orderId)
+    }
+
+    private fun isValidUpdateEventQuantities(event: UpdatedOrderEvent): Boolean {
+        val filledQuantity = event.oldQuantity - event.remainedQuantity
+        return event.oldQuantity > 0 &&
+            event.quantity > 0 &&
+            event.remainedQuantity >= 0 &&
+            filledQuantity >= 0 &&
+            event.quantity >= filledQuantity
     }
 
     private fun isRejectEventForOrder(event: RejectOrderEvent, order: Order): Boolean {
