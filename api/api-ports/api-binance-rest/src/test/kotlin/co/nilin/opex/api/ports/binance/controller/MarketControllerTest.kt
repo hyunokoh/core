@@ -119,6 +119,30 @@ private class MarketControllerTest {
         marketDataProxy.assertNotCalled()
     }
 
+    @Test
+    fun givenNonArraySymbols_whenExchangeInfoRequested_thenRejectRequest(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.pairInfo(null, "\"ETHUSDT\"") }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
+    @Test
+    fun givenUnquotedSymbolsEntry_whenExchangeInfoRequested_thenRejectRequest(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.pairInfo(null, "[ETHUSDT]") }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
     private fun controller(marketDataProxy: RecordingMarketDataProxy) = MarketController(
         RecordingAccountantProxy(),
         marketDataProxy,

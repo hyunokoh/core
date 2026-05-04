@@ -274,12 +274,20 @@ class MarketController(
         if (symbols.isNullOrBlank())
             return null
 
-        val aliases = symbols
-            .trim()
+        val normalizedSymbols = symbols.trim()
+        if (!normalizedSymbols.startsWith("[") || !normalizedSymbols.endsWith("]"))
+            throw OpexError.InvalidRequestParam.exception("Parameter 'symbols' is either missing or invalid")
+
+        val aliases = normalizedSymbols
             .removePrefix("[")
             .removeSuffix("]")
             .split(",")
-            .map { it.trim().trim('"', '\'') }
+            .map { it.trim() }
+            .onEach {
+                if (it.length < 2 || !it.startsWith("\"") || !it.endsWith("\""))
+                    throw OpexError.InvalidRequestParam.exception("Parameter 'symbols' is either missing or invalid")
+            }
+            .map { it.trim('"') }
             .filter { it.isNotBlank() }
 
         if (aliases.isEmpty())
