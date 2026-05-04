@@ -17,4 +17,7 @@ interface ReservedAddressRepository : ReactiveCrudRepository<ReservedAddressMode
     @Modifying
     @Query("delete from reserved_addresses where address = :address and (memo is null or memo = :memo)")
     fun remove(address: String, memo: String?): Mono<Int>
+
+    @Query("select count(*) from reserved_addresses")
+    fun countReservedAddresses(): Mono<Long>
 }

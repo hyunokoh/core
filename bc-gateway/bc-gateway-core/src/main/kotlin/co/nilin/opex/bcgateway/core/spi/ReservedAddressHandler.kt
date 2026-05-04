@@ -7,4 +7,5 @@ interface ReservedAddressHandler {
     suspend fun addReservedAddress(list: List<ReservedAddress>)
     suspend fun peekReservedAddress(addressType: AddressType): ReservedAddress?
     suspend fun remove(reservedAddress: ReservedAddress)
+    suspend fun count(): Long
 }

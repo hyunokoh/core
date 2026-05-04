@@ -248,5 +248,7 @@ private class InMemoryReservedAddressHandler(
         addresses.remove(reservedAddress)
     }
 
+    override suspend fun count(): Long = addresses.size.toLong()
+
     fun remaining(): List<ReservedAddress> = addresses.toList()
 }

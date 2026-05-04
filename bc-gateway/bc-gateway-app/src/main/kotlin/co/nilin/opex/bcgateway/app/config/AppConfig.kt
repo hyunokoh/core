@@ -27,8 +27,8 @@ class AppConfig {
     }
 
     @Bean
-    fun infoService(): InfoService {
-        return InfoServiceImpl()
+    fun infoService(currencyHandler: CurrencyHandler, reservedAddressHandler: ReservedAddressHandler): InfoService {
+        return InfoServiceImpl(currencyHandler, reservedAddressHandler)
     }
 
     @Autowired

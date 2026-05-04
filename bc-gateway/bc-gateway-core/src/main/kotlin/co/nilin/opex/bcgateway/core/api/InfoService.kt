@@ -4,5 +4,5 @@ import co.nilin.opex.bcgateway.core.model.CurrencyInfo
 
 interface InfoService {
     suspend fun countReservedAddresses(): Long
-    suspend fun getCurrencyInfo(): CurrencyInfo
+    suspend fun getCurrencyInfo(symbol: String): CurrencyInfo
 }

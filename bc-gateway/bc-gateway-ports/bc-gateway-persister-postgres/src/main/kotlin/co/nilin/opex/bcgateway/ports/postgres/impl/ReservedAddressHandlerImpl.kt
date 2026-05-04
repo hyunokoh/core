@@ -8,6 +8,7 @@ import co.nilin.opex.bcgateway.ports.postgres.dao.ReservedAddressRepository
 import co.nilin.opex.bcgateway.ports.postgres.model.ReservedAddressModel
 import kotlinx.coroutines.reactive.awaitFirst
 import kotlinx.coroutines.reactive.awaitFirstOrNull
+import kotlinx.coroutines.reactor.awaitSingle
 import org.springframework.stereotype.Component
 
 @Component
@@ -27,5 +28,9 @@ class ReservedAddressHandlerImpl(
 
     override suspend fun remove(reservedAddress: ReservedAddress) {
         reservedAddressRepository.remove(reservedAddress.address, reservedAddress.memo).awaitFirst()
+    }
+
+    override suspend fun count(): Long {
+        return reservedAddressRepository.countReservedAddresses().awaitSingle()
     }
 }
