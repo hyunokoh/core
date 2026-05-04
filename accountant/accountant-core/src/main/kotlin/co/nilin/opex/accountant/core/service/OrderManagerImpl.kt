@@ -372,6 +372,11 @@ open class OrderManagerImpl(
     }
 
     private suspend fun handleCancelOrderLocked(cancelOrderEvent: CancelOrderEvent): List<FinancialAction> {
+        if (!isValidCancelEventQuantities(cancelOrderEvent)) {
+            logger.warn("Invalid cancel order event quantities ignored: ouid={}", cancelOrderEvent.ouid)
+            tempEventPersister.removeTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
+            return emptyList()
+        }
         //order by ouid
         val order = orderPersister.load(cancelOrderEvent.ouid)
         if (order == null) {
@@ -534,6 +539,14 @@ open class OrderManagerImpl(
             order.direction == event.direction &&
             order.matchConstraint == event.matchConstraint &&
             order.orderType == event.orderType
+    }
+
+    private fun isValidCancelEventQuantities(event: CancelOrderEvent): Boolean {
+        val expectedFilledQuantity = event.quantity - event.remainedQuantity
+        return event.quantity > 0 &&
+            event.remainedQuantity >= 0 &&
+            expectedFilledQuantity >= 0 &&
+            expectedFilledQuantity <= event.quantity
     }
 
     private fun createMap(rejectOrderEvent: RejectOrderEvent, order: Order): Map<String, Any> {

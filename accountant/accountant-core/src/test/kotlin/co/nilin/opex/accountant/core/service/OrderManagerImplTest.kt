@@ -770,6 +770,32 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenCancelOrderEventWithNegativeRemainder_whenLocalFound_ignoreWithoutSavingTempEvent(): Unit = runBlocking {
+        val orderEvent = CancelOrderEvent(
+            "invalid_cancel_quantity_ouid",
+            "user_1",
+            88,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            -1,
+            OrderDirection.BID
+        )
+        orderPersister.orders[orderEvent.ouid] =
+            Valid.order.copy(ouid = orderEvent.ouid, matchingEngineId = orderEvent.orderId, filledQuantity = 500)
+        tempEventPersister.saveTempEvent(orderEvent.ouid, orderEvent)
+
+        val financialActions = orderManager.handleCancelOrder(orderEvent)
+
+        assertThat(financialActions).isEmpty()
+        assertThat(financialActionStore.persisted).isEmpty()
+        assertThat(richOrderPublisher.published).isEmpty()
+        assertThat(orderPersister.saved).isEmpty()
+        assertThat(tempEventPersister.loadTempEvents(orderEvent.ouid)).isEmpty()
+        assertThat(processedEventPersister.processed).isEmpty()
+    }
+
+    @Test
     fun givenCancelOrderReceivedTwice_whenLocalFound_ignoreDuplicate(): Unit = runBlocking {
         val orderEvent = CancelOrderEvent(
             "duplicate_cancel_ouid",
