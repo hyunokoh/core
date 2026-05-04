@@ -534,8 +534,13 @@ internal class OrderManagerImplTest {
             "user_1",
             56,
             Pair("BTC", "USDT"),
+            100000,
+            1000,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER,
             RequestedOperation.PLACE_ORDER,
-            RejectReason.ORDER_NOT_FOUND
+            RejectReason.ORDER_NOT_FOUND,
         )
 
         val fa = orderManager.handleRejectOrder(orderEvent)
@@ -543,6 +548,27 @@ internal class OrderManagerImplTest {
         assertThat(fa.size).isEqualTo(0)
         assertThat(tempEventPersister.saved).hasSize(1)
         assertThat(tempEventPersister.saved[0].ouid).isEqualTo(orderEvent.ouid)
+    }
+
+    @Test
+    fun givenRejectOrderMissingOrderDetails_whenLocalOrderNull_ignoreWithoutSavingTempEvent(): Unit = runBlocking {
+        val orderEvent = RejectOrderEvent(
+            "invalid_reject_ouid",
+            "user_1",
+            56,
+            Pair("BTC", "USDT"),
+            RequestedOperation.PLACE_ORDER,
+            RejectReason.ORDER_NOT_FOUND
+        )
+
+        val fa = orderManager.handleRejectOrder(orderEvent)
+
+        assertThat(fa).isEmpty()
+        assertThat(tempEventPersister.saved).isEmpty()
+        assertThat(financialActionStore.persisted).isEmpty()
+        assertThat(richOrderPublisher.published).isEmpty()
+        assertThat(orderPersister.saved).isEmpty()
+        assertThat(processedEventPersister.processed).isEmpty()
     }
 
     @Test

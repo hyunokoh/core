@@ -10,6 +10,7 @@ import co.nilin.opex.accountant.core.spi.*
 import co.nilin.opex.matching.engine.core.eventh.events.*
 import co.nilin.opex.matching.engine.core.inout.RequestedOperation
 import co.nilin.opex.matching.engine.core.model.OrderDirection
+import co.nilin.opex.matching.engine.core.model.OrderType
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -301,6 +302,12 @@ open class OrderManagerImpl(
         if (rejectOrderEvent.requestedOperation != RequestedOperation.PLACE_ORDER)
             return emptyList()
 
+        if (!isValidRejectEvent(rejectOrderEvent)) {
+            logger.warn("Invalid reject order event ignored: ouid={}", rejectOrderEvent.ouid)
+            tempEventPersister.removeTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
+            return emptyList()
+        }
+
         //order by ouid
         val order = orderPersister.load(rejectOrderEvent.ouid)
         if (order == null) {
@@ -528,6 +535,19 @@ open class OrderManagerImpl(
             order.direction == event.direction &&
             order.matchConstraint == event.matchConstraint &&
             order.orderType == event.orderType
+    }
+
+    private fun isValidRejectEvent(event: RejectOrderEvent): Boolean {
+        val price = event.price ?: return false
+        val quantity = event.quantity ?: return false
+        val orderType = event.orderType ?: return false
+        return quantity > 0 &&
+            event.direction != null &&
+            event.matchConstraint != null &&
+            when (orderType) {
+                OrderType.LIMIT_ORDER -> price > 0
+                OrderType.MARKET_ORDER -> price >= 0
+            }
     }
 
     private fun isCancelEventForOrder(event: CancelOrderEvent, order: Order): Boolean {
