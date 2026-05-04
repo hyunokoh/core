@@ -52,6 +52,30 @@ private class MarketControllerTest {
         marketDataProxy.assertNotCalled()
     }
 
+    @Test
+    fun givenInvertedTimeRange_whenKlinesRequested_thenThrowInvalidParamBeforeProxyCall(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.klines("ETHUSDT", "1m", 2000, 1000, null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
+    @Test
+    fun givenNegativeStartTime_whenKlinesRequested_thenThrowInvalidParamBeforeProxyCall(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(marketDataProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.klines("ETHUSDT", "1m", -1, null, null) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        marketDataProxy.assertNotCalled()
+    }
+
     private fun controller(marketDataProxy: RecordingMarketDataProxy) = MarketController(
         RecordingAccountantProxy(),
         marketDataProxy,

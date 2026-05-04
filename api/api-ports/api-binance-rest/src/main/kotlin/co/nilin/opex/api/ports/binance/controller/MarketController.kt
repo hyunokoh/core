@@ -225,6 +225,7 @@ class MarketController(
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         if (validLimit !in 1..1000)
             throw OpexError.InvalidLimitForRecentTrades.exception()
+        validateKlineTimeRange(startTime, endTime)
 
         val i = Interval.findByLabel(interval) ?: throw OpexError.InvalidInterval.exception()
 
@@ -249,6 +250,15 @@ class MarketController(
                 )
             }
         return list
+    }
+
+    private fun validateKlineTimeRange(startTime: Long?, endTime: Long?) {
+        if (startTime != null && startTime < 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
+        if (endTime != null && endTime < 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'endTime' is either missing or invalid")
+        if (startTime != null && endTime != null && startTime > endTime)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
     }
 
 }
