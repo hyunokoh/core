@@ -5,11 +5,12 @@ import co.nilin.opex.bcgateway.ports.kafka.listener.spi.AdminEventListener
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.listener.MessageListener
 import org.springframework.stereotype.Component
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Component
 class AdminEventKafkaListener : MessageListener<String?, AdminEvent> {
 
-    private val listeners = arrayListOf<AdminEventListener>()
+    private val listeners = CopyOnWriteArrayList<AdminEventListener>()
 
     override fun onMessage(data: ConsumerRecord<String?, AdminEvent>) {
         listeners.forEach {
@@ -18,6 +19,7 @@ class AdminEventKafkaListener : MessageListener<String?, AdminEvent> {
     }
 
     fun addEventListener(tl: AdminEventListener) {
+        removeEventListener(tl)
         listeners.add(tl)
     }
 

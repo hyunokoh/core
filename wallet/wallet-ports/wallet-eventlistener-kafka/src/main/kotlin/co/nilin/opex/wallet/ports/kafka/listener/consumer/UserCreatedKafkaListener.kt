@@ -6,10 +6,11 @@ import co.nilin.opex.wallet.ports.kafka.listener.spi.UserCreatedEventListener
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.listener.MessageListener
 import org.springframework.stereotype.Component
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Component
 class UserCreatedKafkaListener : MessageListener<String, UserCreatedEvent> {
-    val eventListeners = arrayListOf<UserCreatedEventListener>()
+    val eventListeners = CopyOnWriteArrayList<UserCreatedEventListener>()
 
     override fun onMessage(data: ConsumerRecord<String, UserCreatedEvent>) {
         eventListeners.forEach { tl ->
@@ -18,6 +19,7 @@ class UserCreatedKafkaListener : MessageListener<String, UserCreatedEvent> {
     }
 
     fun addEventListener(tl: UserCreatedEventListener) {
+        removeEventListener(tl)
         eventListeners.add(tl)
     }
 

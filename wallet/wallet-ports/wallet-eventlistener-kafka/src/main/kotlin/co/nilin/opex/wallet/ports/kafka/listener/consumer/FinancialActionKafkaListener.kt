@@ -2,15 +2,15 @@ package co.nilin.opex.wallet.ports.kafka.listener.consumer
 
 import co.nilin.opex.wallet.ports.kafka.listener.model.FinancialActionEvent
 import co.nilin.opex.wallet.ports.kafka.listener.spi.FinancialActionEventListener
-import co.nilin.opex.wallet.ports.kafka.listener.spi.UserCreatedEventListener
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.listener.MessageListener
 import org.springframework.stereotype.Component
+import java.util.concurrent.CopyOnWriteArrayList
 
 @Component
 class FinancialActionKafkaListener : MessageListener<String, FinancialActionEvent> {
 
-    val eventListeners = arrayListOf<FinancialActionEventListener>()
+    val eventListeners = CopyOnWriteArrayList<FinancialActionEventListener>()
 
     override fun onMessage(data: ConsumerRecord<String, FinancialActionEvent>) {
         eventListeners.forEach {
@@ -19,6 +19,11 @@ class FinancialActionKafkaListener : MessageListener<String, FinancialActionEven
     }
 
     fun addEventListener(tl: FinancialActionEventListener) {
+        removeEventListener(tl)
         eventListeners.add(tl)
+    }
+
+    fun removeEventListener(tl: FinancialActionEventListener) {
+        eventListeners.removeIf { it.id() == tl.id() }
     }
 }
