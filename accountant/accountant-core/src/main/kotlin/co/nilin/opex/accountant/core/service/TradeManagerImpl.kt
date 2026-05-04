@@ -60,6 +60,10 @@ open class TradeManagerImpl(
             }
             return emptyList()
         }
+        if (!isTradeApplicableToOrders(trade, takerOrder, makerOrder)) {
+            logger.warn("Trade event ignored because it is inconsistent with local order state: tradeId=${trade.tradeId}")
+            return emptyList()
+        }
 
         val eventType = TradeEvent::class.simpleName!!
         val eventKey = trade.processedEventKey()
@@ -226,6 +230,17 @@ open class TradeManagerImpl(
             trade.makerOuid.isNotBlank() &&
             trade.takerUuid.isNotBlank() &&
             trade.makerUuid.isNotBlank()
+    }
+
+    private fun isTradeApplicableToOrders(trade: TradeEvent, takerOrder: Order, makerOrder: Order): Boolean {
+        return takerOrder.pair == trade.pair.toString() &&
+            makerOrder.pair == trade.pair.toString() &&
+            takerOrder.uuid == trade.takerUuid &&
+            makerOrder.uuid == trade.makerUuid &&
+            takerOrder.direction == trade.takerDirection &&
+            makerOrder.direction == trade.makerDirection &&
+            takerOrder.quantity - takerOrder.filledQuantity >= trade.matchedQuantity &&
+            makerOrder.quantity - makerOrder.filledQuantity >= trade.matchedQuantity
     }
 
     private suspend fun loadTradeOrdersForUpdate(trade: TradeEvent): Pair<Order?, Order?> {
