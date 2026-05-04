@@ -45,6 +45,10 @@ open class TradeManagerImpl(
 
     private suspend fun handleTradeLocked(trade: TradeEvent): List<FinancialAction> {
         logger.info("Trade event started ${trade.tradeId}")
+        if (!isValidTrade(trade)) {
+            logger.warn("Invalid trade event ignored: tradeId=${trade.tradeId}")
+            return emptyList()
+        }
         val financialActions = mutableListOf<FinancialAction>()
         val (takerOrder, makerOrder) = loadTradeOrdersForUpdate(trade)
         if (takerOrder == null || makerOrder == null) {
@@ -209,6 +213,19 @@ open class TradeManagerImpl(
             }
         }
         //return financeActionPersister.persist(financialActions).also { publishFinancialActions(it) }
+    }
+
+    private fun isValidTrade(trade: TradeEvent): Boolean {
+        return trade.tradeId > 0 &&
+            trade.matchedQuantity > 0 &&
+            trade.takerPrice >= 0 &&
+            trade.makerPrice >= 0 &&
+            trade.takerRemainedQuantity >= 0 &&
+            trade.makerRemainedQuantity >= 0 &&
+            trade.takerOuid.isNotBlank() &&
+            trade.makerOuid.isNotBlank() &&
+            trade.takerUuid.isNotBlank() &&
+            trade.makerUuid.isNotBlank()
     }
 
     private suspend fun loadTradeOrdersForUpdate(trade: TradeEvent): Pair<Order?, Order?> {

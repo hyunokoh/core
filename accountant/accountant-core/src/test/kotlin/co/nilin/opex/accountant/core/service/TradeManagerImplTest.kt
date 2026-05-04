@@ -521,6 +521,56 @@ internal class TradeManagerImplTest {
     }
 
     @Test
+    fun givenInvalidTradeEvent_whenHandled_thenIgnoredBeforeStateMutation(): Unit = runBlocking {
+        val pair = Pair("eth", "btc")
+        val pairConfig = PairConfig(
+            pair.toString(),
+            pair.leftSideName,
+            pair.rightSideName,
+            BigDecimal.valueOf(1.0),
+            BigDecimal.valueOf(0.01)
+        )
+        val makerSubmitOrderEvent = SubmitOrderEvent(
+            "invalid-maker-ouid",
+            "invalid-maker-uuid",
+            null,
+            pair,
+            60000,
+            2,
+            2,
+            OrderDirection.ASK,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        val takerSubmitOrderEvent = SubmitOrderEvent(
+            "invalid-taker-ouid",
+            "invalid-taker-uuid",
+            null,
+            pair,
+            70000,
+            2,
+            2,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        prepareOrder(pairConfig, makerSubmitOrderEvent, BigDecimal.valueOf(0.1), BigDecimal.valueOf(0.12))
+        prepareOrder(pairConfig, takerSubmitOrderEvent, BigDecimal.valueOf(0.08), BigDecimal.valueOf(0.1))
+        val persistedCountBefore = financialActionStore.persisted.size
+
+        val invalidTrade = makeTradeEvent(pair, takerSubmitOrderEvent, makerSubmitOrderEvent, -1)
+        val result = tradeManager.handleTrade(invalidTrade)
+
+        assertThat(result).isEmpty()
+        assertThat(financialActionStore.persisted).hasSize(persistedCountBefore)
+        assertThat(processedEventPersister.processed).isEmpty()
+        assertThat(tempEventPersister.saved).isEmpty()
+        assertThat(richTradePublisher.published).isEmpty()
+        assertThat(orderPersister.orders.getValue(takerSubmitOrderEvent.ouid).filledQuantity).isZero()
+        assertThat(orderPersister.orders.getValue(makerSubmitOrderEvent.ouid).filledQuantity).isZero()
+    }
+
+    @Test
     fun givenTradeBeforeBothOrdersExist_whenReplayedFromTempEvents_thenProcessedAfterOrdersExist(): Unit = runBlocking {
         val localProcessedEventPersister = RecordingProcessedEventPersister()
         val localTradeManager = TradeManagerImpl(
@@ -590,7 +640,7 @@ internal class TradeManagerImplTest {
         matchedQuantity: Long
     ): TradeEvent {
         return TradeEvent(
-            0,
+            1,
             pair,
             takerSubmitOrderEvent.ouid,
             takerSubmitOrderEvent.uuid,
