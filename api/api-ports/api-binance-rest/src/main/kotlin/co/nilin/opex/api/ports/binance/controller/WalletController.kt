@@ -98,7 +98,7 @@ class WalletController(
     @GetMapping("/v1/capital/withdraw/history")
     suspend fun getWithdrawTransactions(
         @RequestParam(required = false)
-        coin: String,
+        coin: String?,
         @RequestParam(required = false)
         withdrawOrderId: String?,
         @RequestParam("status", required = false)

@@ -238,6 +238,29 @@ private class WalletControllerTest {
     }
 
     @Test
+    fun givenNoCoin_whenWithdrawHistoryRequested_thenPassesNullCoinToWalletProxy(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        controller.getWithdrawTransactions(
+            coin = null,
+            withdrawOrderId = null,
+            withdrawStatus = null,
+            offset = null,
+            limit = null,
+            startTime = null,
+            endTime = null,
+            ascendingByTime = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(walletProxy.getWithdrawTransactionsCallCount).isEqualTo(1)
+        assertThat(walletProxy.lastWithdrawCoin).isNull()
+    }
+
+    @Test
     fun givenStatus_whenWithdrawHistoryV2Requested_thenFiltersReturnedRows(): Unit = runBlocking {
         val walletProxy = RecordingWalletProxy(
             withdraws = listOf(
@@ -402,6 +425,7 @@ private class WalletControllerTest {
     ) : WalletProxy {
         var getDepositTransactionsCallCount = 0
         var getWithdrawTransactionsCallCount = 0
+        var lastWithdrawCoin: String? = null
 
         override suspend fun getWallets(uuid: String?, token: String?): List<Wallet> = emptyList()
 
@@ -436,6 +460,7 @@ private class WalletControllerTest {
             ascendingByTime: Boolean?
         ): List<WithdrawHistoryResponse> {
             getWithdrawTransactionsCallCount += 1
+            lastWithdrawCoin = coin
             return withdraws
         }
     }
