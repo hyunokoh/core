@@ -242,6 +242,10 @@ class SimpleOrderBook(
             rejectEditOrder(orderCommand, order, RejectReason.INVALID_ORDER)
             return null
         }
+        if (wouldSelfTrade(orderCommand, order)) {
+            rejectEditOrder(orderCommand, order, RejectReason.SELF_TRADE_PREVENTION)
+            return null
+        }
         orders.remove(simpleOrder.key)
         if (order.direction == OrderDirection.BID) {
             handleCancelOrder(order, bidOrders, bestBidOrder) { newBestOrder: SimpleOrder? ->
@@ -415,6 +419,20 @@ class SimpleOrderBook(
         }
         var makerOrder = if (orderCommand.direction == OrderDirection.BID) bestAskOrder else bestBidOrder
         while (makerOrder != null && isPriceMatched(orderCommand, makerOrder.price)) {
+            if (makerOrder.uuid == orderCommand.uuid) {
+                return true
+            }
+            makerOrder = makerOrder.worse
+        }
+        return false
+    }
+
+    private fun wouldSelfTrade(orderCommand: OrderEditCommand, order: SimpleOrder): Boolean {
+        if (!preventSelfTrade) {
+            return false
+        }
+        var makerOrder = if (order.direction == OrderDirection.BID) bestAskOrder else bestBidOrder
+        while (makerOrder != null && isPriceMatched(order.direction, order.orderType, orderCommand.price, makerOrder.price)) {
             if (makerOrder.uuid == orderCommand.uuid) {
                 return true
             }

@@ -945,6 +945,68 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenOwnAskOrder_whenBidEditWouldSelfTrade_thenRejectBeforeBookMutation() {
+        val orderBook = SimpleOrderBook(pair, false, preventSelfTrade = true)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        val tradeEvents = mutableListOf<TradeEvent>()
+        val updateEvents = mutableListOf<UpdatedOrderEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        EventDispatcher.register(TradeEvent::class.java) { tradeEvents.add(it) }
+        EventDispatcher.register(UpdatedOrderEvent::class.java) { updateEvents.add(it) }
+        val askOuid = UUID.randomUUID().toString()
+        val askOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                askOuid,
+                uuid,
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+        val bidOuid = UUID.randomUUID().toString()
+        val bidOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                bidOuid,
+                uuid,
+                pair,
+                9,
+                3,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+
+        val editedOrder = orderBook.handleEditCommand(
+            OrderEditCommand(
+                bidOuid,
+                uuid,
+                bidOrder.id()!!,
+                pair,
+                10,
+                3
+            )
+        )
+
+        Assertions.assertNull(editedOrder)
+        Assertions.assertEquals(1, rejectEvents.count {
+            it.ouid == bidOuid &&
+                it.requestedOperation == RequestedOperation.EDIT_ORDER &&
+                it.reason == RejectReason.SELF_TRADE_PREVENTION
+        })
+        Assertions.assertTrue(tradeEvents.isEmpty())
+        Assertions.assertTrue(updateEvents.isEmpty())
+        Assertions.assertEquals(2, orderBook.orders.size)
+        Assertions.assertEquals(askOrder, orderBook.bestAskOrder)
+        Assertions.assertEquals(bidOrder, orderBook.bestBidOrder)
+        Assertions.assertEquals(2, askOrder.remainedQuantity())
+        Assertions.assertEquals(3, bidOrder.remainedQuantity())
+    }
+
+    @Test
     fun givenOrderBookWithBidOrder_whenInvalidEditRequested_thenRejectBeforeBookMutation() {
         val orderBook = SimpleOrderBook(pair, false)
         val rejectEvents = mutableListOf<RejectOrderEvent>()
