@@ -1830,7 +1830,7 @@ main() {
   expect_2xx_retry "priority high bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$high_bid' '$priority_high_buyer'" >/tmp/opex-e2e-priority-high-bid.json
   wait_user_open_order "$priority_high_buyer" "ETH_USDT" "140" "0.2" /tmp/opex-e2e-priority-high-open-orders.json
   expect_2xx_retry "priority taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$priority_ask' '$priority_seller'" >/tmp/opex-e2e-priority-ask.json
-  wait_user_trade_quote_quantity "$priority_seller" "ETH_USDT" "100" "0.2" "28"
+  wait_user_trade_quote_quantity "$priority_seller" "ETH_USDT" "140" "0.2" "28"
   wait_user_trade_price "$priority_high_buyer" "ETH_USDT" "140" "0.2"
   wait_no_user_open_orders "$priority_high_buyer" "ETH_USDT"
   wait_order_status "$priority_low_buyer" "$priority_low_ouid" "NEW"
@@ -1895,7 +1895,7 @@ main() {
   fi
 
   expect_2xx_retry "fifo taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$fifo_ask' '$fifo_seller'" >/tmp/opex-e2e-fifo-ask.json
-  wait_user_trade_quote_quantity "$fifo_seller" "ETH_USDT" "100" "0.2" "25"
+  wait_user_trade_quote_quantity "$fifo_seller" "ETH_USDT" "125" "0.2" "25"
   wait_user_trade_price "$fifo_first_buyer" "ETH_USDT" "125" "0.2"
   wait_no_user_open_orders "$fifo_first_buyer" "ETH_USDT"
   wait_order_status "$fifo_second_buyer" "$fifo_second_ouid" "NEW"
@@ -2598,6 +2598,73 @@ main() {
     order by matched_price;
   "
   restart_market_and_verify_public_state
+
+  local market_bid_cap_buyer="e2e-mkt-bid-cap-buyer-$(date +%s)"
+  local market_bid_cap_low_seller="e2e-mkt-bid-cap-low-$(date +%s)"
+  local market_bid_cap_high_seller="e2e-mkt-bid-cap-high-$(date +%s)"
+  local market_bid_cap_ref="e2e-mkt-bid-cap-$(date +%s)"
+  expect_2xx "market-bid-cap buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/19_test-ethereum_USDT/${market_bid_cap_buyer}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-usdt")" >/dev/null
+  expect_2xx "market-bid-cap low seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${market_bid_cap_low_seller}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-low-eth")" >/dev/null
+  expect_2xx "market-bid-cap high seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${market_bid_cap_high_seller}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-high-eth")" >/dev/null
+
+  local market_bid_cap_low_ask='{"uuid":null,"pair":"ETH_USDT","price":90,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local market_bid_cap_high_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local market_bid_cap_bid='{"uuid":null,"pair":"ETH_USDT","price":95,"quantity":0.2,"direction":"BID","matchConstraint":"IOC","orderType":"MARKET_ORDER","userLevel":"*"}'
+  expect_2xx_retry "market-bid-cap low ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_low_ask' '$market_bid_cap_low_seller'" >/tmp/opex-e2e-market-bid-cap-low-ask.json
+  wait_user_open_order "$market_bid_cap_low_seller" "ETH_USDT" "90" "0.1" /tmp/opex-e2e-market-bid-cap-low-open-orders.json
+  expect_2xx_retry "market-bid-cap high ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_high_ask' '$market_bid_cap_high_seller'" >/tmp/opex-e2e-market-bid-cap-high-ask.json
+  wait_user_open_order "$market_bid_cap_high_seller" "ETH_USDT" "100" "0.1" /tmp/opex-e2e-market-bid-cap-high-open-orders.json
+
+  local market_bid_cap_high_ouid market_bid_cap_high_order_id market_bid_cap_high_cancel_request
+  market_bid_cap_high_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-market-bid-cap-high-open-orders.json)"
+  market_bid_cap_high_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-market-bid-cap-high-open-orders.json)"
+  if [[ -z "$market_bid_cap_high_ouid" || "$market_bid_cap_high_ouid" == "null" || -z "$market_bid_cap_high_order_id" || "$market_bid_cap_high_order_id" == "null" ]]; then
+    echo "Market-bid-cap high ask did not include ouid/orderId required for cancel" >&2
+    cat /tmp/opex-e2e-market-bid-cap-high-open-orders.json >&2
+    exit 1
+  fi
+
+  expect_2xx_retry "market-bid-cap market bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_bid' '$market_bid_cap_buyer'" >/tmp/opex-e2e-market-bid-cap-bid.json
+  wait_no_user_open_orders "$market_bid_cap_low_seller" "ETH_USDT"
+  wait_order_status "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "NEW"
+  wait_order_book_level "ETH_USDT" "ASK" "100" "0.1"
+  wait_user_trade_price "$market_bid_cap_low_seller" "ETH_USDT" "90" "0.1"
+  wait_user_trade_price "$market_bid_cap_buyer" "ETH_USDT" "90" "0.1"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$market_bid_cap_buyer" "ETH" "0.099" &&
+    try_wallet_balance "$market_bid_cap_buyer" "USDT" "10" &&
+    try_wallet_balance "$market_bid_cap_low_seller" "ETH" "0.9" &&
+    try_wallet_balance "$market_bid_cap_low_seller" "USDT" "8.91" &&
+    try_wallet_balance "$market_bid_cap_high_seller" "ETH" "0.9"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for market-bid-cap settlement" >&2
+      assert_wallet_balance "market-bid-cap buyer ETH received" "$market_bid_cap_buyer" "ETH" "0.099" >&2 || true
+      assert_wallet_balance "market-bid-cap buyer USDT remainder" "$market_bid_cap_buyer" "USDT" "10" >&2 || true
+      assert_wallet_balance "market-bid-cap low seller ETH remainder" "$market_bid_cap_low_seller" "ETH" "0.9" >&2 || true
+      assert_wallet_balance "market-bid-cap low seller USDT proceeds" "$market_bid_cap_low_seller" "USDT" "8.91" >&2 || true
+      assert_wallet_balance "market-bid-cap high seller ETH still reserved" "$market_bid_cap_high_seller" "ETH" "0.9" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
+  market_bid_cap_high_cancel_request="$(jq -nc --arg ouid "$market_bid_cap_high_ouid" --arg uuid "$market_bid_cap_high_seller" --argjson orderId "$market_bid_cap_high_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  expect_2xx_retry "cancel market-bid-cap high ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$market_bid_cap_high_cancel_request' '$market_bid_cap_high_seller'" >/tmp/opex-e2e-market-bid-cap-high-cancel.json
+  wait_no_user_open_orders "$market_bid_cap_high_seller" "ETH_USDT"
+  wait_order_status "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "CANCELED"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$market_bid_cap_high_seller" "ETH" "1"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for market-bid-cap high ask cancel release" >&2
+      assert_wallet_balance "market-bid-cap high seller released ETH" "$market_bid_cap_high_seller" "ETH" "1" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_order_book_empty "ETH_USDT" "BID"
 
   local btc_seller="e2e-btc-seller-$(date +%s)"
   local btc_buyer="e2e-btc-buyer-$(date +%s)"

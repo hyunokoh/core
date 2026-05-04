@@ -456,7 +456,7 @@ internal class OrderManagerImplTest {
             500,
             OrderDirection.BID
         )
-        val order = Valid.order.copy(ouid = orderEvent.ouid)
+        val order = Valid.order.copy(ouid = orderEvent.ouid, filledQuantity = 500)
         orderPersister.orders[orderEvent.ouid] = order
 
         val fa = orderManager.handleCancelOrder(orderEvent)[0]
@@ -471,6 +471,31 @@ internal class OrderManagerImplTest {
     }
 
     @Test
+    fun givenCancelOrderReceivedBeforeTradeApplied_whenLocalOrderBehind_saveTempEvent(): Unit = runBlocking {
+        val orderEvent = CancelOrderEvent(
+            "order_ouid",
+            "user_id",
+            88,
+            Pair("BTC", "USDT"),
+            100000,
+            1000,
+            500,
+            OrderDirection.BID
+        )
+        orderPersister.orders[orderEvent.ouid] = Valid.order.copy(ouid = orderEvent.ouid, filledQuantity = 0)
+
+        val fa = orderManager.handleCancelOrder(orderEvent)
+
+        assertThat(fa).isEmpty()
+        assertThat(tempEventPersister.saved).hasSize(1)
+        assertThat(tempEventPersister.saved[0].ouid).isEqualTo(orderEvent.ouid)
+        assertThat(financialActionStore.persisted).isEmpty()
+        assertThat(richOrderPublisher.published).isEmpty()
+        assertThat(orderPersister.saved).isEmpty()
+        assertThat(processedEventPersister.processed).isEmpty()
+    }
+
+    @Test
     fun givenCancelOrderReceivedTwice_whenLocalFound_ignoreDuplicate(): Unit = runBlocking {
         val orderEvent = CancelOrderEvent(
             "duplicate_cancel_ouid",
@@ -482,7 +507,7 @@ internal class OrderManagerImplTest {
             500,
             OrderDirection.BID
         )
-        orderPersister.orders[orderEvent.ouid] = Valid.order.copy(ouid = orderEvent.ouid)
+        orderPersister.orders[orderEvent.ouid] = Valid.order.copy(ouid = orderEvent.ouid, filledQuantity = 500)
 
         val first = orderManager.handleCancelOrder(orderEvent)
         val second = orderManager.handleCancelOrder(orderEvent)

@@ -85,13 +85,20 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
     fun givenTrade_whenAllTrades_thenReturnTradesForUser(): Unit = runBlocking {
         seedOrder(status = OrderStatus.FILLED)
         seedOrder(VALID.TAKER_ORDER_MODEL.copy(id = null, clientOrderId = "taker-client"), status = OrderStatus.FILLED)
-        seedTrade()
+        val trade = VALID.TRADE_MODEL.copyPrices(
+            matchedPrice = BigDecimal.valueOf(90),
+            matchedQuantity = BigDecimal.valueOf(0.1),
+            takerPrice = BigDecimal.valueOf(95),
+            makerPrice = BigDecimal.valueOf(90)
+        )
+        seedTrade(trade)
 
         val trades = userQueryHandler.allTrades(VALID.PRINCIPAL.name, TradeRequest(VALID.ETH_USDT, null, null, null, 100))
 
         assertThat(trades).hasSize(1)
-        assertThat(trades.first().id).isEqualTo(VALID.TRADE_MODEL.tradeId)
-        assertThat(trades.first().price).isEqualByComparingTo(VALID.TRADE_MODEL.takerPrice)
+        assertThat(trades.first().id).isEqualTo(trade.tradeId)
+        assertThat(trades.first().price).isEqualByComparingTo(trade.matchedPrice)
+        assertThat(trades.first().quoteQuantity).isEqualByComparingTo(BigDecimal.valueOf(9.0))
     }
 
     private suspend fun seedOrder(
@@ -112,29 +119,56 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
         }
     }
 
-    private suspend fun seedTrade() {
+    private suspend fun seedTrade(trade: TradeModel = VALID.TRADE_MODEL) {
         tradeRepository.save(
             TradeModel(
                 null,
-                VALID.TRADE_MODEL.tradeId,
-                VALID.TRADE_MODEL.symbol,
-                VALID.TRADE_MODEL.baseAsset,
-                VALID.TRADE_MODEL.quoteAsset,
-                VALID.TRADE_MODEL.matchedPrice,
-                VALID.TRADE_MODEL.matchedQuantity,
-                VALID.TRADE_MODEL.takerPrice,
-                VALID.TRADE_MODEL.makerPrice,
-                VALID.TRADE_MODEL.takerCommission,
-                VALID.TRADE_MODEL.makerCommission,
-                VALID.TRADE_MODEL.takerCommissionAsset,
-                VALID.TRADE_MODEL.makerCommissionAsset,
-                VALID.TRADE_MODEL.tradeDate,
-                VALID.TRADE_MODEL.makerOuid,
-                VALID.TRADE_MODEL.takerOuid,
-                VALID.TRADE_MODEL.makerUuid,
-                VALID.TRADE_MODEL.takerUuid,
-                VALID.TRADE_MODEL.createDate
+                trade.tradeId,
+                trade.symbol,
+                trade.baseAsset,
+                trade.quoteAsset,
+                trade.matchedPrice,
+                trade.matchedQuantity,
+                trade.takerPrice,
+                trade.makerPrice,
+                trade.takerCommission,
+                trade.makerCommission,
+                trade.takerCommissionAsset,
+                trade.makerCommissionAsset,
+                trade.tradeDate,
+                trade.makerOuid,
+                trade.takerOuid,
+                trade.makerUuid,
+                trade.takerUuid,
+                trade.createDate
             )
         ).awaitSingle()
     }
+
+    private fun TradeModel.copyPrices(
+        matchedPrice: BigDecimal,
+        matchedQuantity: BigDecimal,
+        takerPrice: BigDecimal,
+        makerPrice: BigDecimal
+    ) = TradeModel(
+        id,
+        tradeId,
+        symbol,
+        baseAsset,
+        quoteAsset,
+        matchedPrice,
+        matchedQuantity,
+        takerPrice,
+        makerPrice,
+        takerCommission,
+        makerCommission,
+        takerCommissionAsset,
+        makerCommissionAsset,
+        tradeDate,
+        makerOuid,
+        takerOuid,
+        makerUuid,
+        takerUuid,
+        createDate
+    )
 }

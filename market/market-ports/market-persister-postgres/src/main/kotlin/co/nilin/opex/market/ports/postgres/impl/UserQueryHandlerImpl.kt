@@ -81,13 +81,14 @@ class UserQueryHandlerImpl(
             val takerOrder = orderRepository.findByOuid(it.takerOuid).awaitFirst()
             val makerOrder = orderRepository.findByOuid(it.makerOuid).awaitFirst()
             val isMakerBuyer = makerOrder.direction == OrderDirection.BID
+            val quoteQuantity = it.matchedPrice.multiply(it.matchedQuantity)
             Trade(
                     it.symbol,
                     it.tradeId,
                     if (it.takerUuid == uuid) takerOrder.orderId!! else makerOrder.orderId!!,
-                    if (it.takerUuid == uuid) it.takerPrice else it.makerPrice,
+                    it.matchedPrice,
                     it.matchedQuantity,
-                    if (isMakerBuyer) makerOrder.quoteQuantity!! else takerOrder.quoteQuantity!!,
+                    quoteQuantity,
                     if (it.takerUuid == uuid) it.takerCommission!! else it.makerCommission!!,
                     if (it.takerUuid == uuid) it.takerCommissionAsset!! else it.makerCommissionAsset!!,
                     Date.from(it.createDate.atZone(ZoneId.systemDefault()).toInstant()),

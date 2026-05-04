@@ -419,14 +419,13 @@ class SimpleOrderBook(
     private fun matchIocInstantly(order: SimpleOrder): SimpleOrder {
         if (order.direction == OrderDirection.BID) {
             return matchInstantly(order, bestAskOrder, askOrders, { makerPrice: Long ->
-                order.orderType == OrderType.MARKET_ORDER || makerPrice <= order.price
-
+                isPriceMatched(order.direction, order.orderType, order.price, makerPrice)
             }) { newMakerOrder: SimpleOrder? ->
                 bestAskOrder = newMakerOrder
             }
         } else {
             return matchInstantly(order, bestBidOrder, bidOrders, { makerPrice: Long ->
-                order.orderType == OrderType.MARKET_ORDER || makerPrice >= order.price
+                isPriceMatched(order.direction, order.orderType, order.price, makerPrice)
             }) { newMakerOrder: SimpleOrder? ->
                 bestBidOrder = newMakerOrder
             }
@@ -448,12 +447,20 @@ class SimpleOrderBook(
     }
 
     private fun isPriceMatched(orderCommand: OrderCreateCommand, makerPrice: Long): Boolean {
-        return orderCommand.orderType == OrderType.MARKET_ORDER ||
-            if (orderCommand.direction == OrderDirection.BID) {
-                makerPrice <= orderCommand.price
-            } else {
-                makerPrice >= orderCommand.price
-            }
+        return isPriceMatched(orderCommand.direction, orderCommand.orderType, orderCommand.price, makerPrice)
+    }
+
+    private fun isPriceMatched(
+        direction: OrderDirection,
+        orderType: OrderType,
+        price: Long,
+        makerPrice: Long
+    ): Boolean {
+        return if (direction == OrderDirection.BID) {
+            makerPrice <= price
+        } else {
+            orderType == OrderType.MARKET_ORDER || makerPrice >= price
+        }
     }
 
     private fun rejectSelfTrade(orderCommand: OrderCreateCommand) {

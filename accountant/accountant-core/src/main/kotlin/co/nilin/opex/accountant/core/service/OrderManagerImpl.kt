@@ -307,6 +307,11 @@ open class OrderManagerImpl(
             tempEventPersister.saveTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
             return emptyList()
         }
+        val expectedFilledQuantity = cancelOrderEvent.quantity - cancelOrderEvent.remainedQuantity
+        if (order.filledQuantity < expectedFilledQuantity) {
+            tempEventPersister.saveTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
+            return emptyList()
+        }
         val eventType = CancelOrderEvent::class.simpleName!!
         val eventKey = cancelOrderEvent.processedEventKey()
         if (!processedEventPersister.tryMarkProcessed(eventType, eventKey)) {

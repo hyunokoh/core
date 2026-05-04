@@ -95,9 +95,9 @@ class MarketQueryHandlerImpl(
 
         return tradeRepository.findBySymbolSortDescendingByCreateDate(symbol, limit)
             .map {
-                val takerOrder = orderRepository.findByOuid(it.takerOuid).awaitFirst()
                 val makerOrder = orderRepository.findByOuid(it.makerOuid).awaitFirst()
                 val isMakerBuyer = makerOrder.direction == OrderDirection.BID
+                val quoteQuantity = it.matchedPrice.multiply(it.matchedQuantity)
                 MarketTrade(
                     it.symbol,
                     it.baseAsset,
@@ -105,10 +105,7 @@ class MarketQueryHandlerImpl(
                     it.tradeId,
                     it.matchedPrice,
                     it.matchedQuantity,
-                    if (isMakerBuyer)
-                        makerOrder.quoteQuantity!!
-                    else
-                        takerOrder.quoteQuantity!!,
+                    quoteQuantity,
                     Date.from(it.createDate.atZone(ZoneId.systemDefault()).toInstant()),
                     true,
                     isMakerBuyer

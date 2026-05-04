@@ -973,6 +973,55 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenOrderBookWithAskAboveMarketBidCap_whenIocBidMarketOrderCreated_thenOnlyMatchAskAtOrBelowCap() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val lowAsk = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                90,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+        val highAsk = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                pair,
+                110,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        ) as SimpleOrder
+
+        val order = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                pair,
+                100,
+                2,
+                OrderDirection.BID,
+                MatchConstraint.IOC,
+                OrderType.MARKET_ORDER
+            )
+        ) as SimpleOrder
+
+        Assertions.assertEquals(1, order.filledQuantity)
+        Assertions.assertEquals(0, lowAsk.remainedQuantity())
+        Assertions.assertEquals(1, highAsk.remainedQuantity())
+        Assertions.assertEquals(highAsk, orderBook.bestAskOrder)
+        Assertions.assertNull(orderBook.bestBidOrder)
+        Assertions.assertEquals(1, orderBook.askOrders.entriesList().size)
+    }
+
+    @Test
     fun givenOrderBookWithBidAndAskOrders_whenIocAskLimitOrderWithHigherPriceAndGreaterQuantityCreated_thenNotFilled() {
         //given
         val orderBook = SimpleOrderBook(pair, false)
