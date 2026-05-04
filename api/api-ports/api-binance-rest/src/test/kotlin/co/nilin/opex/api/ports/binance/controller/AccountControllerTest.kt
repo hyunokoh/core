@@ -28,7 +28,7 @@ private class AccountControllerTest {
         val controller = controller(queryHandler)
         val principal = Principal { "user-1" }
 
-        val responses = controller.fetchOpenOrders(principal, null, null, 1L, 25)
+        val responses = controller.fetchOpenOrders(principal, null, null, signedTimestamp(), 25)
 
         assertThat(queryHandler.openOrdersSymbol).isNull()
         assertThat(queryHandler.openOrdersLimit).isEqualTo(25)
@@ -42,7 +42,7 @@ private class AccountControllerTest {
         val controller = controller(queryHandler)
 
         assertThatThrownBy {
-            runBlocking { controller.fetchOpenOrders(Principal { "user-1" }, "ETHUSDT", null, 1L, 0) }
+            runBlocking { controller.fetchOpenOrders(Principal { "user-1" }, "ETHUSDT", null, signedTimestamp(), 0) }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(queryHandler.openOrdersSymbol).isEqualTo("not-called")
@@ -54,7 +54,7 @@ private class AccountControllerTest {
         val controller = controller(queryHandler)
         val principal = Principal { "user-1" }
 
-        val responses = controller.fetchAllOrders(principal, null, null, null, 50, null, 1L)
+        val responses = controller.fetchAllOrders(principal, null, null, null, 50, null, signedTimestamp())
 
         assertThat(queryHandler.allOrdersSymbol).isNull()
         assertThat(queryHandler.allOrdersLimit).isEqualTo(50)
@@ -67,7 +67,7 @@ private class AccountControllerTest {
         val queryHandler = RecordingMarketUserDataProxy()
         val controller = controller(queryHandler)
 
-        controller.fetchAllOrders(Principal { "user-1" }, "ETHUSDT", null, null, null, null, 1L)
+        controller.fetchAllOrders(Principal { "user-1" }, "ETHUSDT", null, null, null, null, signedTimestamp())
 
         assertThat(queryHandler.allOrdersSymbol).isEqualTo("ETH_USDT")
         assertThat(queryHandler.allOrdersLimit).isEqualTo(500)
@@ -79,7 +79,7 @@ private class AccountControllerTest {
         val controller = controller(queryHandler)
 
         assertThatThrownBy {
-            runBlocking { controller.fetchAllOrders(Principal { "user-1" }, "ETHUSDT", null, null, 1001, null, 1L) }
+            runBlocking { controller.fetchAllOrders(Principal { "user-1" }, "ETHUSDT", null, null, 1001, null, signedTimestamp()) }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(queryHandler.allOrdersSymbol).isEqualTo("not-called")
@@ -91,7 +91,7 @@ private class AccountControllerTest {
         val controller = controller(queryHandler)
 
         assertThatThrownBy {
-            runBlocking { controller.fetchAllTrades(Principal { "user-1" }, "ETHUSDT", null, null, null, 0, null, 1L) }
+            runBlocking { controller.fetchAllTrades(Principal { "user-1" }, "ETHUSDT", null, null, null, 0, null, signedTimestamp()) }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(queryHandler.allTradesSymbol).isEqualTo("not-called")
@@ -102,7 +102,7 @@ private class AccountControllerTest {
         val queryHandler = RecordingMarketUserDataProxy()
         val controller = controller(queryHandler)
 
-        controller.fetchAllTrades(Principal { "user-1" }, "ETHUSDT", null, null, null, null, null, 1L)
+        controller.fetchAllTrades(Principal { "user-1" }, "ETHUSDT", null, null, null, null, null, signedTimestamp())
 
         assertThat(queryHandler.allTradesSymbol).isEqualTo("ETH_USDT")
         assertThat(queryHandler.allTradesLimit).isEqualTo(500)
@@ -114,10 +114,34 @@ private class AccountControllerTest {
         val controller = controller(queryHandler)
 
         assertThatThrownBy {
-            runBlocking { controller.queryOrder(Principal { "user-1" }, "ETHUSDT", null, null, null, 1L) }
+            runBlocking { controller.queryOrder(Principal { "user-1" }, "ETHUSDT", null, null, null, signedTimestamp()) }
         }.isOpexError(OpexError.BadRequest)
 
         assertThat(queryHandler.queryOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenExpiredTimestamp_whenAccountInfoRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.accountInfo(securityContext(), null, signedTimestamp() - 6000) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWalletsCallCount).isZero()
+    }
+
+    @Test
+    fun givenTooLargeRecvWindow_whenAccountInfoRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.accountInfo(securityContext(), 60001, signedTimestamp()) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWalletsCallCount).isZero()
     }
 
     @Test
@@ -133,7 +157,7 @@ private class AccountControllerTest {
             origClientOrderId = "client-1",
             newClientOrderId = "cancel-1",
             recvWindow = null,
-            timestamp = 1L,
+            timestamp = signedTimestamp(),
             securityContext = securityContext()
         )
 
@@ -168,7 +192,7 @@ private class AccountControllerTest {
                     icebergQty = null,
                     newOrderRespType = null,
                     recvWindow = null,
-                    timestamp = 1L,
+                    timestamp = signedTimestamp(),
                     securityContext = securityContext()
                 )
             }
@@ -197,7 +221,7 @@ private class AccountControllerTest {
                     icebergQty = null,
                     newOrderRespType = null,
                     recvWindow = null,
-                    timestamp = 1L,
+                    timestamp = signedTimestamp(),
                     securityContext = securityContext()
                 )
             }
@@ -224,7 +248,7 @@ private class AccountControllerTest {
             icebergQty = null,
             newOrderRespType = null,
             recvWindow = null,
-            timestamp = 1L,
+            timestamp = signedTimestamp(),
             securityContext = securityContext()
         )
 
@@ -241,11 +265,12 @@ private class AccountControllerTest {
 
     private fun controller(
         queryHandler: RecordingMarketUserDataProxy = RecordingMarketUserDataProxy(),
-        matchingGatewayProxy: RecordingMatchingGatewayProxy = RecordingMatchingGatewayProxy()
+        matchingGatewayProxy: RecordingMatchingGatewayProxy = RecordingMatchingGatewayProxy(),
+        walletProxy: RecordingWalletProxy = RecordingWalletProxy()
     ) = AccountController(
         queryHandler,
         matchingGatewayProxy,
-        RecordingWalletProxy(),
+        walletProxy,
         RecordingSymbolMapper()
     )
 
@@ -256,6 +281,8 @@ private class AccountControllerTest {
             .build()
         return SecurityContextImpl(JwtAuthenticationToken(jwt))
     }
+
+    private fun signedTimestamp(): Long = Date().time
 
     private fun org.assertj.core.api.AbstractThrowableAssert<*, out Throwable>.isOpexError(error: OpexError) {
         isInstanceOf(OpexException::class.java)
@@ -413,7 +440,12 @@ private class AccountControllerTest {
     }
 
     private class RecordingWalletProxy : WalletProxy {
-        override suspend fun getWallets(uuid: String?, token: String?): List<Wallet> = emptyList()
+        var getWalletsCallCount = 0
+
+        override suspend fun getWallets(uuid: String?, token: String?): List<Wallet> {
+            getWalletsCallCount += 1
+            return emptyList()
+        }
 
         override suspend fun getWallet(uuid: String?, token: String?, symbol: String): Wallet =
             Wallet(symbol, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)

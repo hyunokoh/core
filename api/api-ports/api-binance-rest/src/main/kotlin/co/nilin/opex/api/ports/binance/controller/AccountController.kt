@@ -31,6 +31,9 @@ class AccountController(
 
     private val defaultAccountQueryLimit = 500
     private val maxAccountQueryLimit = 1000
+    private val defaultRecvWindow = 5000L
+    private val maxRecvWindow = 60000L
+    private val maxFutureTimestampSkew = 1000L
 
     /*
     Send in a new order.
@@ -91,6 +94,7 @@ class AccountController(
         timestamp: Long,
         @CurrentSecurityContext securityContext: SecurityContext
     ): NewOrderResponse {
+        validateSignedRequest(recvWindow, timestamp)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateNewOrderParams(type, price, quantity, timeInForce, stopPrice, quoteOrderQty)
 
@@ -145,6 +149,7 @@ class AccountController(
         timestamp: Long,
         @CurrentSecurityContext securityContext: SecurityContext
     ): CancelOrderResponse {
+        validateSignedRequest(recvWindow, timestamp)
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateOrderLookupParams(orderId, origClientOrderId)
 
@@ -220,6 +225,7 @@ class AccountController(
         @RequestParam
         timestamp: Long
     ): QueryOrderResponse {
+        validateSignedRequest(recvWindow, timestamp)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateOrderLookupParams(orderId, origClientOrderId)
         return queryHandler.queryOrder(principal, internalSymbol, orderId, origClientOrderId)
@@ -262,6 +268,7 @@ class AccountController(
         @RequestParam(required = false)
         limit: Int?
     ): List<QueryOrderResponse> {
+        validateSignedRequest(recvWindow, timestamp)
         val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
         val validLimit = validOptionalAccountQueryLimit(limit)
         return queryHandler.openOrders(principal, internalSymbol, validLimit).map {
@@ -306,6 +313,7 @@ class AccountController(
         @RequestParam
         timestamp: Long
     ): List<QueryOrderResponse> {
+        validateSignedRequest(recvWindow, timestamp)
         val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
         val validLimit = validAccountQueryLimit(limit)
         return queryHandler.allOrders(principal, internalSymbol, startTime, endTime, validLimit).map {
@@ -354,6 +362,7 @@ class AccountController(
         @RequestParam
         timestamp: Long
     ): List<TradeResponse> {
+        validateSignedRequest(recvWindow, timestamp)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         val validLimit = validAccountQueryLimit(limit)
 
@@ -400,6 +409,7 @@ class AccountController(
         @RequestParam
         timestamp: Long
     ): AccountInfoResponse {
+        validateSignedRequest(recvWindow, timestamp)
         val auth = securityContext.jwtAuthentication()
         val wallets = walletProxy.getWallets(auth.name, auth.tokenValue())
         val limits = walletProxy.getOwnerLimits(auth.name, auth.tokenValue())
@@ -462,6 +472,16 @@ class AccountController(
     private fun validateOrderLookupParams(orderId: Long?, origClientOrderId: String?) {
         if (orderId == null && origClientOrderId == null)
             throw OpexError.BadRequest.exception("'orderId' or 'origClientOrderId' must be sent")
+    }
+
+    private fun validateSignedRequest(recvWindow: Long?, timestamp: Long) {
+        val validWindow = recvWindow ?: defaultRecvWindow
+        if (validWindow !in 1..maxRecvWindow)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'recvWindow' is either missing or invalid")
+
+        val now = Date().time
+        if (timestamp <= 0 || timestamp >= now + maxFutureTimestampSkew || now - timestamp > validWindow)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'timestamp' is either missing or invalid")
     }
 
     private fun validAccountQueryLimit(limit: Int?): Int {
