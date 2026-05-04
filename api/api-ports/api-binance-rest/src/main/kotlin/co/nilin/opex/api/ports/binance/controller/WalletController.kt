@@ -2,6 +2,7 @@ package co.nilin.opex.api.ports.binance.controller
 
 import co.nilin.opex.api.core.inout.DepositDetails
 import co.nilin.opex.api.core.inout.TransactionHistoryResponse
+import co.nilin.opex.api.core.inout.Wallet
 import co.nilin.opex.api.core.inout.WithdrawHistoryResponse
 import co.nilin.opex.api.core.spi.*
 import co.nilin.opex.api.ports.binance.data.*
@@ -272,13 +273,15 @@ class WalletController(
                 if (price == null || (price.bidPrice ?: BigDecimal.ZERO) == BigDecimal.ZERO)
                     zeroAssets.add(asset.asset)
                 else
-                    value += asset.balance.multiply(price.bidPrice)
+                    value += asset.totalAmount().multiply(price.bidPrice)
             }
 
         // Add quote asset balance with rate of 1
-        wallets.find { it.asset.equals(quoteAsset, true) }?.let { value += it.balance }
+        wallets.find { it.asset.equals(quoteAsset, true) }?.let { value += it.totalAmount() }
         return AssetsEstimatedValue(value, quoteAsset.uppercase(), zeroAssets)
     }
+
+    private fun Wallet.totalAmount(): BigDecimal = balance + locked + withdraw
 
     private fun matchDepositsAndDetails(
         deposits: List<TransactionHistoryResponse>,

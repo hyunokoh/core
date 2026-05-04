@@ -508,8 +508,8 @@ private class WalletControllerTest {
     fun givenLowercaseAsset_whenEstimatedValueRequested_thenMatchesUppercaseBestPrice(): Unit = runBlocking {
         val walletProxy = RecordingWalletProxy(
             wallets = listOf(
-                Wallet("eth", BigDecimal("2"), BigDecimal.ZERO, BigDecimal.ZERO),
-                Wallet("usdt", BigDecimal("10"), BigDecimal.ZERO, BigDecimal.ZERO)
+                Wallet("eth", BigDecimal("2"), BigDecimal("0.5"), BigDecimal("0.25")),
+                Wallet("usdt", BigDecimal("10"), BigDecimal("1"), BigDecimal("2"))
             )
         )
         val marketDataProxy = RecordingMarketDataProxy(
@@ -519,7 +519,7 @@ private class WalletControllerTest {
 
         val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT")
 
-        assertThat(estimatedValue.value).isEqualByComparingTo("210")
+        assertThat(estimatedValue.value).isEqualByComparingTo("288")
         assertThat(estimatedValue.zeroValueAssets).isEmpty()
     }
 
