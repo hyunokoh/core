@@ -6,6 +6,7 @@ import co.nilin.opex.accountant.core.api.TradeManager
 import co.nilin.opex.accountant.core.inout.OrderStatus
 import co.nilin.opex.accountant.core.inout.RichOrderUpdate
 import co.nilin.opex.accountant.core.inout.RichTrade
+import co.nilin.opex.accountant.core.inout.isTerminal
 import co.nilin.opex.accountant.core.model.*
 import co.nilin.opex.accountant.core.spi.*
 import co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent
@@ -241,20 +242,10 @@ open class TradeManagerImpl(
             makerOrder.uuid == trade.makerUuid &&
             takerOrder.direction == trade.takerDirection &&
             makerOrder.direction == trade.makerDirection &&
-            !isTerminalOrderStatus(takerOrder.status) &&
-            !isTerminalOrderStatus(makerOrder.status) &&
+            !takerOrder.status.isTerminal() &&
+            !makerOrder.status.isTerminal() &&
             takerOrder.quantity - takerOrder.filledQuantity >= trade.matchedQuantity &&
             makerOrder.quantity - makerOrder.filledQuantity >= trade.matchedQuantity
-    }
-
-    private fun isTerminalOrderStatus(statusCode: Int): Boolean {
-        return when (OrderStatus.fromCode(statusCode)) {
-            OrderStatus.FILLED,
-            OrderStatus.CANCELED,
-            OrderStatus.REJECTED,
-            OrderStatus.EXPIRED -> true
-            else -> false
-        }
     }
 
     private suspend fun loadTradeOrdersForUpdate(trade: TradeEvent): Pair<Order?, Order?> {

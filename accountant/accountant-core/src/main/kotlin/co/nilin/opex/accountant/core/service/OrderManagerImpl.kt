@@ -4,6 +4,7 @@ import co.nilin.opex.accountant.core.api.OrderManager
 import co.nilin.opex.accountant.core.inout.OrderStatus
 import co.nilin.opex.accountant.core.inout.RichOrder
 import co.nilin.opex.accountant.core.inout.RichOrderUpdate
+import co.nilin.opex.accountant.core.inout.isTerminal
 import co.nilin.opex.accountant.core.model.*
 import co.nilin.opex.accountant.core.spi.*
 import co.nilin.opex.matching.engine.core.eventh.events.*
@@ -301,7 +302,7 @@ open class OrderManagerImpl(
             tempEventPersister.saveTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
             return emptyList()
         }
-        if (isTerminalOrderStatus(order.status)) {
+        if (order.status.isTerminal()) {
             tempEventPersister.removeTempEvent(rejectOrderEvent.ouid, rejectOrderEvent)
             return emptyList()
         }
@@ -372,7 +373,7 @@ open class OrderManagerImpl(
             tempEventPersister.saveTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
             return emptyList()
         }
-        if (isTerminalOrderStatus(order.status)) {
+        if (order.status.isTerminal()) {
             tempEventPersister.removeTempEvent(cancelOrderEvent.ouid, cancelOrderEvent)
             return emptyList()
         }
@@ -519,16 +520,6 @@ open class OrderManagerImpl(
             order.direction == event.direction &&
             order.matchConstraint == event.matchConstraint &&
             order.orderType == event.orderType
-    }
-
-    private fun isTerminalOrderStatus(statusCode: Int): Boolean {
-        return when (OrderStatus.fromCode(statusCode)) {
-            OrderStatus.FILLED,
-            OrderStatus.CANCELED,
-            OrderStatus.REJECTED,
-            OrderStatus.EXPIRED -> true
-            else -> false
-        }
     }
 
     private fun createMap(rejectOrderEvent: RejectOrderEvent, order: Order): Map<String, Any> {

@@ -41,3 +41,13 @@ fun Int?.comesBefore(code: Int?): Boolean {
 fun Int?.comesAfter(code: Int?): Boolean {
     return OrderStatus.fromCode(this)?.comesAfter(OrderStatus.fromCode(code)) == true
 }
+
+fun Int?.isTerminal(): Boolean {
+    return when (OrderStatus.fromCode(this)) {
+        OrderStatus.FILLED,
+        OrderStatus.CANCELED,
+        OrderStatus.REJECTED,
+        OrderStatus.EXPIRED -> true
+        else -> false
+    }
+}
