@@ -86,9 +86,9 @@ class BackupService(
             val uploaded = service.files().create(metadata, content)
                 .setFields("id,name")
                 .execute()
-            println("File uploaded: ${uploaded.id}--${uploaded.name}")
+            logger.info("Wallet backup uploaded: fileId={}, fileName={}", uploaded.id, uploaded.name)
         } catch (e: Exception) {
-            logger.error("Wallet backup is enabled but could not upload to Google Drive")
+            logger.error("Wallet backup is enabled but could not upload to Google Drive", e)
         }
     }
 
