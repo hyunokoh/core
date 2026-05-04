@@ -45,7 +45,7 @@ class WithdrawService(
         val withdrawFee = withdrawData.fee
         val realAmount = withdrawCommand.amount - withdrawFee
 
-        if (withdrawCommand.amount > sourceWallet.balance.amount + withdrawFee)
+        if (withdrawCommand.amount > sourceWallet.balance.amount)
             throw OpexError.WithdrawAmountExceedsWalletBalance.exception()
 
         if (withdrawCommand.amount < withdrawData.minimum)
