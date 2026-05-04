@@ -7,20 +7,26 @@ import co.nilin.opex.matching.engine.core.spi.OrderBookPersister
 import co.nilin.opex.matching.engine.ports.kafka.submitter.service.EventsSubmitter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import org.springframework.beans.factory.DisposableBean
 import org.springframework.stereotype.Component
 
 @Component
 class ExchangeEventHandler(
     eventsSubmitter: EventsSubmitter, orderBookPersister: OrderBookPersister
-) {
+) : DisposableBean {
+    private val registrations = mutableListOf<EventDispatcher.Registration>()
+
     fun register() {
-        EventDispatcher.register(CreateOrderEvent::class.java, handler)
-        EventDispatcher.register(CancelOrderEvent::class.java, handler)
-        EventDispatcher.register(UpdatedOrderEvent::class.java, handler)
-        EventDispatcher.register(RejectOrderEvent::class.java, handler)
-        EventDispatcher.register(SubmitOrderEvent::class.java, handler)
-        EventDispatcher.register(TradeEvent::class.java, handler)
-        EventDispatcher.register(OrderBookPublishedEvent::class.java, localHandler)
+        if (registrations.isNotEmpty()) {
+            return
+        }
+        registrations.add(EventDispatcher.register(CreateOrderEvent::class.java, handler))
+        registrations.add(EventDispatcher.register(CancelOrderEvent::class.java, handler))
+        registrations.add(EventDispatcher.register(UpdatedOrderEvent::class.java, handler))
+        registrations.add(EventDispatcher.register(RejectOrderEvent::class.java, handler))
+        registrations.add(EventDispatcher.register(SubmitOrderEvent::class.java, handler))
+        registrations.add(EventDispatcher.register(TradeEvent::class.java, handler))
+        registrations.add(EventDispatcher.register(OrderBookPublishedEvent::class.java, localHandler))
     }
 
     val handler: (CoreEvent) -> Unit = {
@@ -35,4 +41,8 @@ class ExchangeEventHandler(
         }
     }
 
+    override fun destroy() {
+        registrations.forEach { it.close() }
+        registrations.clear()
+    }
 }

@@ -15,6 +15,7 @@ import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.engine.core.model.SimpleOrder
 import kotlinx.coroutines.Dispatchers
 import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.*
 
@@ -22,6 +23,11 @@ class SimpleOrderBookUnitTest {
     private val pair = co.nilin.opex.matching.engine.core.model.Pair("BTC", "USDT")
     private val ETH_BTC_PAIR = co.nilin.opex.matching.engine.core.model.Pair("ETH", "BTC")
     private val uuid = UUID.randomUUID().toString()
+
+    @BeforeEach
+    fun resetEventDispatcher() {
+        EventDispatcher.clearAll()
+    }
 
     @Test
     fun givenInvalidOrderValues_whenOrderCreated_thenRejectBeforeBookMutation() {

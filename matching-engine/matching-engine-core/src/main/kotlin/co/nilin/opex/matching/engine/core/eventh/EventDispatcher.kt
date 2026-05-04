@@ -1,21 +1,36 @@
 package co.nilin.opex.matching.engine.core.eventh
 
 import co.nilin.opex.matching.engine.core.eventh.events.CoreEvent
-import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 object EventDispatcher {
 
-    private val eventsHandler = mutableMapOf<Class<*>, MutableList<EventListener<*>>>()
+    private val eventsHandler = ConcurrentHashMap<Class<*>, CopyOnWriteArrayList<EventListener<*>>>()
 
     @JvmStatic
-    inline fun <reified T> register(noinline lambda: (T) -> Unit) = register(T::class.java, lambda)
+    inline fun <reified T> register(noinline lambda: (T) -> Unit): Registration = register(T::class.java, lambda)
 
     @JvmStatic
-    fun <T> register(type: Class<T>, lambda: (T) -> Unit) = register(type, EventListener(lambda))
+    fun <T> register(type: Class<T>, lambda: (T) -> Unit): Registration = register(type, EventListener(lambda))
 
     @JvmStatic
-    fun <T> register(type: Class<T>, listener: EventListener<T>) {
-        eventsHandler.getOrPut(type, { LinkedList() }).add(listener)
+    fun <T> register(type: Class<T>, listener: EventListener<T>): Registration {
+        eventsHandler.computeIfAbsent(type) { CopyOnWriteArrayList() }.add(listener)
+        return Registration { unregister(type, listener) }
+    }
+
+    @JvmStatic
+    fun <T> unregister(type: Class<T>, listener: EventListener<T>) {
+        eventsHandler[type]?.remove(listener)
+        if (eventsHandler[type]?.isEmpty() == true) {
+            eventsHandler.remove(type)
+        }
+    }
+
+    @JvmStatic
+    fun clearAll() {
+        eventsHandler.clear()
     }
 
 
@@ -38,5 +53,9 @@ object EventDispatcher {
         operator fun invoke(event: Any) {
             lambda(event as T)
         }
+    }
+
+    fun interface Registration {
+        fun close()
     }
 }

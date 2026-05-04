@@ -23,6 +23,8 @@ class OrderBookEventEmitsUnitTest {
 
     @BeforeEach
     fun setup() {
+        EventDispatcher.clearAll()
+        persistentOrderBook = null
         val localHandler: (OrderBookPublishedEvent) -> Unit = {
             persistentOrderBook = it.persistentOrderBook
         }
