@@ -7,6 +7,7 @@ import co.nilin.opex.accountant.core.model.WalletType
 import co.nilin.opex.accountant.core.spi.FinancialActionLoader
 import co.nilin.opex.accountant.core.spi.FinancialActionPersister
 import co.nilin.opex.accountant.core.spi.WalletProxy
+import co.nilin.opex.common.OpexError
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -42,6 +43,36 @@ internal class FinancialActionJobManagerImplTest {
         assertThat(loader.statusUpdates).containsExactly(financialAction.uuid to FinancialActionStatus.PROCESSED)
     }
 
+    @Test
+    fun givenReadyFinancialActionAlreadyProcessedByWallet_whenProcessed_thenMarkProcessed(): Unit = runBlocking {
+        val financialAction = financialAction(id = 8, uuid = "ready-duplicate-uuid")
+        val loader = FakeFinancialActionStore(ready = listOf(financialAction))
+        val walletProxy = RecordingWalletProxy(throwDuplicateTransferRef = true)
+        val manager = FinancialActionJobManagerImpl(loader, loader, walletProxy)
+
+        manager.processFinancialActions(0, 10)
+
+        assertThat(walletProxy.transferRefs).containsExactly("accountant:fiActions:ready-duplicate-uuid")
+        assertThat(loader.statusUpdates).containsExactly(financialAction.uuid to FinancialActionStatus.PROCESSED)
+        assertThat(loader.errors).isEmpty()
+    }
+
+    @Test
+    fun givenRetryFinancialActionAlreadyProcessedByWallet_whenRetried_thenMarkProcessedAndResolveRetry(): Unit =
+        runBlocking {
+            val financialAction = financialAction(id = 43, uuid = "retry-duplicate-uuid")
+            val loader = FakeFinancialActionStore(retries = listOf(financialAction))
+            val walletProxy = RecordingWalletProxy(throwDuplicateTransferRef = true)
+            val manager = FinancialActionJobManagerImpl(loader, loader, walletProxy)
+
+            manager.retryFinancialActions(10)
+
+            assertThat(walletProxy.transferRefs).containsExactly("accountant:fiActions:retry-duplicate-uuid")
+            assertThat(loader.statusUpdates).containsExactly(financialAction.uuid to FinancialActionStatus.PROCESSED)
+            assertThat(loader.retrySuccesses).containsExactly(financialAction.id)
+            assertThat(loader.errors).isEmpty()
+        }
+
     private fun financialAction(id: Long, uuid: String): FinancialAction {
         return FinancialAction(
             null,
@@ -66,6 +97,7 @@ internal class FinancialActionJobManagerImplTest {
     ) : FinancialActionLoader, FinancialActionPersister {
         val statusUpdates = mutableListOf<Pair<String, FinancialActionStatus>>()
         val retrySuccesses = mutableListOf<Long?>()
+        val errors = mutableListOf<String>()
         private val byId = (ready + retries).associateBy { it.id }
 
         override suspend fun findLast(userUuid: String, ouid: String): FinancialAction? = null
@@ -89,7 +121,9 @@ internal class FinancialActionJobManagerImplTest {
             error: String,
             message: String?,
             body: String?
-        ) {}
+        ) {
+            errors.add(error)
+        }
 
         override suspend fun updateStatus(financialAction: FinancialAction, status: FinancialActionStatus) {
             statusUpdates.add(financialAction.uuid to status)
@@ -110,7 +144,9 @@ internal class FinancialActionJobManagerImplTest {
         }
     }
 
-    private class RecordingWalletProxy : WalletProxy {
+    private class RecordingWalletProxy(
+        private val throwDuplicateTransferRef: Boolean = false
+    ) : WalletProxy {
         val transferRefs = mutableListOf<String?>()
 
         override suspend fun transfer(
@@ -125,6 +161,9 @@ internal class FinancialActionJobManagerImplTest {
             transferCategory: String
         ) {
             transferRefs.add(transferRef)
+            if (throwDuplicateTransferRef) {
+                throw OpexError.BadRequest.exception("transferRef already exists")
+            }
         }
 
         override suspend fun canFulfil(

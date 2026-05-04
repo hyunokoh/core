@@ -42,9 +42,19 @@ class FinancialActionJobManagerImpl(
                     financialActionPersister.updateStatusNewTx(it, FinancialActionStatus.PROCESSED)
 
                 } catch (e: WebClientResponseException) {
+                    if (e.isDuplicateTransferRefError()) {
+                        logger.info("Financial job already processed by wallet: uuid=${it.uuid}")
+                        financialActionPersister.updateStatusNewTx(it, FinancialActionStatus.PROCESSED)
+                        return@forEach
+                    }
                     logger.error("Retry financial job error for ${it.uuid}: ${e.message}")
                     financialActionPersister.updateWithError(it, e.javaClass.name, e.message, e.responseBodyAsString)
                 } catch (e: Exception) {
+                    if (e.isDuplicateTransferRefError()) {
+                        logger.info("Financial job already processed by wallet: uuid=${it.uuid}")
+                        financialActionPersister.updateStatusNewTx(it, FinancialActionStatus.PROCESSED)
+                        return@forEach
+                    }
                     logger.error("Retry financial job error for ${it.uuid}: ${e.message}")
                     financialActionPersister.updateWithError(
                         it,
@@ -76,9 +86,25 @@ class FinancialActionJobManagerImpl(
                         retrySuccessful(it)
                     }
                 } catch (e: WebClientResponseException) {
+                    if (e.isDuplicateTransferRefError()) {
+                        logger.info("Financial retry already processed by wallet: uuid=${it.uuid}")
+                        with(financialActionPersister) {
+                            updateStatusNewTx(it, FinancialActionStatus.PROCESSED)
+                            retrySuccessful(it)
+                        }
+                        return@forEach
+                    }
                     logger.error("Retry financial job error for ${it.uuid}: ${e.message}")
                     financialActionPersister.updateWithError(it, e.javaClass.name, e.message, e.responseBodyAsString)
                 } catch (e: Exception) {
+                    if (e.isDuplicateTransferRefError()) {
+                        logger.info("Financial retry already processed by wallet: uuid=${it.uuid}")
+                        with(financialActionPersister) {
+                            updateStatusNewTx(it, FinancialActionStatus.PROCESSED)
+                            retrySuccessful(it)
+                        }
+                        return@forEach
+                    }
                     logger.error("Retry financial job error for ${it.uuid}: ${e.message}")
                     financialActionPersister.updateWithError(
                         it,
@@ -100,5 +126,11 @@ class FinancialActionJobManagerImpl(
 
     private fun FinancialAction.transferRef(): String {
         return "accountant:fiActions:$uuid"
+    }
+
+    private fun Throwable.isDuplicateTransferRefError(): Boolean {
+        return generateSequence(this as Throwable?) { it.cause }
+            .mapNotNull { it.message }
+            .any { it.contains("transferRef already exists", ignoreCase = true) }
     }
 }
