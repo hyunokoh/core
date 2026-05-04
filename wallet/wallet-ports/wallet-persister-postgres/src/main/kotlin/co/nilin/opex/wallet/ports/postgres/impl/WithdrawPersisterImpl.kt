@@ -1,5 +1,6 @@
 package co.nilin.opex.wallet.ports.postgres.impl
 
+import co.nilin.opex.common.OpexError
 import co.nilin.opex.wallet.core.inout.WithdrawResponse
 import co.nilin.opex.wallet.core.model.Withdraw
 import co.nilin.opex.wallet.core.model.WithdrawStatus
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.reactive.awaitFirst
 import kotlinx.coroutines.reactive.awaitFirstOrElse
 import kotlinx.coroutines.reactive.awaitFirstOrNull
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import java.time.LocalDateTime
 
@@ -18,28 +20,43 @@ import java.time.LocalDateTime
 class WithdrawPersisterImpl(private val withdrawRepository: WithdrawRepository) : WithdrawPersister {
 
     override suspend fun persist(withdraw: Withdraw): Withdraw {
-        return withdrawRepository.save(
-            WithdrawModel(
-                withdraw.withdrawId,
-                withdraw.ownerUuid,
-                withdraw.currency,
-                withdraw.wallet,
-                withdraw.amount,
-                withdraw.requestTransaction,
-                withdraw.finalizedTransaction,
-                withdraw.appliedFee,
-                withdraw.destAmount,
-                withdraw.destSymbol,
-                withdraw.destNetwork,
-                withdraw.destAddress,
-                withdraw.destNote,
-                withdraw.destTransactionRef,
-                withdraw.statusReason,
-                withdraw.status,
-                withdraw.createDate,
-                withdraw.acceptDate
-            )
-        ).awaitFirst().asWithdraw()
+        try {
+            return withdrawRepository.save(
+                WithdrawModel(
+                    withdraw.withdrawId,
+                    withdraw.ownerUuid,
+                    withdraw.currency,
+                    withdraw.wallet,
+                    withdraw.amount,
+                    withdraw.requestTransaction,
+                    withdraw.finalizedTransaction,
+                    withdraw.appliedFee,
+                    withdraw.destAmount,
+                    withdraw.destSymbol,
+                    withdraw.destNetwork,
+                    withdraw.destAddress,
+                    withdraw.destNote,
+                    withdraw.destTransactionRef,
+                    withdraw.statusReason,
+                    withdraw.status,
+                    withdraw.createDate,
+                    withdraw.acceptDate
+                )
+            ).awaitFirst().asWithdraw()
+        } catch (e: DataIntegrityViolationException) {
+            if (e.isDuplicateDestinationTransactionRefViolation())
+                throw OpexError.DuplicateWithdrawTransactionRef.exception()
+            throw e
+        }
+    }
+
+    private fun DataIntegrityViolationException.isDuplicateDestinationTransactionRefViolation(): Boolean {
+        return generateSequence(this as Throwable?) { it.cause }
+            .mapNotNull { it.message }
+            .any {
+                it.contains("idx_withdraws_dest_transaction_ref_unique") ||
+                    it.contains("dest_transaction_ref")
+            }
     }
 
     override suspend fun findById(withdrawId: Long): Withdraw? {
