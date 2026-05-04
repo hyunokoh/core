@@ -4,25 +4,42 @@ import co.nilin.opex.matching.engine.core.factory.OrderBookFactory
 import co.nilin.opex.matching.engine.core.model.OrderBook
 import co.nilin.opex.matching.engine.core.model.Pair
 import co.nilin.opex.matching.engine.core.model.PersistentOrderBook
+import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
 
 object OrderBooks {
-    private val orderBooks = mutableMapOf<String, OrderBook>()
+    private val logger = LoggerFactory.getLogger(OrderBooks::class.java)
+    private val orderBooks = ConcurrentHashMap<String, OrderBook>()
 
     fun createOrderBook(pair: String) {
-        println("Going to add order book:" + pair + ", current order books#" + orderBooks.size)
-        if (orderBooks.containsKey(pair))
-            throw IllegalArgumentException("${pair} has an order book right now!")
-        val pairs = pair.split("_")
-        orderBooks[pair] = OrderBookFactory.createOrderBook(Pair(pairs[0], pairs[1]))
-        println("order book:" + pair + " added, current order books#" + orderBooks.size)
+        val pairKey = normalizePairKey(pair)
+        val symbols = pairKey.split("_")
+        val created = OrderBookFactory.createOrderBook(Pair(symbols[0], symbols[1]))
+        if (orderBooks.putIfAbsent(pairKey, created) != null)
+            throw IllegalArgumentException("$pairKey has an order book right now!")
+        logger.info("Order book created: pair={}, currentOrderBooks={}", pairKey, orderBooks.size)
     }
 
     fun reloadOrderBook(orderBook: PersistentOrderBook) {
-        orderBooks["${orderBook.pair.leftSideName}_${orderBook.pair.rightSideName}"] =
-            OrderBookFactory.createOrderBook(orderBook)
+        val pairKey = normalizePairKey("${orderBook.pair.leftSideName}_${orderBook.pair.rightSideName}")
+        orderBooks[pairKey] = OrderBookFactory.createOrderBook(orderBook)
+        logger.info("Order book reloaded: pair={}, currentOrderBooks={}", pairKey, orderBooks.size)
     }
 
     fun lookupOrderBook(pair: String): OrderBook {
-        return orderBooks[pair] ?: throw IllegalArgumentException("No orderbook for $pair")
+        val pairKey = normalizePairKey(pair)
+        return orderBooks[pairKey] ?: throw IllegalArgumentException("No orderbook for $pairKey")
+    }
+
+    private fun normalizePairKey(pair: String): String {
+        val pairKey = pair.trim().uppercase()
+        val symbols = pairKey.split("_")
+        if (symbols.size != 2 || symbols.any { it.isBlank() })
+            throw IllegalArgumentException("pair must be formatted as BASE_QUOTE")
+        return pairKey
+    }
+
+    internal fun clearForTest() {
+        orderBooks.clear()
     }
 }
