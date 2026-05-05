@@ -38,7 +38,7 @@ class EventLogKafkaConfig {
             ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
             ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to JsonDeserializer::class.java,
             JsonDeserializer.TRUSTED_PACKAGES to "co.nilin.opex.*",
-            JsonDeserializer.TYPE_MAPPINGS to "order_request_event:co.nilin.opex.eventlog.ports.kafka.listener.inout.OrderRequestEvent,order_request_submit:co.nilin.opex.eventlog.ports.kafka.listener.inout.OrderSubmitRequestEvent,order_request_cancel:co.nilin.opex.eventlog.ports.kafka.listener.inout.OrderCancelRequestEvent"
+            JsonDeserializer.TYPE_MAPPINGS to "order_request_event:co.nilin.opex.eventlog.ports.kafka.listener.inout.OrderRequestEvent,order_request_submit:co.nilin.opex.eventlog.ports.kafka.listener.inout.OrderSubmitRequestEvent,order_request_cancel:co.nilin.opex.eventlog.ports.kafka.listener.inout.OrderCancelRequestEvent,order_request_edit:co.nilin.opex.eventlog.ports.kafka.listener.inout.OrderEditRequestEvent"
         )
     }
 

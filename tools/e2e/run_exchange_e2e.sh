@@ -2589,6 +2589,79 @@ main() {
     sleep 2
   done
 
+  local edit_owner="e2e-edit-$(date +%s)"
+  local edit_ref="e2e-edit-$(date +%s)"
+  expect_2xx "edit owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${edit_owner}_MAIN?description=e2e-edit&transferRef=${edit_ref}-eth")" >/dev/null
+  local edit_ask='{"uuid":null,"pair":"ETH_USDT","price":121,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "edit owner resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$edit_ask' '$edit_owner'" >/tmp/opex-e2e-edit-ask.json
+  wait_user_open_order "$edit_owner" "ETH_USDT" "121" "0.4" /tmp/opex-e2e-edit-open-orders.json
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$edit_owner" "ETH" "0.6"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for edit owner ETH reservation before edit" >&2
+      assert_wallet_balance "edit owner ETH reserved before edit" "$edit_owner" "ETH" "0.6" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
+  local edit_ouid edit_order_id edit_request
+  edit_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-edit-open-orders.json)"
+  edit_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-edit-open-orders.json)"
+  edit_request="$(jq -nc --arg ouid "$edit_ouid" --arg uuid "$edit_owner" --argjson orderId "$edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:122, quantity:0.3}')"
+  expect_2xx_retry "edit owner reduce resting ask" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$edit_request' '$edit_owner'" >/tmp/opex-e2e-edit-response.json
+  wait_user_open_order "$edit_owner" "ETH_USDT" "122" "0.3" /tmp/opex-e2e-edit-updated-open-orders.json
+  assert_no_user_order_by_price "$edit_owner" "ETH_USDT" "121" "0.4"
+  wait_order_book_level "ETH_USDT" "ASK" "122" "0.3"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$edit_owner" "ETH" "0.7"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for edit owner ETH release after reduced ask" >&2
+      assert_wallet_balance "edit owner ETH released after reduced ask" "$edit_owner" "ETH" "0.7" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  wait_query_eq "edit order accountant projection" "postgres-accountant" "122.00000000,0.30000000,0.30000000,0.30000000" "
+    select to_char(orig_price, 'FM9999999990.00000000'),
+           to_char(orig_quantity, 'FM9999999990.00000000'),
+           to_char((quantity - filled_quantity) * left_side_fraction, 'FM9999999990.00000000'),
+           to_char(remained_transfer_amount, 'FM9999999990.00000000')
+    from orders
+    where uuid = '$edit_owner'
+      and ouid = '$edit_ouid';
+  "
+  wait_query_eq "edit order eventlog update event" "postgres-eventlog" "UpdatedOrderEvent,1,0" "
+    select event,
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'UpdatedOrderEvent'
+      and uuid = '$edit_owner'
+      and event_json::jsonb ->> 'price' = '12200'
+      and event_json::jsonb ->> 'quantity' = '300000'
+      and event_json::jsonb ->> 'oldPrice' = '12100'
+      and event_json::jsonb ->> 'oldQuantity' = '400000'
+    group by event;
+  "
+  local edit_cancel_request
+  edit_cancel_request="$(jq -nc --arg ouid "$edit_ouid" --arg uuid "$edit_owner" --argjson orderId "$edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  expect_2xx_retry "cancel edited ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$edit_cancel_request' '$edit_owner'" >/tmp/opex-e2e-edit-cancel.json
+  wait_no_user_open_orders "$edit_owner" "ETH_USDT"
+  wait_order_projection "$edit_owner" "$edit_ouid" "CANCELED" "0" "0"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$edit_owner" "ETH" "1"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for edit owner ETH release after cleanup" >&2
+      assert_wallet_balance "edit owner ETH released after cleanup" "$edit_owner" "ETH" "1" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
   local reject_owner="e2e-reject-$(date +%s)"
   local underfunded_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   expect_http_status "underfunded ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$underfunded_ask" "$reject_owner")" >/tmp/opex-e2e-reject-order.json
@@ -2731,7 +2804,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,48\nFEE,32\nORDER_CANCEL,17\nORDER_CREATE,43\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,49\nFEE,32\nORDER_CANCEL,19\nORDER_CREATE,44\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -2742,7 +2815,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,26.05400000\nUSDT,2465.74400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,27.05400000\nUSDT,2465.74400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -2806,7 +2879,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,15\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,43\nTradeEvent,PROCESSED,65' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,16\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,44\nTradeEvent,PROCESSED,65\nUpdatedOrderEvent,PROCESSED,1' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -3736,6 +3809,14 @@ main() {
     "rejectedBidQuantity": 0.2,
     "status": "REJECTED_BEFORE_EXTERNAL_PARTIAL_FILL"
   },
+  "editOrderScenario": {
+    "initialAskPrice": 121,
+    "initialAskQuantity": 0.4,
+    "editedAskPrice": 122,
+    "editedAskQuantity": 0.3,
+    "releasedBaseQuantity": 0.1,
+    "status": "UPDATED_AND_CANCELED"
+  },
   "rejectScenario": {
     "direction": "ASK",
     "price": 100,
@@ -3827,10 +3908,10 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 48,
+      "DEPOSIT": 49,
       "FEE": 32,
-      "ORDER_CANCEL": 18,
-      "ORDER_CREATE": 44,
+      "ORDER_CANCEL": 20,
+      "ORDER_CREATE": 45,
       "ORDER_FINALIZED": 1,
       "TRADE": 32,
       "WITHDRAW_ACCEPT": 1,
@@ -3839,7 +3920,7 @@ main() {
       "WITHDRAW_REQUEST": 4
     },
     "walletAggregateBalances": {
-      "ETH": 26.054,
+      "ETH": 27.054,
       "USDT": 2465.744
     },
     "walletWithdrawStatuses": {
@@ -3854,8 +3935,9 @@ main() {
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
       "RejectOrderEvent": 18,
-      "SubmitOrderEvent": 44,
-      "TradeEvent": 65
+      "SubmitOrderEvent": 45,
+      "TradeEvent": 65,
+      "UpdatedOrderEvent": 1
     },
     "accountantRetryQueueDrained": true,
     "walletNegativeBalances": 0,

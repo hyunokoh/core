@@ -4,7 +4,6 @@ import co.nilin.opex.eventlog.core.spi.OrderPersister
 import co.nilin.opex.eventlog.ports.postgres.dao.OrderEventRepository
 import co.nilin.opex.eventlog.ports.postgres.dao.OrderRepository
 import co.nilin.opex.eventlog.ports.postgres.model.OrderEventsModel
-import co.nilin.opex.eventlog.ports.postgres.model.OrderModel
 import co.nilin.opex.matching.engine.core.eventh.events.*
 import kotlinx.coroutines.reactive.awaitFirst
 import kotlinx.coroutines.reactive.awaitFirstOrNull
@@ -16,22 +15,18 @@ class OrderPersisterImpl(
     val orderRepository: OrderRepository, val orderEventRepository: OrderEventRepository
 ) : OrderPersister {
     override suspend fun submitOrder(orderEvent: SubmitOrderEvent) {
-        orderRepository.save(
-            OrderModel(
-                null,
-                orderEvent.ouid,
-                orderEvent.pair.toString(),
-                orderEvent.direction.toString(),
-                orderEvent.matchConstraint.toString(),
-                orderEvent.orderType.toString(),
-                orderEvent.uuid,
-                "agent",
-                "127.0.0.1",
-                orderEvent.eventDate,
-                LocalDateTime.now()
-            )
-        )
-            .block()
+        orderRepository.insertIfAbsent(
+            orderEvent.ouid,
+            orderEvent.pair.toString(),
+            orderEvent.direction.toString(),
+            orderEvent.matchConstraint.toString(),
+            orderEvent.orderType.toString(),
+            orderEvent.uuid,
+            "agent",
+            "127.0.0.1",
+            orderEvent.eventDate,
+            LocalDateTime.now()
+        ).awaitFirstOrNull()
         orderEventRepository.save(
             OrderEventsModel(
                 null,

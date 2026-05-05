@@ -28,7 +28,7 @@ class OrderKafkaConfig {
             ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
             ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to JsonSerializer::class.java,
             ProducerConfig.ACKS_CONFIG to "all",
-            JsonDeserializer.TYPE_MAPPINGS to "order_request_event:co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderRequestEvent,order_request_submit:co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderSubmitRequestEvent,order_request_cancel:co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderCancelRequestEvent"
+            JsonDeserializer.TYPE_MAPPINGS to "order_request_event:co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderRequestEvent,order_request_submit:co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderSubmitRequestEvent,order_request_cancel:co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderCancelRequestEvent,order_request_edit:co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderEditRequestEvent"
         )
     }
 

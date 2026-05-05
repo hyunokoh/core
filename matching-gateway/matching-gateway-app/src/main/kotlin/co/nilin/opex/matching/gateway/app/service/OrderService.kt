@@ -7,10 +7,12 @@ import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.engine.core.model.Pair
 import co.nilin.opex.matching.gateway.app.inout.CancelOrderRequest
 import co.nilin.opex.matching.gateway.app.inout.CreateOrderRequest
+import co.nilin.opex.matching.gateway.app.inout.EditOrderRequest
 import co.nilin.opex.matching.gateway.app.inout.PairConfig
 import co.nilin.opex.matching.gateway.app.spi.AccountantApiProxy
 import co.nilin.opex.matching.gateway.app.spi.PairConfigLoader
 import co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderCancelRequestEvent
+import co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderEditRequestEvent
 import co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderSubmitRequestEvent
 import co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderSubmitResult
 import co.nilin.opex.matching.gateway.ports.kafka.submitter.service.KafkaHealthIndicator
@@ -105,6 +107,36 @@ class OrderService(
             throw OpexError.ServiceUnavailable.exception()
 
         val event = OrderCancelRequestEvent(request.ouid, request.uuid, Pair(symbols[0], symbols[1]), request.orderId)
+        return orderRequestEventSubmitter.submit(event)
+    }
+
+    suspend fun editOrder(request: EditOrderRequest): OrderSubmitResult {
+        if (request.uuid.isBlank())
+            badRequest("uuid is required")
+        if (request.ouid.isBlank())
+            badRequest("ouid is required")
+        val symbols = parsePair(request.symbol)
+        if (request.orderId < 0)
+            badRequest("orderId must be zero or greater")
+        if (request.price <= BigDecimal.ZERO)
+            badRequest("price must be greater than zero")
+        if (request.quantity <= BigDecimal.ZERO)
+            badRequest("quantity must be greater than zero")
+
+        val pairConfig = pairConfigLoader.load(request.symbol, OrderDirection.ASK)
+        validatePairConfig(request.symbol, symbols, pairConfig)
+
+        if (!kafkaHealthIndicator.isHealthy)
+            throw OpexError.ServiceUnavailable.exception()
+
+        val event = OrderEditRequestEvent(
+            request.ouid,
+            request.uuid,
+            Pair(symbols[0], symbols[1]),
+            request.orderId,
+            toOrderUnits(request.price, pairConfig.rightSideFraction, "price"),
+            toOrderUnits(request.quantity, pairConfig.leftSideFraction, "quantity")
+        )
         return orderRequestEventSubmitter.submit(event)
     }
 

@@ -12,6 +12,7 @@ import org.springframework.data.repository.reactive.ReactiveCrudRepository
 import org.springframework.stereotype.Repository
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import java.math.BigDecimal
 import java.time.LocalDateTime
 import java.util.*
 
@@ -87,6 +88,29 @@ interface OrderRepository : ReactiveCrudRepository<OrderModel, Long> {
 
     @Query("select * from orders where ouid = :ouid")
     fun findByOuid(@Param("ouid") ouid: String): Mono<OrderModel>
+
+    @Query(
+        """
+        update orders
+        set price = :price,
+            quantity = :quantity,
+            quote_quantity = :quoteQuantity,
+            update_date = :updateDate
+        where ouid = :ouid
+        """
+    )
+    fun updateOrderDetails(
+        @Param("ouid")
+        ouid: String,
+        @Param("price")
+        price: BigDecimal,
+        @Param("quantity")
+        quantity: BigDecimal,
+        @Param("quoteQuantity")
+        quoteQuantity: BigDecimal,
+        @Param("updateDate")
+        updateDate: LocalDateTime
+    ): Mono<Int>
 
     @Query("select * from orders where uuid = :uuid and ouid = :ouid")
     fun findByUUIDAndOUID(@Param("uuid") uuid: String, @Param("ouid") ouid: String): Mono<OrderModel>

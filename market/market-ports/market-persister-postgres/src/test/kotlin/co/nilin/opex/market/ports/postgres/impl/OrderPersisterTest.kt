@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.r2dbc.core.DatabaseClient
+import java.math.BigDecimal
 
 private class OrderPersisterTest : MarketPostgresIntegrationTest() {
     @Autowired
@@ -78,5 +79,32 @@ private class OrderPersisterTest : MarketPostgresIntegrationTest() {
 
         assertThat(status.status).isEqualTo(OrderStatus.FILLED.code)
         assertThat(openOrder).isNull()
+    }
+
+    @Test
+    fun givenOpenOrder_whenUpdatePriceAndQuantity_thenPersistOrderDetails(): Unit = runBlocking {
+        val editedPrice = BigDecimal.valueOf(1000002)
+        val editedQuantity = BigDecimal.valueOf(0.008)
+
+        orderPersister.save(VALID.RICH_ORDER)
+        orderPersister.update(
+            VALID.RICH_ORDER_UPDATE.copy(
+                price = editedPrice,
+                quantity = editedQuantity,
+                remainedQuantity = editedQuantity,
+                status = OrderStatus.NEW
+            )
+        )
+
+        val order = orderRepository.findByOuid(VALID.RICH_ORDER.ouid).awaitSingle()
+        val status = orderStatusRepository.findMostRecentByOUID(VALID.RICH_ORDER.ouid).awaitSingle()
+        val openOrder = openOrderRepository.findAll().awaitFirstOrNull()
+
+        assertThat(order.price).isEqualByComparingTo(editedPrice)
+        assertThat(order.quantity).isEqualByComparingTo(editedQuantity)
+        assertThat(order.quoteQuantity).isEqualByComparingTo(editedPrice.multiply(editedQuantity))
+        assertThat(status.executedQuantity).isEqualByComparingTo(BigDecimal.ZERO)
+        assertThat(status.status).isEqualTo(OrderStatus.NEW.code)
+        assertThat(openOrder?.ouid).isEqualTo(VALID.RICH_ORDER.ouid)
     }
 }

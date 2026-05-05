@@ -2,6 +2,7 @@ package co.nilin.opex.matching.gateway.app.controller
 
 import co.nilin.opex.matching.gateway.app.inout.CancelOrderRequest
 import co.nilin.opex.matching.gateway.app.inout.CreateOrderRequest
+import co.nilin.opex.matching.gateway.app.inout.EditOrderRequest
 import co.nilin.opex.matching.gateway.app.service.OrderService
 import co.nilin.opex.matching.gateway.ports.kafka.submitter.inout.OrderSubmitResult
 import io.swagger.annotations.ApiResponse
@@ -48,5 +49,21 @@ class OrderController(val orderService: OrderService) {
     suspend fun cancelOrder(principal: Principal, @RequestBody request: CancelOrderRequest): OrderSubmitResult {
         request.uuid = principal.name
         return orderService.cancelOrder(request)
+    }
+
+    @PostMapping("/order/edit")
+    @ApiResponse(
+        message = "OK",
+        code = 200,
+        examples = Example(
+            ExampleProperty(
+                value = "{ }",
+                mediaType = "application/json"
+            )
+        )
+    )
+    suspend fun editOrder(principal: Principal, @RequestBody request: EditOrderRequest): OrderSubmitResult {
+        request.uuid = principal.name
+        return orderService.editOrder(request)
     }
 }

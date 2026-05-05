@@ -103,6 +103,14 @@ class OrderPersisterImpl(
 
     @Transactional
     override suspend fun update(orderUpdate: RichOrderUpdate) {
+        orderRepository.updateOrderDetails(
+            orderUpdate.ouid,
+            orderUpdate.price,
+            orderUpdate.quantity,
+            orderUpdate.price.multiply(orderUpdate.quantity),
+            LocalDateTime.now()
+        ).awaitSingleOrNull()
+
         orderStatusRepository.insert(
             orderUpdate.ouid,
             orderUpdate.executedQuantity(),

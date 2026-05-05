@@ -43,6 +43,17 @@ class OrderListener : OrderRequestEventListener {
                 )
             )
 
+            is OrderEditRequestEvent -> orderBook.handleEditCommand(
+                OrderEditCommand(
+                    order.ouid,
+                    order.uuid,
+                    order.orderId,
+                    order.pair,
+                    order.price,
+                    order.quantity
+                )
+            )
+
             else -> logger.warn("Unknown event type of OrderRequestEvent")
         }
     }

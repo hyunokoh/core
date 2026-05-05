@@ -1,0 +1,12 @@
+package co.nilin.opex.accountant.ports.kafka.listener.inout
+
+import co.nilin.opex.matching.engine.core.model.Pair
+
+class OrderEditRequestEvent(
+    ouid: String,
+    uuid: String,
+    pair: Pair,
+    val orderId: Long,
+    val price: Long,
+    val quantity: Long
+) : OrderRequestEvent(ouid, uuid, pair)
