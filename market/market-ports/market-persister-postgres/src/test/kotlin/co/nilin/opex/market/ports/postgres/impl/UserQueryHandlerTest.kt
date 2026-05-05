@@ -107,7 +107,34 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
 
         val trades = userQueryHandler.allTrades(VALID.PRINCIPAL.name, TradeRequest(VALID.ETH_USDT, null, null, null, 100))
 
-        assertThat(trades).isEmpty()
+        assertThat(trades).hasSize(1)
+        assertThat(trades.first().orderId).isEqualTo(VALID.TRADE_MODEL.tradeId)
+    }
+
+    @Test
+    fun givenTakerOrderNotProjected_whenMakerAllTrades_thenReturnMakerTrade(): Unit = runBlocking {
+        seedOrder(status = OrderStatus.FILLED)
+        seedTrade()
+
+        val trades = userQueryHandler.allTrades(VALID.PRINCIPAL.name, TradeRequest(VALID.ETH_USDT, null, null, null, 100))
+
+        assertThat(trades).hasSize(1)
+        assertThat(trades.first().orderId).isEqualTo(VALID.MAKER_ORDER_MODEL.orderId)
+        assertThat(trades.first().isMaker).isTrue()
+    }
+
+    @Test
+    fun givenTakerOrderNotProjected_whenTakerAllTrades_thenReturnTakerTradeWithTradeIdFallback(): Unit = runBlocking {
+        val takerUuid = "taker-user"
+        seedOrder(status = OrderStatus.FILLED)
+        seedTrade(VALID.TRADE_MODEL.copyTaker(takerUuid = takerUuid))
+
+        val trades = userQueryHandler.allTrades(takerUuid, TradeRequest(VALID.ETH_USDT, null, null, null, 100))
+
+        assertThat(trades).hasSize(1)
+        assertThat(trades.first().orderId).isEqualTo(VALID.TRADE_MODEL.tradeId)
+        assertThat(trades.first().isMaker).isFalse()
+        assertThat(trades.first().isBuyer).isTrue()
     }
 
     private suspend fun seedOrder(
@@ -160,6 +187,28 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
         takerPrice: BigDecimal,
         makerPrice: BigDecimal
     ) = TradeModel(
+        id,
+        tradeId,
+        symbol,
+        baseAsset,
+        quoteAsset,
+        matchedPrice,
+        matchedQuantity,
+        takerPrice,
+        makerPrice,
+        takerCommission,
+        makerCommission,
+        takerCommissionAsset,
+        makerCommissionAsset,
+        tradeDate,
+        makerOuid,
+        takerOuid,
+        makerUuid,
+        takerUuid,
+        createDate
+    )
+
+    private fun TradeModel.copyTaker(takerUuid: String) = TradeModel(
         id,
         tradeId,
         symbol,

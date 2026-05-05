@@ -80,30 +80,40 @@ class UserQueryHandlerImpl(
         tradeRepository.findByUuidAndSymbolAndTimeBetweenAndTradeIdGreaterThan(
                 uuid, request.symbol, request.fromTrade, request.startTime, request.endTime, request.limit
         ).collect {
-            val takerOrder = orderRepository.findByOuid(it.takerOuid).awaitFirstOrNull() ?: return@collect
-            val makerOrder = orderRepository.findByOuid(it.makerOuid).awaitFirstOrNull() ?: return@collect
-            val isMakerBuyer = makerOrder.direction == OrderDirection.BID
+            val takerOrder = orderRepository.findByOuid(it.takerOuid).awaitFirstOrNull()
+            val makerOrder = orderRepository.findByOuid(it.makerOuid).awaitFirstOrNull()
+            val ownOrder = if (it.takerUuid == uuid) takerOrder else makerOrder
+            val isMakerBuyer = makerOrder?.direction == OrderDirection.BID
             val quoteQuantity = it.matchedPrice.multiply(it.matchedQuantity)
             trades += Trade(
                     it.symbol,
                     it.tradeId,
-                    if (it.takerUuid == uuid) takerOrder.orderId!! else makerOrder.orderId!!,
+                    ownOrder?.orderId ?: it.tradeId,
                     it.matchedPrice,
                     it.matchedQuantity,
                     quoteQuantity,
                     if (it.takerUuid == uuid) it.takerCommission!! else it.makerCommission!!,
                     if (it.takerUuid == uuid) it.takerCommissionAsset!! else it.makerCommissionAsset!!,
                     Date.from(it.createDate.atZone(ZoneId.systemDefault()).toInstant()),
-                    if (it.takerUuid == uuid)
-                        OrderDirection.ASK == takerOrder.direction
-                    else
-                        OrderDirection.ASK == makerOrder.direction,
+                    isBuyer(uuid, it.takerUuid, ownOrder?.direction, makerOrder?.direction),
                     it.makerUuid == uuid,
                     true,
                     isMakerBuyer
             )
         }
         return trades
+    }
+
+    private fun isBuyer(
+            uuid: String,
+            takerUuid: String,
+            ownDirection: OrderDirection?,
+            makerDirection: OrderDirection?
+    ): Boolean {
+        if (ownDirection != null)
+            return ownDirection == OrderDirection.BID
+
+        return uuid == takerUuid && makerDirection == OrderDirection.ASK
     }
 
     override suspend fun txOfTrades(transactionRequest: TransactionRequest): TransactionResponse? {

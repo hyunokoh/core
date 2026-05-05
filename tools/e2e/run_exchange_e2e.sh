@@ -2034,6 +2034,7 @@ main() {
   wait_user_open_order "$fifo_first_buyer" "ETH_USDT" "125" "0.2" /tmp/opex-e2e-fifo-first-open-orders.json
   expect_2xx_retry "fifo second bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$fifo_second_bid' '$fifo_second_buyer'" >/tmp/opex-e2e-fifo-second-bid.json
   wait_user_open_order "$fifo_second_buyer" "ETH_USDT" "125" "0.2" /tmp/opex-e2e-fifo-second-open-orders.json
+  wait_binance_depth_level "ETHUSDT" "BID" "125" "0.4" /tmp/opex-e2e-binance-depth-aggregated-fifo.json
 
   local fifo_second_ouid fifo_second_order_id fifo_second_cancel_request
   fifo_second_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-fifo-second-open-orders.json)"

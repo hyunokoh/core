@@ -1,5 +1,6 @@
 package co.nilin.opex.api.ports.binance.controller
 
+import co.nilin.opex.api.core.inout.OrderBook
 import co.nilin.opex.api.core.inout.PriceChange
 import co.nilin.opex.api.core.inout.PriceTicker
 import co.nilin.opex.api.core.spi.AccountantProxy
@@ -48,30 +49,28 @@ class MarketController(
         if (!orderBookValidLimits.contains(validLimit))
             throw OpexError.InvalidLimitForOrderBook.exception()
 
-        val mappedBidOrders = ArrayList<ArrayList<BigDecimal>>()
-        val mappedAskOrders = ArrayList<ArrayList<BigDecimal>>()
-
-        val bidOrders = marketDataProxy.openBidOrders(localSymbol, validLimit)
-        val askOrders = marketDataProxy.openAskOrders(localSymbol, validLimit)
-
-        bidOrders.forEach {
-            val mapped = arrayListOf<BigDecimal>().apply {
-                add(it.price ?: BigDecimal.ZERO)
-                add(it.quantity ?: BigDecimal.ZERO)
-            }
-            mappedBidOrders.add(mapped)
-        }
-
-        askOrders.forEach {
-            val mapped = arrayListOf<BigDecimal>().apply {
-                add(it.price ?: BigDecimal.ZERO)
-                add(it.quantity ?: BigDecimal.ZERO)
-            }
-            mappedAskOrders.add(mapped)
-        }
+        val rawOrderLimit = orderBookValidLimits.last()
+        val bidOrders = marketDataProxy.openBidOrders(localSymbol, rawOrderLimit)
+        val askOrders = marketDataProxy.openAskOrders(localSymbol, rawOrderLimit)
 
         val lastOrder = marketDataProxy.lastOrder(localSymbol)
-        return OrderBookResponse(lastOrder?.orderId ?: -1, mappedBidOrders, mappedAskOrders)
+        return OrderBookResponse(
+            lastOrder?.orderId ?: -1,
+            aggregateDepthLevels(bidOrders, validLimit),
+            aggregateDepthLevels(askOrders, validLimit)
+        )
+    }
+
+    private fun aggregateDepthLevels(orders: List<OrderBook>, limit: Int): List<List<BigDecimal>> {
+        val quantityByPrice = linkedMapOf<BigDecimal, BigDecimal>()
+        orders.forEach {
+            val price = it.price ?: BigDecimal.ZERO
+            val quantity = it.quantity ?: BigDecimal.ZERO
+            quantityByPrice[price] = (quantityByPrice[price] ?: BigDecimal.ZERO) + quantity
+        }
+        return quantityByPrice.entries
+            .take(limit)
+            .map { arrayListOf(it.key, it.value) }
     }
 
     @GetMapping("/v3/trades")

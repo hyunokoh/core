@@ -66,6 +66,68 @@ private class MarketControllerTest {
     }
 
     @Test
+    fun givenDuplicatePriceOrders_whenOrderBookRequested_thenAggregateDepthLevels(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy(
+            bidOrders = listOf(
+                OrderBook(BigDecimal("100"), BigDecimal("0.1")),
+                OrderBook(BigDecimal("100"), BigDecimal("0.2")),
+                OrderBook(BigDecimal("99"), BigDecimal("0.3"))
+            ),
+            askOrders = listOf(
+                OrderBook(BigDecimal("101"), BigDecimal("0.4")),
+                OrderBook(BigDecimal("101"), BigDecimal("0.5")),
+                OrderBook(BigDecimal("102"), BigDecimal("0.6"))
+            )
+        )
+        val controller = controller(marketDataProxy)
+
+        val response = controller.orderBook("ETHUSDT", 5)
+
+        assertThat(response.bids).containsExactly(
+            listOf(BigDecimal("100"), BigDecimal("0.3")),
+            listOf(BigDecimal("99"), BigDecimal("0.3"))
+        )
+        assertThat(response.asks).containsExactly(
+            listOf(BigDecimal("101"), BigDecimal("0.9")),
+            listOf(BigDecimal("102"), BigDecimal("0.6"))
+        )
+        assertThat(marketDataProxy.openBidOrdersLimit).isEqualTo(5000)
+        assertThat(marketDataProxy.openAskOrdersLimit).isEqualTo(5000)
+    }
+
+    @Test
+    fun givenMoreDepthLevelsThanLimit_whenOrderBookRequested_thenLimitAggregatedLevels(): Unit = runBlocking {
+        val marketDataProxy = RecordingMarketDataProxy(
+            bidOrders = listOf(
+                OrderBook(BigDecimal("100"), BigDecimal("0.1")),
+                OrderBook(BigDecimal("100"), BigDecimal("0.2")),
+                OrderBook(BigDecimal("99"), BigDecimal("0.3")),
+                OrderBook(BigDecimal("98"), BigDecimal("0.4")),
+                OrderBook(BigDecimal("97"), BigDecimal("0.5")),
+                OrderBook(BigDecimal("96"), BigDecimal("0.6")),
+                OrderBook(BigDecimal("95"), BigDecimal("0.7"))
+            ),
+            askOrders = listOf(
+                OrderBook(BigDecimal("101"), BigDecimal("0.4")),
+                OrderBook(BigDecimal("101"), BigDecimal("0.5")),
+                OrderBook(BigDecimal("102"), BigDecimal("0.6")),
+                OrderBook(BigDecimal("103"), BigDecimal("0.7")),
+                OrderBook(BigDecimal("104"), BigDecimal("0.8")),
+                OrderBook(BigDecimal("105"), BigDecimal("0.9")),
+                OrderBook(BigDecimal("106"), BigDecimal("1.0"))
+            )
+        )
+        val controller = controller(marketDataProxy)
+
+        val response = controller.orderBook("ETHUSDT", 5)
+
+        assertThat(response.bids).hasSize(5)
+        assertThat(response.asks).hasSize(5)
+        assertThat(response.bids.last()).isEqualTo(listOf(BigDecimal("96"), BigDecimal("0.6")))
+        assertThat(response.asks.last()).isEqualTo(listOf(BigDecimal("105"), BigDecimal("0.9")))
+    }
+
+    @Test
     fun givenInvalidTickerDuration_whenPriceChangeRequested_thenThrowInvalidDurationBeforeProxyCall(): Unit = runBlocking {
         val marketDataProxy = RecordingMarketDataProxy()
         val controller = controller(marketDataProxy)
@@ -228,8 +290,15 @@ private class MarketControllerTest {
             .isEqualTo(error)
     }
 
-    private class RecordingMarketDataProxy : MarketDataProxy {
+    private class RecordingMarketDataProxy(
+        private val bidOrders: List<OrderBook> = emptyList(),
+        private val askOrders: List<OrderBook> = emptyList()
+    ) : MarketDataProxy {
         private var callCount = 0
+        var openBidOrdersLimit: Int? = null
+            private set
+        var openAskOrdersLimit: Int? = null
+            private set
 
         fun assertNotCalled() {
             assertThat(callCount).isZero()
@@ -251,12 +320,14 @@ private class MarketControllerTest {
 
         override suspend fun openBidOrders(symbol: String, limit: Int): List<OrderBook> {
             called()
-            return emptyList()
+            openBidOrdersLimit = limit
+            return bidOrders
         }
 
         override suspend fun openAskOrders(symbol: String, limit: Int): List<OrderBook> {
             called()
-            return emptyList()
+            openAskOrdersLimit = limit
+            return askOrders
         }
 
         override suspend fun lastOrder(symbol: String): Order? {
