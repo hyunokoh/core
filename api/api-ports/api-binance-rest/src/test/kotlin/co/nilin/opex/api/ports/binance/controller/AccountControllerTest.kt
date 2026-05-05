@@ -16,12 +16,32 @@ import org.springframework.security.core.context.SecurityContext
 import org.springframework.security.core.context.SecurityContextImpl
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
+import org.springframework.web.bind.annotation.GetMapping
 import java.math.BigDecimal
 import java.security.Principal
 import java.time.LocalDateTime
 import java.util.*
 
 private class AccountControllerTest {
+
+    @Test
+    fun givenBinanceAccountGetRoutes_whenMapped_thenDoNotRequireRequestContentType() {
+        val getMethods = listOf(
+            "queryOrder",
+            "fetchOpenOrders",
+            "fetchAllOrders",
+            "fetchAllTrades",
+            "accountInfo"
+        )
+
+        getMethods.forEach { methodName ->
+            val mapping = AccountController::class.java.declaredMethods
+                .single { it.name == methodName }
+                .getAnnotation(GetMapping::class.java)
+
+            assertThat(mapping.consumes).isEmpty()
+        }
+    }
 
     @Test
     fun givenNoSymbol_whenOpenOrdersRequested_thenQueryAllOpenOrdersAndReturnAliasSymbols(): Unit = runBlocking {

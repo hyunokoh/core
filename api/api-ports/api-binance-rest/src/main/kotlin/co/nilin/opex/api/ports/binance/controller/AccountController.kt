@@ -201,7 +201,6 @@ class AccountController(
   */
     @GetMapping(
         "/v3/order",
-        consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE],
         produces = [MediaType.APPLICATION_JSON_VALUE]
     )
     @ApiResponse(
@@ -247,7 +246,6 @@ class AccountController(
     */
     @GetMapping(
         "/v3/openOrders",
-        consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE],
         produces = [MediaType.APPLICATION_JSON_VALUE]
     )
     @ApiResponse(
@@ -288,7 +286,6 @@ class AccountController(
    */
     @GetMapping(
         "/v3/allOrders",
-        consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE],
         produces = [MediaType.APPLICATION_JSON_VALUE]
     )
     @ApiResponse(
@@ -336,7 +333,6 @@ class AccountController(
     */
     @GetMapping(
         "/v3/myTrades",
-        consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE],
         produces = [MediaType.APPLICATION_JSON_VALUE]
     )
     @ApiResponse(
@@ -398,7 +394,6 @@ class AccountController(
 
     @GetMapping(
         "/v3/account",
-        consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE],
         produces = [MediaType.APPLICATION_JSON_VALUE]
     )
     @ApiResponse(
