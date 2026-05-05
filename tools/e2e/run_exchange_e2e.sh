@@ -1271,6 +1271,62 @@ wait_user_trade_quote_quantity() {
   done
 }
 
+wait_user_trade_projection() {
+  local owner="$1"
+  local symbol="$2"
+  local price="$3"
+  local quantity="$4"
+  local quote_quantity="$5"
+  local commission="$6"
+  local commission_asset="$7"
+  local is_buyer="$8"
+  local is_maker="$9"
+  local is_maker_buyer="${10}"
+  local output_file="${11}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  local trade_query
+  trade_query="{\"symbol\":\"${symbol}\",\"fromTrade\":null,\"startTime\":null,\"endTime\":null,\"limit\":20}"
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://127.0.0.1:8096/v1/user/${owner}/trades")" &&
+    printf '%s\n' "$body" | jq -e \
+      --argjson price "$price" \
+      --argjson quantity "$quantity" \
+      --argjson quote_quantity "$quote_quantity" \
+      --argjson commission "$commission" \
+      --arg commission_asset "$commission_asset" \
+      --argjson is_buyer "$is_buyer" \
+      --argjson is_maker "$is_maker" \
+      --argjson is_maker_buyer "$is_maker_buyer" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        [
+          .[] |
+          select(
+            .price == $price and
+            .quantity == $quantity and
+            .quoteQuantity == $quote_quantity and
+            nearly_equal(.commission; $commission) and
+            .commissionAsset == $commission_asset and
+            .isBuyer == $is_buyer and
+            .isMaker == $is_maker and
+            .isMakerBuyer == $is_maker_buyer and
+            .isBestMatch == true and
+            (.orderId | type == "number") and
+            (.orderId > 0)
+          )
+        ] | length >= 1
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for user trade projection owner=$owner symbol=$symbol price=$price quantity=$quantity quoteQuantity=$quote_quantity commission=$commission commissionAsset=$commission_asset isBuyer=$is_buyer isMaker=$is_maker isMakerBuyer=$is_maker_buyer" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine accountant market wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 main() {
   write_defaults
   cd "$ROOT_DIR"
@@ -1348,18 +1404,8 @@ main() {
   expect_2xx_retry "seller ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$ask' '$seller'" >/tmp/opex-e2e-ask.json
   expect_2xx_retry "buyer bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$bid' '$buyer'" >/tmp/opex-e2e-bid.json
 
-  local trade_query='{"symbol":"ETH_USDT","fromTrade":null,"startTime":null,"endTime":null,"limit":5}'
-  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  until curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://127.0.0.1:8096/v1/user/${seller}/trades" | tee /tmp/opex-e2e-seller-trades.json | grep -q '"id"' &&
-    curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://127.0.0.1:8096/v1/user/${buyer}/trades" | tee /tmp/opex-e2e-buyer-trades.json | grep -q '"id"'; do
-    if (( SECONDS > deadline )); then
-      echo "Timed out waiting for current ETH_USDT trade propagation" >&2
-      echo "seller=$seller buyer=$buyer" >&2
-      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine accountant wallet market >&2 || true
-      exit 1
-    fi
-    sleep 2
-  done
+  wait_user_trade_projection "$seller" "ETH_USDT" "100" "1" "100" "1" "USDT" false true false /tmp/opex-e2e-seller-trades.json
+  wait_user_trade_projection "$buyer" "ETH_USDT" "100" "1" "100" "0.01" "ETH" true false false /tmp/opex-e2e-buyer-trades.json
   wait_binance_recent_trade_level "ETHUSDT" "100" "1" "100" /tmp/opex-e2e-binance-recent-trades.json
 
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))

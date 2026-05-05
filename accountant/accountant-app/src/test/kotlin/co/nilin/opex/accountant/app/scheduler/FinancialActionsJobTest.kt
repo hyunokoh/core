@@ -4,6 +4,7 @@ import co.nilin.opex.accountant.core.api.FinancialActionJobManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -48,6 +49,23 @@ class FinancialActionsJobTest {
     }
 
     @Test
+    fun givenProcessJobHangs_whenTimeoutExpires_thenNextProcessJobCanRun() {
+        val manager = HangingOnceFinancialActionJobManager()
+        val job = financialActionsJob(manager, processTimeoutMs = 100)
+
+        job.processFinancialActions()
+        assertTrue(manager.awaitFirstProcessCall(5, TimeUnit.SECONDS))
+
+        assertTrue(eventually(5, TimeUnit.SECONDS) {
+            job.processFinancialActions()
+            manager.awaitSecondProcessCall(50, TimeUnit.MILLISECONDS)
+        })
+
+        assertEquals(2, manager.processCalls.get())
+        job.destroy()
+    }
+
+    @Test
     fun givenRetryJobAlreadyRunning_whenSchedulerTicksAgain_thenDoNotStartDuplicateRetryJob() {
         val manager = BlockingFinancialActionJobManager()
         val job = financialActionsJob(manager)
@@ -63,11 +81,17 @@ class FinancialActionsJobTest {
         job.destroy()
     }
 
-    private fun financialActionsJob(manager: FinancialActionJobManager): FinancialActionsJob {
+    private fun financialActionsJob(
+        manager: FinancialActionJobManager,
+        processTimeoutMs: Long = 30_000,
+        retryTimeoutMs: Long = 30_000
+    ): FinancialActionsJob {
         return FinancialActionsJob(
             manager,
             CoroutineScope(SupervisorJob() + Dispatchers.Default),
-            CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            processTimeoutMs,
+            retryTimeoutMs
         )
     }
 
@@ -142,6 +166,30 @@ class FinancialActionsJobTest {
         }
 
         fun awaitProcessCalls(timeout: Long, unit: TimeUnit): Boolean = firstProcessCall.await(timeout, unit)
+
+        fun awaitSecondProcessCall(timeout: Long, unit: TimeUnit): Boolean = secondProcessCall.await(timeout, unit)
+    }
+
+    private class HangingOnceFinancialActionJobManager : FinancialActionJobManager {
+        val processCalls = AtomicInteger()
+        private val firstProcessCall = CountDownLatch(1)
+        private val secondProcessCall = CountDownLatch(1)
+
+        override suspend fun processFinancialActions(offset: Long, size: Long) {
+            val calls = processCalls.incrementAndGet()
+            if (calls == 1) {
+                firstProcessCall.countDown()
+                delay(Long.MAX_VALUE)
+            }
+            if (calls == 2) {
+                secondProcessCall.countDown()
+            }
+        }
+
+        override suspend fun retryFinancialActions(limit: Int) {
+        }
+
+        fun awaitFirstProcessCall(timeout: Long, unit: TimeUnit): Boolean = firstProcessCall.await(timeout, unit)
 
         fun awaitSecondProcessCall(timeout: Long, unit: TimeUnit): Boolean = secondProcessCall.await(timeout, unit)
     }

@@ -16,23 +16,31 @@ class FinancialActionsJob : DisposableBean {
     private val financialActionJobManager: FinancialActionJobManager
     private val scope: CoroutineScope
     private val retryScope: CoroutineScope
+    private val processTimeoutMs: Long
+    private val retryTimeoutMs: Long
     private val log = LoggerFactory.getLogger(FinancialActionsJob::class.java)
 
     @Autowired
     constructor(financialActionJobManager: FinancialActionJobManager) : this(
         financialActionJobManager,
         CoroutineScope(SupervisorJob() + Dispatchers.IO),
-        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        30_000,
+        30_000
     )
 
     internal constructor(
         financialActionJobManager: FinancialActionJobManager,
         scope: CoroutineScope,
-        retryScope: CoroutineScope
+        retryScope: CoroutineScope,
+        processTimeoutMs: Long = 30_000,
+        retryTimeoutMs: Long = 30_000
     ) {
         this.financialActionJobManager = financialActionJobManager
         this.scope = scope
         this.retryScope = retryScope
+        this.processTimeoutMs = processTimeoutMs
+        this.retryTimeoutMs = retryTimeoutMs
     }
 
     @Scheduled(fixedDelay = 10000, initialDelay = 10000)
@@ -44,7 +52,9 @@ class FinancialActionsJob : DisposableBean {
         scope.launch {
             try {
                 //read unprocessed fa records and call transfer
-                financialActionJobManager.processFinancialActions(0, 100)
+                withTimeout(processTimeoutMs) {
+                    financialActionJobManager.processFinancialActions(0, 100)
+                }
             } catch (e: Exception) {
                 log.error("Financial action PROCESS error", e)
             }
@@ -59,7 +69,9 @@ class FinancialActionsJob : DisposableBean {
 
         retryScope.launch {
             try {
-                financialActionJobManager.retryFinancialActions(10)
+                withTimeout(retryTimeoutMs) {
+                    financialActionJobManager.retryFinancialActions(10)
+                }
             } catch (e: Exception) {
                 log.error("Financial action RETRY error", e)
             }
