@@ -3391,6 +3391,31 @@ main() {
     group by event_type, status
     order by event_type, status;
   "
+  wait_query_eq "BTC_USDT scenario accountant order status ledger" "postgres-accountant" $'CANCELED,1\nFILLED,9' "
+    select case status when 2 then 'CANCELED' when 5 then 'FILLED' else status::text end as status_name, count(*)
+    from orders
+    where uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+    group by status_name
+    order by status_name;
+  "
+  wait_query_eq "BTC_USDT scenario accountant order quantity ledger" "postgres-accountant" "10,0.01300000,0.01200000,22.00000000" "
+    select count(*), to_char(sum(orig_quantity), 'FM9999999990.00000000'), to_char(sum(filled_orig_quantity), 'FM9999999990.00000000'), to_char(sum(remained_transfer_amount), 'FM9999999990.00000000')
+    from orders
+    where uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three');
+  "
+  wait_query_eq "BTC_USDT scenario accountant orders terminal and bounded" "postgres-accountant" "0" "
+    select count(*)
+    from orders
+    where uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+      and (
+        status not in (2, 5)
+        or matching_engine_id is null
+        or filled_orig_quantity > orig_quantity
+        or filled_orig_quantity < 0
+        or (status = 5 and remained_transfer_amount <> 0)
+        or (status = 2 and filled_orig_quantity <> 0)
+      );
+  "
   wait_query_eq "BTC_USDT scenario market trades" "postgres-market" "BTC_USDT,6,0.00600000" "
     select symbol, count(*), to_char(sum(matched_quantity), 'FM9999999990.00000000')
     from trades
