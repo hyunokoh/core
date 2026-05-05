@@ -66,6 +66,24 @@ class FinancialActionsJobTest {
     }
 
     @Test
+    fun givenProcessJobBlocksCancellation_whenTimeoutExpires_thenNextProcessJobCanRun() {
+        val manager = CancellationBlockingFinancialActionJobManager()
+        val job = financialActionsJob(manager, processTimeoutMs = 100)
+
+        job.processFinancialActions()
+        assertTrue(manager.awaitFirstProcessCall(5, TimeUnit.SECONDS))
+
+        assertTrue(eventually(5, TimeUnit.SECONDS) {
+            job.processFinancialActions()
+            manager.awaitSecondProcessCall(50, TimeUnit.MILLISECONDS)
+        })
+
+        assertEquals(2, manager.processCalls.get())
+        manager.releaseFirstProcess()
+        job.destroy()
+    }
+
+    @Test
     fun givenRetryJobAlreadyRunning_whenSchedulerTicksAgain_thenDoNotStartDuplicateRetryJob() {
         val manager = BlockingFinancialActionJobManager()
         val job = financialActionsJob(manager)
@@ -192,5 +210,32 @@ class FinancialActionsJobTest {
         fun awaitFirstProcessCall(timeout: Long, unit: TimeUnit): Boolean = firstProcessCall.await(timeout, unit)
 
         fun awaitSecondProcessCall(timeout: Long, unit: TimeUnit): Boolean = secondProcessCall.await(timeout, unit)
+    }
+
+    private class CancellationBlockingFinancialActionJobManager : FinancialActionJobManager {
+        val processCalls = AtomicInteger()
+        private val firstProcessCall = CountDownLatch(1)
+        private val secondProcessCall = CountDownLatch(1)
+        private val firstProcessRelease = CountDownLatch(1)
+
+        override suspend fun processFinancialActions(offset: Long, size: Long) {
+            val calls = processCalls.incrementAndGet()
+            if (calls == 1) {
+                firstProcessCall.countDown()
+                firstProcessRelease.await(5, TimeUnit.SECONDS)
+            }
+            if (calls == 2) {
+                secondProcessCall.countDown()
+            }
+        }
+
+        override suspend fun retryFinancialActions(limit: Int) {
+        }
+
+        fun awaitFirstProcessCall(timeout: Long, unit: TimeUnit): Boolean = firstProcessCall.await(timeout, unit)
+
+        fun awaitSecondProcessCall(timeout: Long, unit: TimeUnit): Boolean = secondProcessCall.await(timeout, unit)
+
+        fun releaseFirstProcess() = firstProcessRelease.countDown()
     }
 }

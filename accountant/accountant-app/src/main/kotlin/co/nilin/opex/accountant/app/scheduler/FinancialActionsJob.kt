@@ -18,6 +18,10 @@ class FinancialActionsJob : DisposableBean {
     private val retryScope: CoroutineScope
     private val processTimeoutMs: Long
     private val retryTimeoutMs: Long
+    private var processJob: Job? = null
+    private var processJobStartedAtMs: Long = 0
+    private var retryJob: Job? = null
+    private var retryJobStartedAtMs: Long = 0
     private val log = LoggerFactory.getLogger(FinancialActionsJob::class.java)
 
     @Autowired
@@ -44,12 +48,14 @@ class FinancialActionsJob : DisposableBean {
     }
 
     @Scheduled(fixedDelay = 10000, initialDelay = 10000)
+    @Synchronized
     fun processFinancialActions() {
         scope.ensureActive()
-        if (!scope.isCompleted())
+        if (!canStartJob(processJob, processJobStartedAtMs, processTimeoutMs, "PROCESS"))
             return
 
-        scope.launch {
+        processJobStartedAtMs = System.currentTimeMillis()
+        processJob = scope.launch {
             try {
                 //read unprocessed fa records and call transfer
                 withTimeout(processTimeoutMs) {
@@ -62,12 +68,14 @@ class FinancialActionsJob : DisposableBean {
     }
 
     @Scheduled(fixedDelay = 2000, initialDelay = 15000)
+    @Synchronized
     fun retryFinancialActions() {
         retryScope.ensureActive()
-        if (!retryScope.isCompleted())
+        if (!canStartJob(retryJob, retryJobStartedAtMs, retryTimeoutMs, "RETRY"))
             return
 
-        retryScope.launch {
+        retryJobStartedAtMs = System.currentTimeMillis()
+        retryJob = retryScope.launch {
             try {
                 withTimeout(retryTimeoutMs) {
                     financialActionJobManager.retryFinancialActions(10)
@@ -78,9 +86,24 @@ class FinancialActionsJob : DisposableBean {
         }
     }
 
-    private fun CoroutineScope.isCompleted() = coroutineContext.job.children.all { it.isCompleted }
+    private fun canStartJob(job: Job?, startedAtMs: Long, timeoutMs: Long, label: String): Boolean {
+        if (job == null || job.isCompleted) {
+            return true
+        }
+        if (job.isActive) {
+            val elapsedMs = System.currentTimeMillis() - startedAtMs
+            if (elapsedMs < timeoutMs) {
+                return false
+            }
+            log.warn("Financial action $label job exceeded ${timeoutMs}ms; cancelling stale run and starting a new one")
+            job.cancel()
+        }
+        return true
+    }
 
     override fun destroy() {
+        processJob?.cancel()
+        retryJob?.cancel()
         scope.cancel()
         retryScope.cancel()
     }

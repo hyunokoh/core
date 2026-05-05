@@ -1498,6 +1498,8 @@ main() {
   wait_no_user_open_orders "$engine_restart_seller" "ETH_USDT"
   wait_user_trade_price "$engine_restart_seller" "ETH_USDT" "111" "0.5"
   wait_user_trade_price "$engine_restart_buyer" "ETH_USDT" "111" "0.5"
+  wait_user_order_projection_by_price "$engine_restart_seller" "ETH_USDT" "111" "0.5" "FILLED" "0.5" "55.5" /tmp/opex-e2e-engine-restart-seller-orders.json
+  wait_user_order_projection_by_price "$engine_restart_buyer" "ETH_USDT" "111" "0.5" "FILLED" "0.5" "55.5" /tmp/opex-e2e-engine-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$engine_restart_seller" "ETH" "0.5" &&
     try_wallet_balance "$engine_restart_seller" "USDT" "54.945" &&
@@ -1543,6 +1545,8 @@ main() {
   wait_no_user_open_orders "$wallet_restart_seller" "ETH_USDT"
   wait_user_trade_price "$wallet_restart_seller" "ETH_USDT" "112" "0.4"
   wait_user_trade_price "$wallet_restart_buyer" "ETH_USDT" "112" "0.4"
+  wait_user_order_projection_by_price "$wallet_restart_seller" "ETH_USDT" "112" "0.4" "FILLED" "0.4" "44.8" /tmp/opex-e2e-wallet-restart-seller-orders.json
+  wait_user_order_projection_by_price "$wallet_restart_buyer" "ETH_USDT" "112" "0.4" "FILLED" "0.4" "44.8" /tmp/opex-e2e-wallet-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$wallet_restart_seller" "ETH" "0.6" &&
     try_wallet_balance "$wallet_restart_seller" "USDT" "44.352" &&
@@ -1587,6 +1591,8 @@ main() {
   wait_no_user_open_orders "$accountant_restart_seller" "ETH_USDT"
   wait_user_trade_price "$accountant_restart_seller" "ETH_USDT" "113" "0.3"
   wait_user_trade_price "$accountant_restart_buyer" "ETH_USDT" "113" "0.3"
+  wait_user_order_projection_by_price "$accountant_restart_seller" "ETH_USDT" "113" "0.3" "FILLED" "0.3" "33.9" /tmp/opex-e2e-accountant-restart-seller-orders.json
+  wait_user_order_projection_by_price "$accountant_restart_buyer" "ETH_USDT" "113" "0.3" "FILLED" "0.3" "33.9" /tmp/opex-e2e-accountant-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$accountant_restart_seller" "ETH" "0.7" &&
     try_wallet_balance "$accountant_restart_seller" "USDT" "33.561" &&
@@ -1620,6 +1626,8 @@ main() {
   wait_no_user_open_orders "$gateway_restart_seller" "ETH_USDT"
   wait_user_trade_price "$gateway_restart_seller" "ETH_USDT" "114" "0.2"
   wait_user_trade_price "$gateway_restart_buyer" "ETH_USDT" "114" "0.2"
+  wait_user_order_projection_by_price "$gateway_restart_seller" "ETH_USDT" "114" "0.2" "FILLED" "0.2" "22.8" /tmp/opex-e2e-gateway-restart-seller-orders.json
+  wait_user_order_projection_by_price "$gateway_restart_buyer" "ETH_USDT" "114" "0.2" "FILLED" "0.2" "22.8" /tmp/opex-e2e-gateway-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$gateway_restart_seller" "ETH" "0.8" &&
     try_wallet_balance "$gateway_restart_seller" "USDT" "22.572" &&
@@ -1653,6 +1661,8 @@ main() {
   wait_no_user_open_orders "$core_restart_seller" "ETH_USDT"
   wait_user_trade_price "$core_restart_seller" "ETH_USDT" "115" "0.2"
   wait_user_trade_price "$core_restart_buyer" "ETH_USDT" "115" "0.2"
+  wait_user_order_projection_by_price "$core_restart_seller" "ETH_USDT" "115" "0.2" "FILLED" "0.2" "23" /tmp/opex-e2e-core-restart-seller-orders.json
+  wait_user_order_projection_by_price "$core_restart_buyer" "ETH_USDT" "115" "0.2" "FILLED" "0.2" "23" /tmp/opex-e2e-core-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$core_restart_seller" "ETH" "0.8" &&
     try_wallet_balance "$core_restart_seller" "USDT" "22.77" &&
@@ -1687,6 +1697,8 @@ main() {
   wait_no_user_open_orders "$kafka_restart_seller" "ETH_USDT"
   wait_user_trade_price "$kafka_restart_seller" "ETH_USDT" "116" "0.2"
   wait_user_trade_price "$kafka_restart_buyer" "ETH_USDT" "116" "0.2"
+  wait_user_order_projection_by_price "$kafka_restart_seller" "ETH_USDT" "116" "0.2" "FILLED" "0.2" "23.2" /tmp/opex-e2e-kafka-restart-seller-orders.json
+  wait_user_order_projection_by_price "$kafka_restart_buyer" "ETH_USDT" "116" "0.2" "FILLED" "0.2" "23.2" /tmp/opex-e2e-kafka-restart-buyer-orders.json
   deadline=$((SECONDS + 120))
   until try_wallet_balance "$kafka_restart_seller" "ETH" "0.8" &&
     try_wallet_balance "$kafka_restart_seller" "USDT" "22.968" &&
@@ -1720,6 +1732,8 @@ main() {
   wait_no_user_open_orders "$postgres_restart_seller" "ETH_USDT"
   wait_user_trade_price "$postgres_restart_seller" "ETH_USDT" "117" "0.2"
   wait_user_trade_price "$postgres_restart_buyer" "ETH_USDT" "117" "0.2"
+  wait_user_order_projection_by_price "$postgres_restart_seller" "ETH_USDT" "117" "0.2" "FILLED" "0.2" "23.4" /tmp/opex-e2e-postgres-restart-seller-orders.json
+  wait_user_order_projection_by_price "$postgres_restart_buyer" "ETH_USDT" "117" "0.2" "FILLED" "0.2" "23.4" /tmp/opex-e2e-postgres-restart-buyer-orders.json
   deadline=$((SECONDS + 120))
   until try_wallet_balance "$postgres_restart_seller" "ETH" "0.8" &&
     try_wallet_balance "$postgres_restart_seller" "USDT" "23.166" &&
