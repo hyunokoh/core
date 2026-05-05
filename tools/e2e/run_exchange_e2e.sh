@@ -1099,9 +1099,9 @@ wait_recent_trades_distribution() {
   local body
   until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/${symbol}/recent-trades?limit=20")" &&
     printf '%s\n' "$body" | jq -e '
-      length == 16 and
+      length == 17 and
       ([.[] | select(.price == 90) | .quantity] | add == 0.1) and
-      ([.[] | select(.price == 100) | .quantity] | add == 1.2) and
+      ([.[] | select(.price == 100) | .quantity] | add == 1.4) and
       ([.[] | select(.price == 111) | .quantity] | add == 0.5) and
       ([.[] | select(.price == 112) | .quantity] | add == 0.4) and
       ([.[] | select(.price == 113) | .quantity] | add == 0.3) and
@@ -2735,6 +2735,60 @@ main() {
     sleep 2
   done
 
+  local edit_cross_seller="e2e-edit-cross-seller-$(date +%s)"
+  local edit_cross_buyer="e2e-edit-cross-buyer-$(date +%s)"
+  local edit_cross_ref="e2e-edit-cross-$(date +%s)"
+  expect_2xx "edit crossing seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${edit_cross_seller}_MAIN?description=e2e-edit-cross&transferRef=${edit_cross_ref}-eth")" >/dev/null
+  expect_2xx "edit crossing buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-tether_USDT/${edit_cross_buyer}_MAIN?description=e2e-edit-cross&transferRef=${edit_cross_ref}-usdt")" >/dev/null
+  local edit_cross_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local edit_cross_ask='{"uuid":null,"pair":"ETH_USDT","price":110,"quantity":0.3,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "edit crossing buyer resting bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$edit_cross_bid' '$edit_cross_buyer'" >/tmp/opex-e2e-edit-cross-bid.json
+  expect_2xx_retry "edit crossing seller resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$edit_cross_ask' '$edit_cross_seller'" >/tmp/opex-e2e-edit-cross-ask.json
+  wait_user_open_order "$edit_cross_buyer" "ETH_USDT" "100" "0.2" /tmp/opex-e2e-edit-cross-bid-open-orders.json
+  wait_user_open_order "$edit_cross_seller" "ETH_USDT" "110" "0.3" /tmp/opex-e2e-edit-cross-ask-open-orders.json
+  local edit_cross_ask_ouid edit_cross_ask_order_id edit_cross_bid_ouid edit_cross_request
+  edit_cross_ask_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-edit-cross-ask-open-orders.json)"
+  edit_cross_ask_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-edit-cross-ask-open-orders.json)"
+  edit_cross_bid_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-edit-cross-bid-open-orders.json)"
+  edit_cross_request="$(jq -nc --arg ouid "$edit_cross_ask_ouid" --arg uuid "$edit_cross_seller" --argjson orderId "$edit_cross_ask_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:100, quantity:0.2}')"
+  expect_2xx_retry "edit crossing ask into resting bid" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$edit_cross_request' '$edit_cross_seller'" >/tmp/opex-e2e-edit-cross-response.json
+  wait_no_user_open_orders "$edit_cross_seller" "ETH_USDT"
+  wait_no_user_open_orders "$edit_cross_buyer" "ETH_USDT"
+  wait_order_projection "$edit_cross_seller" "$edit_cross_ask_ouid" "FILLED" "0.2" "20"
+  wait_order_projection "$edit_cross_buyer" "$edit_cross_bid_ouid" "FILLED" "0.2" "20"
+  wait_user_trade_projection "$edit_cross_seller" "ETH_USDT" "100" "0.2" "20" "0.2" "USDT" false false true /tmp/opex-e2e-edit-cross-seller-trades.json
+  wait_user_trade_projection "$edit_cross_buyer" "ETH_USDT" "100" "0.2" "20" "0.002" "ETH" true true true /tmp/opex-e2e-edit-cross-buyer-trades.json
+  wait_binance_recent_trade_level "ETHUSDT" "100" "0.2" "20" /tmp/opex-e2e-edit-cross-binance-trades.json
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$edit_cross_seller" "ETH" "0.8" &&
+    try_wallet_balance "$edit_cross_seller" "USDT" "19.8" &&
+    try_wallet_balance "$edit_cross_buyer" "ETH" "0.198" &&
+    try_wallet_balance "$edit_cross_buyer" "USDT" "80"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for edit crossing settlement" >&2
+      assert_wallet_balance "edit crossing seller ETH remainder" "$edit_cross_seller" "ETH" "0.8" >&2 || true
+      assert_wallet_balance "edit crossing seller USDT proceeds" "$edit_cross_seller" "USDT" "19.8" >&2 || true
+      assert_wallet_balance "edit crossing buyer ETH received" "$edit_cross_buyer" "ETH" "0.198" >&2 || true
+      assert_wallet_balance "edit crossing buyer USDT remainder" "$edit_cross_buyer" "USDT" "80" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  wait_query_eq "edit crossing eventlog update event" "postgres-eventlog" "UpdatedOrderEvent,1,0" "
+    select event,
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'UpdatedOrderEvent'
+      and uuid = '$edit_cross_seller'
+      and event_json::jsonb ->> 'price' = '10000'
+      and event_json::jsonb ->> 'quantity' = '200000'
+      and event_json::jsonb ->> 'oldPrice' = '11000'
+      and event_json::jsonb ->> 'oldQuantity' = '300000'
+    group by event;
+  "
+
   local reject_owner="e2e-reject-$(date +%s)"
   local underfunded_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   expect_http_status "underfunded ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$underfunded_ask" "$reject_owner")" >/tmp/opex-e2e-reject-order.json
@@ -2877,7 +2931,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,50\nFEE,32\nORDER_CANCEL,21\nORDER_CREATE,45\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,52\nFEE,34\nORDER_CANCEL,22\nORDER_CREATE,47\nORDER_FINALIZED,1\nTRADE,34\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -2888,7 +2942,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,27.05400000\nUSDT,2565.74400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,28.05200000\nUSDT,2665.54400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -2952,7 +3006,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,17\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,45\nTradeEvent,PROCESSED,65\nUpdatedOrderEvent,PROCESSED,2' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,17\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,47\nTradeEvent,PROCESSED,69\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -3031,7 +3085,7 @@ main() {
         or coalesce(taker_commission_asset, '') not in (base_asset, quote_asset)
       );
   "
-  wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
+  wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
       to_char(sum(matched_quantity), 'FM9999999990.00000000')
@@ -3043,7 +3097,7 @@ main() {
   wait_query_eq "market open orders unchanged after duplicate richOrder replay" "postgres-market" "0" "
     select count(*) from open_orders;
   "
-  wait_query_eq "market trade distribution unchanged after duplicate richTrade replay" "postgres-market" $'90.00,0.10000000\n100.00,1.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
+  wait_query_eq "market trade distribution unchanged after duplicate richTrade replay" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
       to_char(sum(matched_quantity), 'FM9999999990.00000000')
@@ -3716,6 +3770,8 @@ main() {
   "layeredSelfTradeOwner": "$layered_self_trade_owner",
   "layeredExternalSeller": "$layered_external_seller",
   "editBidOwner": "$edit_bid_owner",
+  "editCrossSeller": "$edit_cross_seller",
+  "editCrossBuyer": "$edit_cross_buyer",
   "rejectOwner": "$reject_owner",
   "bidRejectOwner": "$bid_reject_owner",
   "invalidOwner": "$invalid_owner",
@@ -3894,6 +3950,11 @@ main() {
     "editedBidPrice": 90,
     "editedBidQuantity": 0.4,
     "releasedQuoteAmount": 14,
+    "crossingInitialAskPrice": 110,
+    "crossingInitialAskQuantity": 0.3,
+    "crossingEditedAskPrice": 100,
+    "crossingEditedAskQuantity": 0.2,
+    "crossingTradeQuantity": 0.2,
     "status": "UPDATED_AND_CANCELED"
   },
   "rejectScenario": {
@@ -3967,10 +4028,10 @@ main() {
     "bidLevels": 0
   },
   "recentTradesScenario": {
-    "count": 16,
+    "count": 17,
     "quantitiesByPrice": {
       "90": 0.1,
-      "100": 1.2,
+      "100": 1.4,
       "111": 0.5,
       "112": 0.4,
       "113": 0.3,
@@ -3987,20 +4048,20 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 50,
-      "FEE": 32,
-      "ORDER_CANCEL": 21,
-      "ORDER_CREATE": 45,
+      "DEPOSIT": 52,
+      "FEE": 34,
+      "ORDER_CANCEL": 22,
+      "ORDER_CREATE": 47,
       "ORDER_FINALIZED": 1,
-      "TRADE": 32,
+      "TRADE": 34,
       "WITHDRAW_ACCEPT": 1,
       "WITHDRAW_CANCEL": 1,
       "WITHDRAW_REJECT": 2,
       "WITHDRAW_REQUEST": 4
     },
     "walletAggregateBalances": {
-      "ETH": 27.054,
-      "USDT": 2565.744
+      "ETH": 28.052,
+      "USDT": 2665.544
     },
     "walletWithdrawStatuses": {
       "CANCELED": 1,
@@ -4013,10 +4074,11 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "RejectOrderEvent": 18,
-      "SubmitOrderEvent": 45,
-      "TradeEvent": 65,
-      "UpdatedOrderEvent": 2
+      "CancelOrderEvent": 17,
+      "RejectOrderEvent": 2,
+      "SubmitOrderEvent": 47,
+      "TradeEvent": 69,
+      "UpdatedOrderEvent": 3
     },
     "accountantRetryQueueDrained": true,
     "walletNegativeBalances": 0,
@@ -4025,13 +4087,13 @@ main() {
     "marketOpenOrders": 0,
     "marketInvalidTrades": 0,
     "marketDuplicateTradeEvents": 0,
-    "marketPersistedTrades": 16
+    "marketPersistedTrades": 17
   },
   "marketKafkaReplayIdempotencyScenario": {
     "replayedTopics": ["richOrder", "richTrade"],
     "poisonRecordsSkipped": true,
     "marketOpenOrdersAfterReplay": 0,
-    "marketPersistedTradesAfterReplay": 16,
+    "marketPersistedTradesAfterReplay": 17,
     "status": "passed"
   },
   "marketRestartScenario": {
