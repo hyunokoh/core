@@ -59,32 +59,33 @@ Runs a real Docker-backed exchange E2E flow:
   13. Verify same-price time priority by filling the older bid before the newer bid.
   14. Verify already reserved base/quote balances cannot be over-reserved by second orders.
   15. Verify a different user cannot cancel someone else's open order.
-  16. Verify a duplicate cancel of an already canceled order does not release funds twice.
-  17. Verify malformed cancel requests are rejected before they reach market state.
-  18. Verify an unsupported FOK order is rejected at the gateway before it reaches market state.
-  19. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
-  19b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
-  20. Verify underfunded ask/bid orders are rejected before they reach market state.
-  21. Verify invalid order parameters are rejected before they reach market state.
-  22. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
-  23. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
-  24. Verify wallet/accountant/market database invariants after settlement.
-  25. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  26. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  27. Restart Market and verify public market state is still available from persisted data.
-  28. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  29. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  30. Restart Matching Engine with an open order and verify it can still be matched.
-  31. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  32. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  33. Restart Matching Gateway and verify new order submission still works.
-  34. Restart all core exchange services and verify a fresh trade still settles.
-  35. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  36. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  37. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  38. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  39. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  40. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  16. Verify a different user cannot edit someone else's open order.
+  17. Verify a duplicate cancel of an already canceled order does not release funds twice.
+  18. Verify malformed cancel requests are rejected before they reach market state.
+  19. Verify an unsupported FOK order is rejected at the gateway before it reaches market state.
+  20. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
+  20b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
+  21. Verify underfunded ask/bid orders are rejected before they reach market state.
+  22. Verify invalid order parameters are rejected before they reach market state.
+  23. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
+  24. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
+  25. Verify wallet/accountant/market database invariants after settlement.
+  26. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  27. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  28. Restart Market and verify public market state is still available from persisted data.
+  29. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  30. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  31. Restart Matching Engine with an open order and verify it can still be matched.
+  32. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  33. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  34. Restart Matching Gateway and verify new order submission still works.
+  35. Restart all core exchange services and verify a fresh trade still settles.
+  36. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  37. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  38. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  39. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  40. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  41. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -2336,6 +2337,27 @@ main() {
   wait_user_open_order "$cancel_auth_owner" "ETH_USDT" "170" "0.4" /tmp/opex-e2e-cancel-auth-open-orders.json
   assert_wallet_balance "cancel-auth owner ETH still reserved" "$cancel_auth_owner" "ETH" "0.6"
 
+  local cancel_auth_intruder_edit_request
+  cancel_auth_intruder_edit_request="$(jq -nc --arg ouid "$cancel_auth_ouid" --arg uuid "$cancel_auth_intruder" --argjson orderId "$cancel_auth_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:171, quantity:0.3}')"
+  expect_2xx_retry "intruder edit owner order submit" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$cancel_auth_intruder_edit_request' '$cancel_auth_intruder'" >/tmp/opex-e2e-cancel-auth-intruder-edit.json
+  sleep 5
+  wait_user_open_order "$cancel_auth_owner" "ETH_USDT" "170" "0.4" /tmp/opex-e2e-cancel-auth-open-orders.json
+  assert_no_user_order_by_price "$cancel_auth_owner" "ETH_USDT" "171" "0.3"
+  wait_no_user_open_orders "$cancel_auth_intruder" "ETH_USDT"
+  assert_wallet_balance "cancel-auth owner ETH still reserved after intruder edit" "$cancel_auth_owner" "ETH" "0.6"
+  wait_query_eq "intruder edit reject eventlog audit" "postgres-eventlog" "ORDER_NOT_FOUND,EDIT_ORDER,1,0" "
+    select event_json::jsonb ->> 'reason',
+           event_json::jsonb ->> 'requestedOperation',
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'RejectOrderEvent'
+      and uuid = '$cancel_auth_intruder'
+      and event_json::jsonb ->> 'requestedOperation' = 'EDIT_ORDER'
+    group by event_json::jsonb ->> 'reason',
+             event_json::jsonb ->> 'requestedOperation';
+  "
+
   cancel_auth_owner_request="$(jq -nc --arg ouid "$cancel_auth_ouid" --arg uuid "$cancel_auth_owner" --argjson orderId "$cancel_auth_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "owner cancel after intruder reject" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$cancel_auth_owner_request' '$cancel_auth_owner'" >/tmp/opex-e2e-cancel-auth-owner-cancel.json
   wait_no_user_open_orders "$cancel_auth_owner" "ETH_USDT"
@@ -3915,6 +3937,9 @@ main() {
     "askPrice": 170,
     "askQuantity": 0.4,
     "intruderCancelStatus": "REJECTED_ASYNC",
+    "intruderEditPrice": 171,
+    "intruderEditQuantity": 0.3,
+    "intruderEditStatus": "REJECTED_ASYNC_NO_BOOK_OR_BALANCE_CHANGE",
     "ownerCancelStatus": "CANCELED",
     "duplicateOwnerCancelStatus": "REJECTED_ASYNC_NO_BALANCE_CHANGE"
   },
