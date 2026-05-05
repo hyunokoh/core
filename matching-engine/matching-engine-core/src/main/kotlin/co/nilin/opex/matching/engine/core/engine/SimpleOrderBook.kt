@@ -238,6 +238,10 @@ class SimpleOrderBook(
             }
             return order
         }
+        if (order.price == orderCommand.price && order.quantity == orderCommand.quantity) {
+            logger.warn("Duplicate order edit command ignored: ouid=${orderCommand.ouid}")
+            return order
+        }
         if (!isValidEditOrder(orderCommand, order)) {
             rejectEditOrder(orderCommand, order, RejectReason.INVALID_ORDER)
             return null

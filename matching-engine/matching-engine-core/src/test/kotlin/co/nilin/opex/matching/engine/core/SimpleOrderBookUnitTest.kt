@@ -1316,6 +1316,50 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenOpenOrderAlreadyEdited_whenSameEditReplayed_thenNoDuplicateEvents() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val bidOuid = UUID.randomUUID().toString()
+        val bidOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                bidOuid,
+                uuid,
+                pair,
+                10,
+                5,
+                OrderDirection.BID,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER
+            )
+        )!!
+        val editEvents = mutableListOf<CoreEvent>()
+        EventDispatcher.register(CoreEvent::class.java) { editEvents.add(it) }
+        val editCommand = OrderEditCommand(
+            bidOuid,
+            uuid,
+            bidOrder.id()!!,
+            pair,
+            11,
+            5
+        )
+
+        val editedOrder = orderBook.handleEditCommand(editCommand) as SimpleOrder
+        val replayedOrder = orderBook.handleEditCommand(editCommand) as SimpleOrder
+
+        Assertions.assertSame(editedOrder, replayedOrder)
+        Assertions.assertEquals(bidOrder.id(), replayedOrder.id())
+        Assertions.assertEquals(11, replayedOrder.price)
+        Assertions.assertEquals(5, replayedOrder.quantity)
+        Assertions.assertEquals(1, orderBook.orders.size)
+        Assertions.assertEquals(
+            listOf(
+                UpdatedOrderEvent::class.java,
+                OrderBookPublishedEvent::class.java
+            ),
+            editEvents.map { it::class.java }
+        )
+    }
+
+    @Test
     fun givenBidEditCrossesAsk_whenEditOrder_thenEmitUpdateBeforeTradeAndPublish() {
         val orderBook = SimpleOrderBook(pair, false)
         val askOuid = UUID.randomUUID().toString()
