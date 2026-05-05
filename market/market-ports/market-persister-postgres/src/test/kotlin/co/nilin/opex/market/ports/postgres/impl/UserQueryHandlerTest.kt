@@ -1,5 +1,6 @@
 package co.nilin.opex.market.ports.postgres.impl
 
+import co.nilin.opex.common.OpexError
 import co.nilin.opex.market.core.inout.OrderStatus
 import co.nilin.opex.market.core.inout.QueryOrderRequest
 import co.nilin.opex.market.core.inout.AllOrderRequest
@@ -12,10 +13,12 @@ import co.nilin.opex.market.ports.postgres.dao.TradeRepository
 import co.nilin.opex.market.ports.postgres.impl.sample.VALID
 import co.nilin.opex.market.ports.postgres.model.OrderModel
 import co.nilin.opex.market.ports.postgres.model.TradeModel
+import co.nilin.opex.utility.error.data.OpexException
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -79,6 +82,39 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
 
         assertThat(order).isNotNull
         assertThat(order!!.ouid).isEqualTo(VALID.MAKER_ORDER_MODEL.ouid)
+    }
+
+    @Test
+    fun givenMissingLookupIdentifier_whenQueryOrder_thenThrowBadRequest(): Unit = runBlocking {
+        assertThatThrownBy {
+            runBlocking {
+                userQueryHandler.queryOrder(
+                    VALID.PRINCIPAL.name,
+                    QueryOrderRequest(VALID.ETH_USDT, null, null)
+                )
+            }
+        }.isOpexError(OpexError.BadRequest)
+    }
+
+    @Test
+    fun givenInvalidLookupIdentifier_whenQueryOrder_thenThrowInvalidRequestParam(): Unit = runBlocking {
+        assertThatThrownBy {
+            runBlocking {
+                userQueryHandler.queryOrder(
+                    VALID.PRINCIPAL.name,
+                    QueryOrderRequest(VALID.ETH_USDT, 0, null)
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThatThrownBy {
+            runBlocking {
+                userQueryHandler.queryOrder(
+                    VALID.PRINCIPAL.name,
+                    QueryOrderRequest(VALID.ETH_USDT, null, " ")
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
     }
 
     @Test
@@ -229,4 +265,10 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
         takerUuid,
         createDate
     )
+
+    private fun org.assertj.core.api.AbstractThrowableAssert<*, out Throwable>.isOpexError(error: OpexError) {
+        isInstanceOf(OpexException::class.java)
+            .extracting("error")
+            .isEqualTo(error)
+    }
 }

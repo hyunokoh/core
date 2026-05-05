@@ -39,10 +39,19 @@ class UserQueryHandlerImpl(
     }
 
     override suspend fun queryOrder(uuid: String, request: QueryOrderRequest): Order? {
-        val order = (if (request.origClientOrderId != null) {
-            orderRepository.findBySymbolAndClientOrderId(request.symbol, request.origClientOrderId!!)
+        val orderId = request.orderId
+        val origClientOrderId = request.origClientOrderId
+        if (orderId == null && origClientOrderId == null)
+            throw OpexError.BadRequest.exception("'orderId' or 'origClientOrderId' must be sent")
+        if (orderId != null && orderId <= 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'orderId' is either missing or invalid")
+        if (origClientOrderId != null && origClientOrderId.isBlank())
+            throw OpexError.InvalidRequestParam.exception("Parameter 'origClientOrderId' is either missing or invalid")
+
+        val order = (if (origClientOrderId != null) {
+            orderRepository.findBySymbolAndClientOrderId(request.symbol, origClientOrderId)
         } else {
-            orderRepository.findBySymbolAndOrderId(request.symbol, request.orderId!!)
+            orderRepository.findBySymbolAndOrderId(request.symbol, orderId!!)
         }).awaitFirstOrNull() ?: return null
 
         if (order.uuid != uuid)

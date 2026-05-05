@@ -50,43 +50,44 @@ Runs a real Docker-backed exchange E2E flow:
   4. Wait for the current seller/buyer trade to propagate through market.
   5. Verify final wallet settlement balances, including fees.
   6. Submit an unmatched order, verify reservation/open book state, cancel it, and verify release.
-  7. Partially fill an order, verify the remaining book quantity, cancel the remainder, and verify release.
-  8. Verify an IOC order with no liquidity is canceled immediately and releases reserved funds.
-  9. Verify an IOC market ask consumes available bid liquidity and the maker remainder can be canceled.
-  10. Verify an IOC market ask sweeps multiple bid price levels and leaves/cancels the maker remainder.
-  11. Verify an IOC market bid sweeps multiple ask price levels and leaves/cancels the maker remainder.
-  12. Verify price priority by matching against the better bid before a lower bid.
-  13. Verify same-price time priority by filling the older bid before the newer bid.
-  14. Verify already reserved base/quote balances cannot be over-reserved by second orders.
-  15. Verify a different user cannot cancel someone else's open order.
-  16. Verify a different user cannot edit someone else's open order.
-  17. Verify a duplicate cancel of an already canceled order does not release funds twice.
-  18. Verify malformed cancel requests are rejected before they reach market state.
-  19. Verify malformed edit requests are rejected before they reach market state.
-  20. Verify an unsupported FOK order is rejected at the gateway before it reaches market state.
-  21. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
-  21b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
-  22. Verify underfunded ask/bid orders are rejected before they reach market state.
-  23. Verify invalid order parameters are rejected before they reach market state.
-  24. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
-  25. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
-  26. Verify wallet/accountant/market database invariants after settlement.
-  27. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  28. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  29. Restart Market and verify public market state is still available from persisted data.
-  30. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  31. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  32. Restart Matching Engine with an open order and verify it can still be matched.
-  33. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  34. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  35. Restart Matching Gateway and verify new order submission still works.
-  36. Restart all core exchange services and verify a fresh trade still settles.
-  37. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  38. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  39. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  40. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  41. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  42. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  7. Verify the user order query API returns that order and rejects missing/unauthorized lookups.
+  8. Partially fill an order, verify the remaining book quantity, cancel the remainder, and verify release.
+  9. Verify an IOC order with no liquidity is canceled immediately and releases reserved funds.
+  10. Verify an IOC market ask consumes available bid liquidity and the maker remainder can be canceled.
+  11. Verify an IOC market ask sweeps multiple bid price levels and leaves/cancels the maker remainder.
+  12. Verify an IOC market bid sweeps multiple ask price levels and leaves/cancels the maker remainder.
+  13. Verify price priority by matching against the better bid before a lower bid.
+  14. Verify same-price time priority by filling the older bid before the newer bid.
+  15. Verify already reserved base/quote balances cannot be over-reserved by second orders.
+  16. Verify a different user cannot cancel someone else's open order.
+  17. Verify a different user cannot edit someone else's open order.
+  18. Verify a duplicate cancel of an already canceled order does not release funds twice.
+  19. Verify malformed cancel requests are rejected before they reach market state.
+  20. Verify malformed edit requests are rejected before they reach market state.
+  21. Verify an unsupported FOK order is rejected at the gateway before it reaches market state.
+  22. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
+  22b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
+  23. Verify underfunded ask/bid orders are rejected before they reach market state.
+  24. Verify invalid order parameters are rejected before they reach market state.
+  25. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
+  26. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
+  27. Verify wallet/accountant/market database invariants after settlement.
+  28. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  29. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  30. Restart Market and verify public market state is still available from persisted data.
+  31. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  32. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  33. Restart Matching Engine with an open order and verify it can still be matched.
+  34. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  35. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  36. Restart Matching Gateway and verify new order submission still works.
+  37. Restart all core exchange services and verify a fresh trade still settles.
+  38. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  39. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  40. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  41. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  42. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  43. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -1796,6 +1797,27 @@ main() {
     cat /tmp/opex-e2e-cancel-open-orders.json >&2
     exit 1
   fi
+
+  local cancel_query_request cancel_query_missing_lookup cancel_query_zero_id
+  cancel_query_request="$(jq -nc --argjson orderId "$cancel_order_id" '{symbol:"ETH_USDT", orderId:$orderId, origClientOrderId:null}')"
+  expect_2xx_retry "market owner query order by orderId" "curl_json POST 'http://127.0.0.1:8096/v1/user/${cancel_owner}/order/query' '$cancel_query_request'" >/tmp/opex-e2e-cancel-query-order.json
+  jq -e --arg ouid "$cancel_ouid" --argjson orderId "$cancel_order_id" '
+    .ouid == $ouid and
+    .orderId == $orderId and
+    .symbol == "ETH_USDT" and
+    .status == "NEW" and
+    .price == 150 and
+    .quantity == 0.25 and
+    .executedQuantity == 0 and
+    .accumulativeQuoteQty == 0
+  ' /tmp/opex-e2e-cancel-query-order.json >/dev/null
+
+  cancel_query_missing_lookup='{"symbol":"ETH_USDT","orderId":null,"origClientOrderId":null}'
+  cancel_query_zero_id='{"symbol":"ETH_USDT","orderId":0,"origClientOrderId":null}'
+  expect_http_status "market order query missing lookup" "400" "$(curl_json POST "http://127.0.0.1:8096/v1/user/${cancel_owner}/order/query" "$cancel_query_missing_lookup")" >/tmp/opex-e2e-cancel-query-missing-lookup.json
+  expect_http_status "market order query zero order id" "400" "$(curl_json POST "http://127.0.0.1:8096/v1/user/${cancel_owner}/order/query" "$cancel_query_zero_id")" >/tmp/opex-e2e-cancel-query-zero-id.json
+  expect_http_status "market order query wrong owner forbidden" "403" "$(curl_json POST "http://127.0.0.1:8096/v1/user/${cancel_owner}-intruder/order/query" "$cancel_query_request")" >/tmp/opex-e2e-cancel-query-forbidden.json
+
   cancel_request="$(jq -nc --arg ouid "$cancel_ouid" --arg uuid "$cancel_owner" --argjson orderId "$cancel_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel unmatched ask order" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$cancel_request' '$cancel_owner'" >/tmp/opex-e2e-cancel-order.json
 
@@ -3871,7 +3893,11 @@ main() {
   "cancelScenario": {
     "price": 150,
     "quantity": 0.25,
-    "status": "CANCELED"
+    "status": "CANCELED",
+    "queryByOrderId": "NEW",
+    "missingLookupStatus": "HTTP_400",
+    "zeroOrderIdStatus": "HTTP_400",
+    "wrongOwnerStatus": "HTTP_403"
   },
   "matchingEngineRestartScenario": {
     "restingAskPrice": 111,
