@@ -774,6 +774,17 @@ replay_market_projection_duplicates() {
   wait_log "market" "market richOrder poison record redirected to DLT" "richOrder.DLT"
   wait_log "market" "market richTrade poison record redirected to DLT" "richTrade.DLT"
   wait_log "market" "market duplicate richTrade replay after poison record" "Duplicate RichTrade"
+  wait_query_eq "eventlog persisted market dead letters" "postgres-eventlog" $'richOrder,market,org.springframework.kafka.support.serializer.DeserializationException,1\nrichTrade,market,org.springframework.kafka.support.serializer.DeserializationException,1' "
+    select origin_topic, consumer_group, exception_class_name, count(*)
+    from dead_letter_events
+    where origin_topic in ('richOrder', 'richTrade')
+    group by origin_topic, consumer_group, exception_class_name
+    order by origin_topic;
+  "
+  wait_query_eq "eventlog dead letter total" "postgres-eventlog" "2" "
+    select count(*)
+    from dead_letter_events;
+  "
   sleep 5
 }
 
