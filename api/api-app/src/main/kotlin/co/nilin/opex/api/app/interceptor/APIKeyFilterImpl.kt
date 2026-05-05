@@ -1,7 +1,8 @@
 package co.nilin.opex.api.app.interceptor
 
-import co.nilin.opex.api.app.service.APIKeyServiceImpl
+import co.nilin.opex.api.core.inout.APIKey
 import co.nilin.opex.api.core.spi.APIKeyFilter
+import co.nilin.opex.api.core.spi.APIKeyService
 import kotlinx.coroutines.runBlocking
 import org.springframework.stereotype.Component
 import org.springframework.web.server.ServerWebExchange
@@ -10,7 +11,7 @@ import org.springframework.web.server.WebFilterChain
 import reactor.core.publisher.Mono
 
 @Component
-class APIKeyFilterImpl(private val apiKeyService: APIKeyServiceImpl) : APIKeyFilter, WebFilter {
+class APIKeyFilterImpl(private val apiKeyService: APIKeyService) : APIKeyFilter, WebFilter {
 
     override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
         val request = exchange.request
@@ -21,7 +22,9 @@ class APIKeyFilterImpl(private val apiKeyService: APIKeyServiceImpl) : APIKeyFil
                 return chain.filter(exchange)
 
             val apiKey = runBlocking { apiKeyService.getAPIKey(key[0], secret[0]) }
-            if (apiKey != null && apiKey.isEnabled && apiKey.accessToken != null && !apiKey.isExpired) {
+            if (apiKey != null && apiKey.isEnabled && apiKey.accessToken != null && !apiKey.isExpired &&
+                isAllowedClientIp(apiKey, exchange)
+            ) {
                 val req = exchange.request.mutate()
                     .header("Authorization", "Bearer ${apiKey.accessToken}")
                     .build()
@@ -29,6 +32,21 @@ class APIKeyFilterImpl(private val apiKeyService: APIKeyServiceImpl) : APIKeyFil
             }
         }
         return chain.filter(exchange)
+    }
+
+    private fun isAllowedClientIp(apiKey: APIKey, exchange: ServerWebExchange): Boolean {
+        val allowedIps = apiKey.allowedIPs
+            ?.split(',', ';', ' ', '\n', '\t')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: return true
+        if (allowedIps.isEmpty())
+            return true
+
+        val remoteAddress = exchange.request.remoteAddress?.address?.hostAddress
+            ?: exchange.request.remoteAddress?.hostString
+            ?: return false
+        return allowedIps.contains(remoteAddress)
     }
 
 }
