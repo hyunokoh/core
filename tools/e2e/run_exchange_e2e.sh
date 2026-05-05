@@ -2662,6 +2662,79 @@ main() {
     sleep 2
   done
 
+  local edit_bid_owner="e2e-edit-bid-$(date +%s)"
+  local edit_bid_ref="e2e-edit-bid-$(date +%s)"
+  expect_2xx "edit bid owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-tether_USDT/${edit_bid_owner}_MAIN?description=e2e-edit-bid&transferRef=${edit_bid_ref}-usdt")" >/dev/null
+  local edit_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.5,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "edit bid owner resting bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$edit_bid' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid.json
+  wait_user_open_order "$edit_bid_owner" "ETH_USDT" "100" "0.5" /tmp/opex-e2e-edit-bid-open-orders.json
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$edit_bid_owner" "USDT" "50"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for edit bid owner USDT reservation before edit" >&2
+      assert_wallet_balance "edit bid owner USDT reserved before edit" "$edit_bid_owner" "USDT" "50" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
+  local edit_bid_ouid edit_bid_order_id edit_bid_request
+  edit_bid_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-edit-bid-open-orders.json)"
+  edit_bid_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-edit-bid-open-orders.json)"
+  edit_bid_request="$(jq -nc --arg ouid "$edit_bid_ouid" --arg uuid "$edit_bid_owner" --argjson orderId "$edit_bid_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:90, quantity:0.4}')"
+  expect_2xx_retry "edit owner reduce resting bid" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$edit_bid_request' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid-response.json
+  wait_user_open_order "$edit_bid_owner" "ETH_USDT" "90" "0.4" /tmp/opex-e2e-edit-bid-updated-open-orders.json
+  assert_no_user_order_by_price "$edit_bid_owner" "ETH_USDT" "100" "0.5"
+  wait_order_book_level "ETH_USDT" "BID" "90" "0.4"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$edit_bid_owner" "USDT" "64"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for edit bid owner USDT release after reduced bid" >&2
+      assert_wallet_balance "edit bid owner USDT released after reduced bid" "$edit_bid_owner" "USDT" "64" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  wait_query_eq "edit bid order accountant projection" "postgres-accountant" "90.00000000,0.40000000,0.40000000,36.00000000" "
+    select to_char(orig_price, 'FM9999999990.00000000'),
+           to_char(orig_quantity, 'FM9999999990.00000000'),
+           to_char((quantity - filled_quantity) * left_side_fraction, 'FM9999999990.00000000'),
+           to_char(remained_transfer_amount, 'FM9999999990.00000000')
+    from orders
+    where uuid = '$edit_bid_owner'
+      and ouid = '$edit_bid_ouid';
+  "
+  wait_query_eq "edit bid order eventlog update event" "postgres-eventlog" "UpdatedOrderEvent,1,0" "
+    select event,
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'UpdatedOrderEvent'
+      and uuid = '$edit_bid_owner'
+      and event_json::jsonb ->> 'price' = '9000'
+      and event_json::jsonb ->> 'quantity' = '400000'
+      and event_json::jsonb ->> 'oldPrice' = '10000'
+      and event_json::jsonb ->> 'oldQuantity' = '500000'
+    group by event;
+  "
+  local edit_bid_cancel_request
+  edit_bid_cancel_request="$(jq -nc --arg ouid "$edit_bid_ouid" --arg uuid "$edit_bid_owner" --argjson orderId "$edit_bid_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  expect_2xx_retry "cancel edited bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$edit_bid_cancel_request' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid-cancel.json
+  wait_no_user_open_orders "$edit_bid_owner" "ETH_USDT"
+  wait_order_projection "$edit_bid_owner" "$edit_bid_ouid" "CANCELED" "0" "0"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$edit_bid_owner" "USDT" "100"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for edit bid owner USDT release after cleanup" >&2
+      assert_wallet_balance "edit bid owner USDT released after cleanup" "$edit_bid_owner" "USDT" "100" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
   local reject_owner="e2e-reject-$(date +%s)"
   local underfunded_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   expect_http_status "underfunded ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$underfunded_ask" "$reject_owner")" >/tmp/opex-e2e-reject-order.json
@@ -2804,7 +2877,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,49\nFEE,32\nORDER_CANCEL,19\nORDER_CREATE,44\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,50\nFEE,32\nORDER_CANCEL,21\nORDER_CREATE,45\nORDER_FINALIZED,1\nTRADE,32\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -2815,7 +2888,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,27.05400000\nUSDT,2465.74400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,27.05400000\nUSDT,2565.74400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -2879,7 +2952,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,16\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,44\nTradeEvent,PROCESSED,65\nUpdatedOrderEvent,PROCESSED,1' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,17\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,45\nTradeEvent,PROCESSED,65\nUpdatedOrderEvent,PROCESSED,2' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -3596,7 +3669,7 @@ main() {
   wait_order_book_empty "BTC_USDT" "BID"
 
   echo "E2E exchange flow passed"
-  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
+  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller editBidOwner=$edit_bid_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
   cat > /tmp/opex-e2e-summary.json <<EOF
 {
   "status": "passed",
@@ -3642,6 +3715,7 @@ main() {
   "selfTradeOwner": "$self_trade_owner",
   "layeredSelfTradeOwner": "$layered_self_trade_owner",
   "layeredExternalSeller": "$layered_external_seller",
+  "editBidOwner": "$edit_bid_owner",
   "rejectOwner": "$reject_owner",
   "bidRejectOwner": "$bid_reject_owner",
   "invalidOwner": "$invalid_owner",
@@ -3815,6 +3889,11 @@ main() {
     "editedAskPrice": 122,
     "editedAskQuantity": 0.3,
     "releasedBaseQuantity": 0.1,
+    "initialBidPrice": 100,
+    "initialBidQuantity": 0.5,
+    "editedBidPrice": 90,
+    "editedBidQuantity": 0.4,
+    "releasedQuoteAmount": 14,
     "status": "UPDATED_AND_CANCELED"
   },
   "rejectScenario": {
@@ -3908,9 +3987,9 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 49,
+      "DEPOSIT": 50,
       "FEE": 32,
-      "ORDER_CANCEL": 20,
+      "ORDER_CANCEL": 21,
       "ORDER_CREATE": 45,
       "ORDER_FINALIZED": 1,
       "TRADE": 32,
@@ -3921,7 +4000,7 @@ main() {
     },
     "walletAggregateBalances": {
       "ETH": 27.054,
-      "USDT": 2465.744
+      "USDT": 2565.744
     },
     "walletWithdrawStatuses": {
       "CANCELED": 1,
@@ -3937,7 +4016,7 @@ main() {
       "RejectOrderEvent": 18,
       "SubmitOrderEvent": 45,
       "TradeEvent": 65,
-      "UpdatedOrderEvent": 1
+      "UpdatedOrderEvent": 2
     },
     "accountantRetryQueueDrained": true,
     "walletNegativeBalances": 0,
