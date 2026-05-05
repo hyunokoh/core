@@ -62,30 +62,31 @@ Runs a real Docker-backed exchange E2E flow:
   16. Verify a different user cannot edit someone else's open order.
   17. Verify a duplicate cancel of an already canceled order does not release funds twice.
   18. Verify malformed cancel requests are rejected before they reach market state.
-  19. Verify an unsupported FOK order is rejected at the gateway before it reaches market state.
-  20. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
-  20b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
-  21. Verify underfunded ask/bid orders are rejected before they reach market state.
-  22. Verify invalid order parameters are rejected before they reach market state.
-  23. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
-  24. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
-  25. Verify wallet/accountant/market database invariants after settlement.
-  26. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  27. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  28. Restart Market and verify public market state is still available from persisted data.
-  29. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  30. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  31. Restart Matching Engine with an open order and verify it can still be matched.
-  32. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  33. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  34. Restart Matching Gateway and verify new order submission still works.
-  35. Restart all core exchange services and verify a fresh trade still settles.
-  36. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  37. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  38. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  39. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  40. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  41. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  19. Verify malformed edit requests are rejected before they reach market state.
+  20. Verify an unsupported FOK order is rejected at the gateway before it reaches market state.
+  21. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
+  21b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
+  22. Verify underfunded ask/bid orders are rejected before they reach market state.
+  23. Verify invalid order parameters are rejected before they reach market state.
+  24. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
+  25. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
+  26. Verify wallet/accountant/market database invariants after settlement.
+  27. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  28. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  29. Restart Market and verify public market state is still available from persisted data.
+  30. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  31. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  32. Restart Matching Engine with an open order and verify it can still be matched.
+  33. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  34. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  35. Restart Matching Gateway and verify new order submission still works.
+  36. Restart all core exchange services and verify a fresh trade still settles.
+  37. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  38. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  39. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  40. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  41. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  42. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -2420,6 +2421,53 @@ main() {
     sleep 2
   done
 
+  local malformed_edit_owner="e2e-bad-edit-$(date +%s)"
+  local malformed_edit_ref="e2e-bad-edit-$(date +%s)"
+  expect_2xx "malformed-edit owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${malformed_edit_owner}_MAIN?description=e2e-bad-edit&transferRef=${malformed_edit_ref}-eth")" >/dev/null
+
+  local malformed_edit_ask='{"uuid":null,"pair":"ETH_USDT","price":172,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "malformed-edit owner ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$malformed_edit_ask' '$malformed_edit_owner'" >/tmp/opex-e2e-bad-edit-ask.json
+  wait_user_open_order "$malformed_edit_owner" "ETH_USDT" "172" "0.4" /tmp/opex-e2e-bad-edit-open-orders.json
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$malformed_edit_owner" "ETH" "0.6"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for malformed-edit owner reservation" >&2
+      assert_wallet_balance "malformed-edit owner ETH reserved before invalid edits" "$malformed_edit_owner" "ETH" "0.6" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-gateway >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
+  local malformed_edit_ouid malformed_edit_order_id malformed_edit_bad_symbol malformed_edit_negative_id malformed_edit_zero_price malformed_edit_bad_precision malformed_edit_owner_request
+  malformed_edit_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-bad-edit-open-orders.json)"
+  malformed_edit_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-bad-edit-open-orders.json)"
+  malformed_edit_bad_symbol="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" --argjson orderId "$malformed_edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETHUSDT", price:173, quantity:0.3}')"
+  malformed_edit_negative_id="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" '{ouid:$ouid, uuid:$uuid, orderId:-1, symbol:"ETH_USDT", price:173, quantity:0.3}')"
+  malformed_edit_zero_price="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" --argjson orderId "$malformed_edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:0, quantity:0.3}')"
+  malformed_edit_bad_precision="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" --argjson orderId "$malformed_edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:173.001, quantity:0.3}')"
+  expect_http_status "malformed edit bad symbol" "400" "$(curl_json POST "http://127.0.0.1:8093/order/edit" "$malformed_edit_bad_symbol" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-symbol.json
+  expect_http_status "malformed edit negative order id" "400" "$(curl_json POST "http://127.0.0.1:8093/order/edit" "$malformed_edit_negative_id" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-negative-id.json
+  expect_http_status "malformed edit zero price" "400" "$(curl_json POST "http://127.0.0.1:8093/order/edit" "$malformed_edit_zero_price" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-zero-price.json
+  expect_http_status "malformed edit price precision" "400" "$(curl_json POST "http://127.0.0.1:8093/order/edit" "$malformed_edit_bad_precision" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-price-precision.json
+  wait_user_open_order "$malformed_edit_owner" "ETH_USDT" "172" "0.4" /tmp/opex-e2e-bad-edit-open-orders.json
+  assert_no_user_order_by_price "$malformed_edit_owner" "ETH_USDT" "173" "0.3"
+  assert_wallet_balance "malformed-edit owner ETH still reserved after invalid edits" "$malformed_edit_owner" "ETH" "0.6"
+
+  malformed_edit_owner_request="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" --argjson orderId "$malformed_edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  expect_2xx_retry "malformed-edit owner cleanup cancel" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$malformed_edit_owner_request' '$malformed_edit_owner'" >/tmp/opex-e2e-bad-edit-cleanup.json
+  wait_no_user_open_orders "$malformed_edit_owner" "ETH_USDT"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$malformed_edit_owner" "ETH" "1"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for malformed-edit owner release settlement" >&2
+      assert_wallet_balance "malformed-edit owner ETH released after cleanup" "$malformed_edit_owner" "ETH" "1" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
   local fok_owner="e2e-fok-$(date +%s)"
   local fok_ref="e2e-fok-$(date +%s)"
   expect_2xx "fok owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${fok_owner}_MAIN?description=e2e-fok&transferRef=${fok_ref}-eth")" >/dev/null
@@ -2953,7 +3001,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,52\nFEE,34\nORDER_CANCEL,22\nORDER_CREATE,47\nORDER_FINALIZED,1\nTRADE,34\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,53\nFEE,34\nORDER_CANCEL,23\nORDER_CREATE,48\nORDER_FINALIZED,1\nTRADE,34\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -2964,7 +3012,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,28.05200000\nUSDT,2665.54400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,29.05200000\nUSDT,2665.54400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -3028,7 +3076,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,17\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,47\nTradeEvent,PROCESSED,69\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,18\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,48\nTradeEvent,PROCESSED,69\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -3745,7 +3793,7 @@ main() {
   wait_order_book_empty "BTC_USDT" "BID"
 
   echo "E2E exchange flow passed"
-  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller editBidOwner=$edit_bid_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
+  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder malformedEditOwner=$malformed_edit_owner fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller editBidOwner=$edit_bid_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
   cat > /tmp/opex-e2e-summary.json <<EOF
 {
   "status": "passed",
@@ -3787,6 +3835,7 @@ main() {
   "bidOverreserveOwner": "$bid_overreserve_owner",
   "cancelAuthOwner": "$cancel_auth_owner",
   "cancelAuthIntruder": "$cancel_auth_intruder",
+  "malformedEditOwner": "$malformed_edit_owner",
   "fokOwner": "$fok_owner",
   "selfTradeOwner": "$self_trade_owner",
   "layeredSelfTradeOwner": "$layered_self_trade_owner",
@@ -3942,6 +3991,13 @@ main() {
     "intruderEditStatus": "REJECTED_ASYNC_NO_BOOK_OR_BALANCE_CHANGE",
     "ownerCancelStatus": "CANCELED",
     "duplicateOwnerCancelStatus": "REJECTED_ASYNC_NO_BALANCE_CHANGE"
+  },
+  "malformedEditScenario": {
+    "restingAskPrice": 172,
+    "restingAskQuantity": 0.4,
+    "rejectedEditPrice": 173,
+    "rejectedEditQuantity": 0.3,
+    "status": "HTTP_400_GATEWAY_REJECT_NO_BOOK_OR_BALANCE_CHANGE"
   },
   "unsupportedFokScenario": {
     "price": 777,
@@ -4202,6 +4258,7 @@ main() {
     "overreserveOwner": {"ETH": 1},
     "bidOverreserveOwner": {"USDT": 100},
     "cancelAuthOwner": {"ETH": 1},
+    "malformedEditOwner": {"ETH": 1},
     "fokOwner": {"ETH": 1},
     "selfTradeOwner": {"ETH": 1, "USDT": 100},
     "layeredSelfTradeOwner": {"ETH": 1, "USDT": 100},

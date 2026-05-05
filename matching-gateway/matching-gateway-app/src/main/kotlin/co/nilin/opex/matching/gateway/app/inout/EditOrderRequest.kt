@@ -2,7 +2,7 @@ package co.nilin.opex.matching.gateway.app.inout
 
 import java.math.BigDecimal
 
-class EditOrderRequest(
+data class EditOrderRequest(
     val ouid: String,
     var uuid: String,
     val orderId: Long,

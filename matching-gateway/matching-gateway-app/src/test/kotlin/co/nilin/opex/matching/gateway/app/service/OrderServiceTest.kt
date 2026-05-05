@@ -5,6 +5,7 @@ import co.nilin.opex.matching.engine.core.model.MatchConstraint
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.gateway.app.inout.CancelOrderRequest
+import co.nilin.opex.matching.gateway.app.inout.EditOrderRequest
 import co.nilin.opex.matching.gateway.app.inout.PairConfig
 import co.nilin.opex.matching.gateway.app.service.sample.VALID
 import co.nilin.opex.matching.gateway.app.spi.AccountantApiProxy
@@ -240,6 +241,21 @@ private class OrderServiceTest {
     }
 
     @Test
+    fun givenOrder_whenEditOrder_thenPublishesEditToKafka(): Unit = runBlocking {
+        val service = orderService()
+
+        consumer().use { kafkaConsumer ->
+            service.editOrder(VALID.EDIT_ORDER_REQUEST)
+            val recordValue = nextRecordValue(kafkaConsumer)
+
+            assertThat(recordValue).contains("\"orderId\":1")
+            assertThat(recordValue).contains("\"price\":10000000")
+            assertThat(recordValue).contains("\"quantity\":10")
+            assertThat(recordValue).contains(VALID.OUID)
+        }
+    }
+
+    @Test
     fun givenInconsistentPairConfig_whenSubmitNewOrder_thenThrowServiceUnavailableBeforeAccountantCheck(): Unit = runBlocking {
         val accountant = RecordingAccountantApiProxy()
         val mismatchedConfig = PairConfig(
@@ -304,6 +320,17 @@ private class OrderServiceTest {
     }
 
     @Test
+    fun givenInvalidEditRequestAndKafkaUnhealthy_whenEditOrder_thenThrowBadRequestBeforeHealthCheck(): Unit = runBlocking {
+        val unhealthyIndicator = KafkaHealthIndicator(adminClient, healthyNodeSize = 2)
+        unhealthyIndicator.check()
+        val service = orderService(healthIndicator = unhealthyIndicator)
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(orderId = -1)) }
+        }.isBadRequest()
+    }
+
+    @Test
     fun givenInvalidCancelRequest_whenCancelOrder_thenThrowBeforeKafkaPublish(): Unit = runBlocking {
         val service = orderService()
 
@@ -321,6 +348,43 @@ private class OrderServiceTest {
 
         assertThatThrownBy {
             runBlocking { service.cancelOrder(CancelOrderRequest(VALID.OUID, " ", 1, VALID.ETH_USDT)) }
+        }.isBadRequest()
+    }
+
+    @Test
+    fun givenInvalidEditRequest_whenEditOrder_thenThrowBeforeKafkaPublish(): Unit = runBlocking {
+        val service = orderService()
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(symbol = "ETHUSDT")) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(orderId = -1)) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(ouid = "")) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(uuid = " ")) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(price = BigDecimal.ZERO)) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(quantity = BigDecimal.ZERO)) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(price = BigDecimal("100000.00001"))) }
+        }.isBadRequest()
+
+        assertThatThrownBy {
+            runBlocking { service.editOrder(VALID.EDIT_ORDER_REQUEST.copy(quantity = BigDecimal("0.00101"))) }
         }.isBadRequest()
     }
 

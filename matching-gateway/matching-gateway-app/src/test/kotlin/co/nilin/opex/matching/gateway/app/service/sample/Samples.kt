@@ -5,6 +5,7 @@ import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.matching.engine.core.model.OrderType
 import co.nilin.opex.matching.gateway.app.inout.CancelOrderRequest
 import co.nilin.opex.matching.gateway.app.inout.CreateOrderRequest
+import co.nilin.opex.matching.gateway.app.inout.EditOrderRequest
 import co.nilin.opex.matching.gateway.app.inout.PairConfig
 import java.math.BigDecimal
 
@@ -41,5 +42,14 @@ object VALID {
         UUID,
         1,
         ETH_USDT
+    )
+
+    val EDIT_ORDER_REQUEST = EditOrderRequest(
+        OUID,
+        UUID,
+        1,
+        ETH_USDT,
+        BigDecimal.valueOf(100000),
+        BigDecimal.valueOf(0.001)
     )
 }
