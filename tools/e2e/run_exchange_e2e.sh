@@ -69,21 +69,22 @@ Runs a real Docker-backed exchange E2E flow:
   22. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
   23. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   24. Verify wallet/accountant/market database invariants after settlement.
-  25. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  26. Restart Market and verify public market state is still available from persisted data.
-  27. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  28. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  29. Restart Matching Engine with an open order and verify it can still be matched.
-  30. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  31. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  32. Restart Matching Gateway and verify new order submission still works.
-  33. Restart all core exchange services and verify a fresh trade still settles.
-  34. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  35. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  36. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  37. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  38. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  39. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  25. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  26. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  27. Restart Market and verify public market state is still available from persisted data.
+  28. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  29. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  30. Restart Matching Engine with an open order and verify it can still be matched.
+  31. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  32. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  33. Restart Matching Gateway and verify new order submission still works.
+  34. Restart all core exchange services and verify a fresh trade still settles.
+  35. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  36. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  37. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  38. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  39. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  40. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -178,7 +179,7 @@ package_apps() {
   fi
 
   "$mvn_bin" \
-    -pl wallet/wallet-app,accountant/accountant-app,matching-engine/matching-engine-app,matching-gateway/matching-gateway-app,market/market-app \
+    -pl wallet/wallet-app,accountant/accountant-app,matching-engine/matching-engine-app,matching-gateway/matching-gateway-app,market/market-app,api/api-app \
     -am \
     package \
     -DskipTests
@@ -1092,6 +1093,77 @@ wait_recent_trade_level() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_exchange_info_symbol() {
+  local symbol="$1"
+  local base="$2"
+  local quote="$3"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(curl -fsS "http://127.0.0.1:8094/v3/exchangeInfo?symbol=${symbol}")" &&
+    printf '%s\n' "$body" | jq -e --arg symbol "$symbol" --arg base "$base" --arg quote "$quote" '
+      [.symbols[] | select(.symbol == $symbol and .status == "TRADING" and .baseAsset == $base and .quoteAsset == $quote)] | length == 1
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance exchangeInfo symbol=$symbol" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api accountant >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+wait_binance_depth_level() {
+  local symbol="$1"
+  local side="$2"
+  local price="$3"
+  local quantity="$4"
+  local output_file="$5"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local field body
+  case "$side" in
+    BID) field="bids" ;;
+    ASK) field="asks" ;;
+    *) echo "Invalid Binance depth side: $side" >&2; exit 2 ;;
+  esac
+  until body="$(curl -fsS "http://127.0.0.1:8094/v3/depth?symbol=${symbol}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e --arg field "$field" --argjson price "$price" --argjson quantity "$quantity" '
+      [.[$field][] | select(.[0] == $price and .[1] == $quantity)] | length >= 1
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance depth symbol=$symbol side=$side price=$price quantity=$quantity" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_recent_trade_level() {
+  local symbol="$1"
+  local price="$2"
+  local quantity="$3"
+  local quote_quantity="$4"
+  local output_file="$5"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(curl -fsS "http://127.0.0.1:8094/v3/trades?symbol=${symbol}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" --argjson quote_quantity "$quote_quantity" '
+      [.[] | select(.price == $price and .qty == $quantity and .quoteQty == $quote_quantity)] | length >= 1
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance recent trade symbol=$symbol price=$price quantity=$quantity quote=$quote_quantity" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_order_status() {
   local owner="$1"
   local ouid="$2"
@@ -1257,6 +1329,10 @@ main() {
   wait_log "market" "market richOrder consumer" "richOrder-0"
   sleep 10
 
+  "${COMPOSE[@]}" up -d --no-deps api
+  wait_http "api" "http://127.0.0.1:8094/actuator/health"
+  wait_binance_exchange_info_symbol "ETHUSDT" "ETH" "USDT"
+
   local seller="e2e-seller-$(date +%s)"
   local buyer="e2e-buyer-$(date +%s)"
   local ref="e2e-$(date +%s)"
@@ -1284,6 +1360,7 @@ main() {
     fi
     sleep 2
   done
+  wait_binance_recent_trade_level "ETHUSDT" "100" "1" "100" /tmp/opex-e2e-binance-recent-trades.json
 
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$seller" "USDT" "99" &&
@@ -1579,6 +1656,7 @@ main() {
 
   wait_user_open_order "$cancel_owner" "ETH_USDT" "150" "0.25" /tmp/opex-e2e-cancel-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "150" "0.25"
+  wait_binance_depth_level "ETHUSDT" "ASK" "150" "0.25" /tmp/opex-e2e-binance-depth.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$cancel_owner" "ETH" "0.75"; do
     if (( SECONDS > deadline )); then
