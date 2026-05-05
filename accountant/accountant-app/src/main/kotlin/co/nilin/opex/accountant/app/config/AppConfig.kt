@@ -91,8 +91,7 @@ class AppConfig {
         feeCalculator: FeeCalculator,
         financialActionPublisher: FinancialActionPublisher,
         jsonMapper: JsonMapper,
-        processedEventPersister: ProcessedEventPersister,
-        orderManager: OrderManager
+        processedEventPersister: ProcessedEventPersister
     ): TradeManager {
         return TradeManagerImpl(
             financeActionPersister,
@@ -104,8 +103,7 @@ class AppConfig {
             feeCalculator,
             financialActionPublisher,
             jsonMapper,
-            processedEventPersister,
-            orderManager
+            processedEventPersister
         )
     }
 

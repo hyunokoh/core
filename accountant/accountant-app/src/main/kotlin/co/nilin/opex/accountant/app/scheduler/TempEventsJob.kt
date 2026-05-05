@@ -88,6 +88,8 @@ class TempEventsJob : DisposableBean {
                                 is TradeEvent -> tradeManager.handleTrade(event)
                                 else -> log.debug("Skipping unsupported temp event {}", event::class.simpleName)
                             }
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             log.warn(
                                 "Temp event {} for ouid {} is still not ready; keeping it for retry",

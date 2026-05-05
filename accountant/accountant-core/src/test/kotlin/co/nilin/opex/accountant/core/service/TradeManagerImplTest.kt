@@ -385,21 +385,8 @@ internal class TradeManagerImplTest {
     }
 
     @Test
-    fun givenIocMarketBidCancelArrivesBeforeTrade_whenTradeHandled_thenReplayCancelAndReleaseRemainder(): Unit =
+    fun givenIocMarketBidCancelArrivesBeforeTrade_whenTradeCommits_thenDeferredCancelCanReleaseRemainder(): Unit =
         runBlocking {
-            val replayingTradeManager = TradeManagerImpl(
-                financialActionStore,
-                financialActionStore,
-                orderPersister,
-                tempEventPersister,
-                richTradePublisher,
-                richOrderPublisher,
-                FeeCalculatorImpl("0x0", jsonMapper),
-                financialActionPublisher,
-                jsonMapper,
-                processedEventPersister,
-                orderManager
-            )
             val pair = Pair("ETH", "USDT")
             val pairConfig = PairConfig(
                 pair.toString(),
@@ -451,7 +438,11 @@ internal class TradeManagerImplTest {
             assertThat(orderManager.handleCancelOrder(cancelEvent)).isEmpty()
             assertThat(tempEventPersister.loadTempEvents(takerBid.ouid)).containsExactly(cancelEvent)
 
-            replayingTradeManager.handleTrade(makeTradeEvent(pair, takerBid, lowAsk, 100000))
+            tradeManager.handleTrade(makeTradeEvent(pair, takerBid, lowAsk, 100000))
+
+            assertThat(tempEventPersister.loadTempEvents(takerBid.ouid)).containsExactly(cancelEvent)
+
+            orderManager.handleCancelOrder(cancelEvent)
 
             val takerOrder = orderPersister.orders.getValue(takerBid.ouid)
             assertThat(takerOrder.status).isEqualTo(OrderStatus.CANCELED.code)

@@ -2087,7 +2087,7 @@ main() {
   wait_user_trade_quote_quantity "$priority_seller" "ETH_USDT" "140" "0.2" "28"
   wait_user_trade_price "$priority_high_buyer" "ETH_USDT" "140" "0.2"
   wait_no_user_open_orders "$priority_high_buyer" "ETH_USDT"
-  wait_order_status "$priority_low_buyer" "$priority_low_ouid" "NEW"
+  wait_order_projection "$priority_low_buyer" "$priority_low_ouid" "NEW" "0" "0"
   wait_order_book_level "ETH_USDT" "BID" "110" "0.2"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$priority_seller" "ETH" "0.8" &&
@@ -2111,7 +2111,7 @@ main() {
   priority_low_cancel_request="$(jq -nc --arg ouid "$priority_low_ouid" --arg uuid "$priority_low_buyer" --argjson orderId "$priority_low_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel priority low bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$priority_low_cancel_request' '$priority_low_buyer'" >/tmp/opex-e2e-priority-low-cancel.json
   wait_no_user_open_orders "$priority_low_buyer" "ETH_USDT"
-  wait_order_status "$priority_low_buyer" "$priority_low_ouid" "CANCELED"
+  wait_order_projection "$priority_low_buyer" "$priority_low_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$priority_low_buyer" "USDT" "30"; do
     if (( SECONDS > deadline )); then
@@ -2153,7 +2153,7 @@ main() {
   wait_user_trade_quote_quantity "$fifo_seller" "ETH_USDT" "125" "0.2" "25"
   wait_user_trade_price "$fifo_first_buyer" "ETH_USDT" "125" "0.2"
   wait_no_user_open_orders "$fifo_first_buyer" "ETH_USDT"
-  wait_order_status "$fifo_second_buyer" "$fifo_second_ouid" "NEW"
+  wait_order_projection "$fifo_second_buyer" "$fifo_second_ouid" "NEW" "0" "0"
   wait_order_book_level "ETH_USDT" "BID" "125" "0.2"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$fifo_seller" "ETH" "0.8" &&
@@ -2177,7 +2177,7 @@ main() {
   fifo_second_cancel_request="$(jq -nc --arg ouid "$fifo_second_ouid" --arg uuid "$fifo_second_buyer" --argjson orderId "$fifo_second_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel fifo second bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$fifo_second_cancel_request' '$fifo_second_buyer'" >/tmp/opex-e2e-fifo-second-cancel.json
   wait_no_user_open_orders "$fifo_second_buyer" "ETH_USDT"
-  wait_order_status "$fifo_second_buyer" "$fifo_second_ouid" "CANCELED"
+  wait_order_projection "$fifo_second_buyer" "$fifo_second_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$fifo_second_buyer" "USDT" "30"; do
     if (( SECONDS > deadline )); then
@@ -2226,7 +2226,7 @@ main() {
   overreserve_cancel_request="$(jq -nc --arg ouid "$overreserve_ouid" --arg uuid "$overreserve_owner" --argjson orderId "$overreserve_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel overreserve first ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$overreserve_cancel_request' '$overreserve_owner'" >/tmp/opex-e2e-overreserve-cancel.json
   wait_no_user_open_orders "$overreserve_owner" "ETH_USDT"
-  wait_order_status "$overreserve_owner" "$overreserve_ouid" "CANCELED"
+  wait_order_projection "$overreserve_owner" "$overreserve_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$overreserve_owner" "ETH" "1"; do
     if (( SECONDS > deadline )); then
@@ -2275,7 +2275,7 @@ main() {
   bid_overreserve_cancel_request="$(jq -nc --arg ouid "$bid_overreserve_ouid" --arg uuid "$bid_overreserve_owner" --argjson orderId "$bid_overreserve_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel bid-overreserve first bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$bid_overreserve_cancel_request' '$bid_overreserve_owner'" >/tmp/opex-e2e-bid-overreserve-cancel.json
   wait_no_user_open_orders "$bid_overreserve_owner" "ETH_USDT"
-  wait_order_status "$bid_overreserve_owner" "$bid_overreserve_ouid" "CANCELED"
+  wait_order_projection "$bid_overreserve_owner" "$bid_overreserve_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$bid_overreserve_owner" "USDT" "100"; do
     if (( SECONDS > deadline )); then
@@ -2325,7 +2325,7 @@ main() {
   cancel_auth_owner_request="$(jq -nc --arg ouid "$cancel_auth_ouid" --arg uuid "$cancel_auth_owner" --argjson orderId "$cancel_auth_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "owner cancel after intruder reject" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$cancel_auth_owner_request' '$cancel_auth_owner'" >/tmp/opex-e2e-cancel-auth-owner-cancel.json
   wait_no_user_open_orders "$cancel_auth_owner" "ETH_USDT"
-  wait_order_status "$cancel_auth_owner" "$cancel_auth_ouid" "CANCELED"
+  wait_order_projection "$cancel_auth_owner" "$cancel_auth_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$cancel_auth_owner" "ETH" "1"; do
     if (( SECONDS > deadline )); then
@@ -2452,7 +2452,7 @@ main() {
   self_trade_cancel_request="$(jq -nc --arg ouid "$self_trade_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel self-trade resting ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$self_trade_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-cancel.json
   wait_no_user_open_orders "$self_trade_owner" "ETH_USDT"
-  wait_order_status "$self_trade_owner" "$self_trade_ouid" "CANCELED"
+  wait_order_projection "$self_trade_owner" "$self_trade_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$self_trade_owner" "ETH" "1"; do
     if (( SECONDS > deadline )); then
@@ -2527,7 +2527,7 @@ main() {
   layered_external_cancel_request="$(jq -nc --arg ouid "$layered_external_ouid" --arg uuid "$layered_external_seller" --argjson orderId "$layered_external_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel layered-stp external ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$layered_external_cancel_request' '$layered_external_seller'" >/tmp/opex-e2e-layered-stp-external-cancel.json
   wait_no_user_open_orders "$layered_external_seller" "ETH_USDT"
-  wait_order_status "$layered_external_seller" "$layered_external_ouid" "CANCELED"
+  wait_order_projection "$layered_external_seller" "$layered_external_ouid" "CANCELED" "0" "0"
 
   local layered_owner_ouid layered_owner_order_id layered_owner_cancel_request
   layered_owner_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-layered-stp-owner-open-orders.json)"
@@ -2535,7 +2535,7 @@ main() {
   layered_owner_cancel_request="$(jq -nc --arg ouid "$layered_owner_ouid" --arg uuid "$layered_self_trade_owner" --argjson orderId "$layered_owner_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel layered-stp owner ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$layered_owner_cancel_request' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-owner-cancel.json
   wait_no_user_open_orders "$layered_self_trade_owner" "ETH_USDT"
-  wait_order_status "$layered_self_trade_owner" "$layered_owner_ouid" "CANCELED"
+  wait_order_projection "$layered_self_trade_owner" "$layered_owner_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$layered_external_seller" "ETH" "0.1" &&
     try_wallet_balance "$layered_self_trade_owner" "ETH" "1"; do
@@ -2909,7 +2909,7 @@ main() {
     best_price_cancel_request="$(jq -nc --arg ouid "$best_price_ouid" --arg uuid "$best_price_owner" --argjson orderId "$best_price_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
     expect_2xx_retry "cancel best-price order" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$best_price_cancel_request' '$best_price_owner'" >/tmp/opex-e2e-best-price-cancel.json
     wait_no_user_open_orders "$best_price_owner" "ETH_USDT"
-    wait_order_status "$best_price_owner" "$best_price_ouid" "CANCELED"
+    wait_order_projection "$best_price_owner" "$best_price_ouid" "CANCELED" "0" "0"
   done
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
@@ -2941,7 +2941,7 @@ main() {
 
   expect_2xx_retry "market-bid-cap market bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_bid' '$market_bid_cap_buyer'" >/tmp/opex-e2e-market-bid-cap-bid.json
   wait_no_user_open_orders "$market_bid_cap_low_seller" "ETH_USDT"
-  wait_order_status "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "NEW"
+  wait_order_projection "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "NEW" "0" "0"
   wait_order_book_level "ETH_USDT" "ASK" "100" "0.1"
   wait_user_trade_price "$market_bid_cap_low_seller" "ETH_USDT" "90" "0.1"
   wait_user_trade_price "$market_bid_cap_buyer" "ETH_USDT" "90" "0.1"
@@ -2967,7 +2967,7 @@ main() {
   market_bid_cap_high_cancel_request="$(jq -nc --arg ouid "$market_bid_cap_high_ouid" --arg uuid "$market_bid_cap_high_seller" --argjson orderId "$market_bid_cap_high_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel market-bid-cap high ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$market_bid_cap_high_cancel_request' '$market_bid_cap_high_seller'" >/tmp/opex-e2e-market-bid-cap-high-cancel.json
   wait_no_user_open_orders "$market_bid_cap_high_seller" "ETH_USDT"
-  wait_order_status "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "CANCELED"
+  wait_order_projection "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$market_bid_cap_high_seller" "ETH" "1"; do
     if (( SECONDS > deadline )); then
