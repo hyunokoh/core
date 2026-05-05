@@ -34,8 +34,14 @@ services:
     profiles:
       - full-stack
   eventlog:
-    profiles:
-      - full-stack
+    depends_on: !override
+      - kafka-1
+      - consul
+      - vault
+      - postgres-eventlog
+    environment:
+      - KAFKA_IP_PORT=kafka-1:29092
+      - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
   matching-engine-duo:
     depends_on: !override
       - kafka-1

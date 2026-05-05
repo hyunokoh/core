@@ -179,10 +179,10 @@ package_apps() {
   fi
 
   "$mvn_bin" \
-    -pl wallet/wallet-app,accountant/accountant-app,matching-engine/matching-engine-app,matching-gateway/matching-gateway-app,market/market-app,api/api-app \
+    -pl wallet/wallet-app,accountant/accountant-app,matching-engine/matching-engine-app,matching-gateway/matching-gateway-app,market/market-app,eventlog/eventlog-app,api/api-app \
     -am \
     package \
-    -DskipTests
+    -Dmaven.test.skip=true
 }
 
 require_command() {
@@ -275,6 +275,7 @@ wait_exchange_consumer_groups_stable_since() {
   wait_consumer_group_stable "engine" "$label engine consumer group"
   wait_consumer_group_stable "accountant" "$label accountant consumer group"
   wait_consumer_group_stable "market" "$label market consumer group"
+  wait_consumer_group_stable "eventlog" "$label eventlog consumer group"
 }
 
 wait_consumer_group_stable() {
@@ -309,7 +310,7 @@ remove_full_stack_residue() {
   # E2E is intentionally single-broker. Stale full-stack containers can rejoin
   # ZooKeeper and change topic leadership/metadata while the test is running.
   "${COMPOSE_FULL_STACK[@]}" rm -f -s -v \
-    kafka-2 kafka-3 akhq eventlog matching-engine-duo auth api bc-gateway postgres-opex \
+    kafka-2 kafka-3 akhq matching-engine-duo auth api bc-gateway postgres-opex \
     >/dev/null 2>&1 || true
 }
 
@@ -441,9 +442,10 @@ restart_matching_gateway_and_wait() {
 restart_core_services_and_wait() {
   local since
   since="$(log_since_now)"
-  "${COMPOSE[@]}" restart matching-gateway matching-engine accountant wallet market
+  "${COMPOSE[@]}" restart matching-gateway matching-engine accountant wallet market eventlog
   wait_http "wallet" "http://127.0.0.1:8091/actuator/health"
   wait_http "accountant" "http://127.0.0.1:8089/actuator/health"
+  wait_http "eventlog" "http://127.0.0.1:8090/actuator/health"
   wait_http "matching-engine" "http://127.0.0.1:8092/actuator/health"
   wait_http "matching-gateway" "http://127.0.0.1:8093/actuator/health"
   wait_http "market" "http://127.0.0.1:8096/actuator/health"
@@ -1418,6 +1420,7 @@ main() {
   wait_log "accountant" "accountant TON_USDT order consumer" "orders_TON_USDT-0"
   wait_log "accountant" "accountant TON_USDT event consumer" "events_TON_USDT-0"
   wait_log "accountant" "accountant TON_USDT trade consumer" "trades_TON_USDT-0"
+  wait_consumer_group_stable "eventlog" "eventlog consumer group"
   wait_log "matching-engine" "matching-engine ETH_USDT order consumer" "orders_ETH_USDT-0"
   wait_log "matching-engine" "matching-engine BTC_USDT order consumer" "orders_BTC_USDT-0"
   wait_log "matching-engine-duo" "matching-engine-duo SOL_USDT order consumer" "orders_SOL_USDT-0"
@@ -3419,6 +3422,26 @@ main() {
   wait_query_eq "BTC_USDT scenario market trades" "postgres-market" "BTC_USDT,6,0.00600000" "
     select symbol, count(*), to_char(sum(matched_quantity), 'FM9999999990.00000000')
     from trades
+    where maker_uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+       or taker_uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+    group by symbol
+    order by symbol;
+  "
+  wait_query_eq "BTC_USDT scenario eventlog order requests" "postgres-eventlog" "10" "
+    select count(*)
+    from opex_orders
+    where uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three');
+  "
+  wait_query_eq "BTC_USDT scenario eventlog order events" "postgres-eventlog" $'CancelOrderEvent,1\nCreateOrderEvent,10\nSubmitOrderEvent,10' "
+    select event, count(*)
+    from opex_order_events
+    where uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+    group by event
+    order by event;
+  "
+  wait_query_eq "BTC_USDT scenario eventlog trades" "postgres-eventlog" "BTC_USDT,6,6000" "
+    select symbol, count(*), sum(matched_quantity)
+    from opex_trades
     where maker_uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
        or taker_uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
     group by symbol
