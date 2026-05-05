@@ -2440,6 +2440,19 @@ main() {
       and amount = 23.60000000
       and status = 'PROCESSED';
   "
+  wait_query_eq "self-trade reject eventlog audit" "postgres-eventlog" "SELF_TRADE_PREVENTION,PLACE_ORDER,BID,1,0" "
+    select event_json::jsonb ->> 'reason',
+           event_json::jsonb ->> 'requestedOperation',
+           event_json::jsonb ->> 'direction',
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'RejectOrderEvent'
+      and uuid = '$self_trade_owner'
+    group by event_json::jsonb ->> 'reason',
+             event_json::jsonb ->> 'requestedOperation',
+             event_json::jsonb ->> 'direction';
+  "
   wait_user_open_order "$self_trade_owner" "ETH_USDT" "118" "0.4" /tmp/opex-e2e-self-trade-open-orders.json
   assert_no_user_order_by_price "$self_trade_owner" "ETH_USDT" "118" "0.2"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -2506,6 +2519,19 @@ main() {
       and symbol = 'USDT'
       and amount = 24.00000000
       and status = 'PROCESSED';
+  "
+  wait_query_eq "layered-stp reject eventlog audit" "postgres-eventlog" "SELF_TRADE_PREVENTION,PLACE_ORDER,BID,1,0" "
+    select event_json::jsonb ->> 'reason',
+           event_json::jsonb ->> 'requestedOperation',
+           event_json::jsonb ->> 'direction',
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'RejectOrderEvent'
+      and uuid = '$layered_self_trade_owner'
+    group by event_json::jsonb ->> 'reason',
+             event_json::jsonb ->> 'requestedOperation',
+             event_json::jsonb ->> 'direction';
   "
   wait_user_open_order "$layered_external_seller" "ETH_USDT" "119" "0.1" /tmp/opex-e2e-layered-stp-external-open-orders.json
   wait_user_open_order "$layered_self_trade_owner" "ETH_USDT" "120" "0.4" /tmp/opex-e2e-layered-stp-owner-open-orders.json
