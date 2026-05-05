@@ -1,5 +1,6 @@
 package co.nilin.opex.eventlog.ports.postgres.impl
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import co.nilin.opex.eventlog.core.spi.Event
 import co.nilin.opex.eventlog.core.spi.EventPersister
 import co.nilin.opex.eventlog.ports.postgres.dao.EventRepository
@@ -13,8 +14,12 @@ import java.time.LocalDateTime
 import java.util.*
 
 @Component
-class EventPersisterImpl(val eventRepository: EventRepository) : EventPersister {
+class EventPersisterImpl(
+    val eventRepository: EventRepository,
+    private val objectMapper: ObjectMapper
+) : EventPersister {
     override suspend fun saveEvent(event: CoreEvent): List<Event> {
+        val eventJson = objectMapper.writeValueAsString(event)
         if (event is OneOrderEvent) {
             return listOf(
                 eventRepository.save(
@@ -25,7 +30,7 @@ class EventPersisterImpl(val eventRepository: EventRepository) : EventPersister 
                         event.uuid(),
                         event.pair.toString(),
                         event::class.simpleName!!,
-                        "",
+                        eventJson,
                         "agent",
                         "127.0.0.1",
                         event.eventDate,
@@ -43,7 +48,7 @@ class EventPersisterImpl(val eventRepository: EventRepository) : EventPersister 
                     event.takerUuid,
                     event.pair.toString(),
                     event::class.simpleName!!,
-                    "",
+                    eventJson,
                     "agent",
                     "127.0.0.1",
                     event.eventDate,
@@ -58,7 +63,7 @@ class EventPersisterImpl(val eventRepository: EventRepository) : EventPersister 
                         event.makerUuid,
                         event.pair.toString(),
                         event::class.simpleName!!,
-                        "",
+                        eventJson,
                         "agent",
                         "127.0.0.1",
                         event.eventDate,

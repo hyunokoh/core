@@ -3450,6 +3450,21 @@ main() {
     group by event
     order by event;
   "
+  wait_query_eq "BTC_USDT scenario eventlog raw audit events" "postgres-eventlog" $'CancelOrderEvent,1,0\nCreateOrderEvent,10,0\nTradeEvent,12,0' "
+    select event,
+           count(*),
+           sum(
+             case
+               when event_json is null or event_json = '' then 1
+               when event_json::jsonb is null then 1
+               else 0
+             end
+           )
+    from opex_events
+    where uuid in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
+    group by event
+    order by event;
+  "
   wait_query_eq "BTC_USDT scenario eventlog trades" "postgres-eventlog" "BTC_USDT,6,6000" "
     select symbol, count(*), sum(matched_quantity)
     from opex_trades
