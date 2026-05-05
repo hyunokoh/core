@@ -358,9 +358,9 @@ open class OrderManagerImpl(
         orderPersister.save(order)
         val richOrderUpdate = RichOrderUpdate(
             order.ouid,
-            order.price.toBigDecimal(),
-            order.quantity.toBigDecimal(),
-            BigDecimal.ZERO,
+            order.origPrice,
+            order.origQuantity,
+            order.origQuantity.subtract(order.filledOrigQuantity),
             OrderStatus.REJECTED
         )
         return financialActionPersister.persist(listOf(financialAction)).also {
@@ -439,9 +439,9 @@ open class OrderManagerImpl(
         orderPersister.save(order)
         val richOrderUpdate = RichOrderUpdate(
             order.ouid,
-            order.price.toBigDecimal(),
-            order.quantity.toBigDecimal(),
-            cancelOrderEvent.remainedQuantity.toBigDecimal(),
+            order.origPrice,
+            order.origQuantity,
+            cancelOrderEvent.remainedQuantity.toBigDecimal().multiply(order.leftSideFraction),
             OrderStatus.CANCELED
         )
         return financialActionPersister.persist(listOf(financialAction)).also {

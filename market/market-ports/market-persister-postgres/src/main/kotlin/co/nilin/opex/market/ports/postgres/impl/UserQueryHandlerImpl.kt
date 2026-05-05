@@ -8,6 +8,7 @@ import co.nilin.opex.market.ports.postgres.dao.OrderStatusRepository
 import co.nilin.opex.market.ports.postgres.dao.TradeRepository
 import co.nilin.opex.market.ports.postgres.util.asOrderDTO
 import co.nilin.opex.market.ports.postgres.util.toDto
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
@@ -75,14 +76,15 @@ class UserQueryHandlerImpl(
     }
 
     override suspend fun allTrades(uuid: String, request: TradeRequest): List<Trade> {
-        return tradeRepository.findByUuidAndSymbolAndTimeBetweenAndTradeIdGreaterThan(
+        val trades = mutableListOf<Trade>()
+        tradeRepository.findByUuidAndSymbolAndTimeBetweenAndTradeIdGreaterThan(
                 uuid, request.symbol, request.fromTrade, request.startTime, request.endTime, request.limit
-        ).map {
-            val takerOrder = orderRepository.findByOuid(it.takerOuid).awaitFirst()
-            val makerOrder = orderRepository.findByOuid(it.makerOuid).awaitFirst()
+        ).collect {
+            val takerOrder = orderRepository.findByOuid(it.takerOuid).awaitFirstOrNull() ?: return@collect
+            val makerOrder = orderRepository.findByOuid(it.makerOuid).awaitFirstOrNull() ?: return@collect
             val isMakerBuyer = makerOrder.direction == OrderDirection.BID
             val quoteQuantity = it.matchedPrice.multiply(it.matchedQuantity)
-            Trade(
+            trades += Trade(
                     it.symbol,
                     it.tradeId,
                     if (it.takerUuid == uuid) takerOrder.orderId!! else makerOrder.orderId!!,
@@ -100,7 +102,8 @@ class UserQueryHandlerImpl(
                     true,
                     isMakerBuyer
             )
-        }.toList()
+        }
+        return trades
     }
 
     override suspend fun txOfTrades(transactionRequest: TransactionRequest): TransactionResponse? {

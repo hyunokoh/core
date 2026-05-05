@@ -2,6 +2,7 @@ package co.nilin.opex.accountant.core.service
 
 import co.nilin.opex.accountant.core.inout.OrderStatus
 import co.nilin.opex.accountant.core.inout.RichOrder
+import co.nilin.opex.accountant.core.inout.RichOrderUpdate
 import co.nilin.opex.accountant.core.model.*
 import co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.CreateOrderEvent
@@ -637,6 +638,15 @@ internal class OrderManagerImplTest {
         assertThat(order.status).isEqualTo(OrderStatus.REJECTED.code)
 
         assertThat(richOrderPublisher.published).hasSize(1)
+        val richOrderUpdate = richOrderPublisher.published.single() as RichOrderUpdate
+        assertThat(richOrderUpdate.price).isEqualByComparingTo(order.origPrice)
+        assertThat(richOrderUpdate.quantity).isEqualByComparingTo(order.origQuantity)
+        assertThat(richOrderUpdate.remainedQuantity).isEqualByComparingTo(
+            order.origQuantity.subtract(order.filledOrigQuantity)
+        )
+        assertThat(richOrderUpdate.executedQuantity()).isEqualByComparingTo(
+            order.filledOrigQuantity
+        )
         assertThat(orderPersister.saved).hasSize(1)
     }
 
@@ -726,7 +736,14 @@ internal class OrderManagerImplTest {
             500,
             OrderDirection.BID
         )
-        val order = Valid.order.copy(ouid = orderEvent.ouid, matchingEngineId = orderEvent.orderId, filledQuantity = 500)
+        val order = Valid.order.copy(
+            ouid = orderEvent.ouid,
+            matchingEngineId = orderEvent.orderId,
+            filledQuantity = 500,
+            origPrice = BigDecimal("1000"),
+            origQuantity = BigDecimal("0.001"),
+            filledOrigQuantity = BigDecimal("0.0005")
+        )
         orderPersister.orders[orderEvent.ouid] = order
 
         val fa = orderManager.handleCancelOrder(orderEvent)[0]
@@ -738,6 +755,13 @@ internal class OrderManagerImplTest {
         assertThat(order.status).isEqualTo(OrderStatus.CANCELED.code)
 
         assertThat(richOrderPublisher.published).hasSize(1)
+        val richOrderUpdate = richOrderPublisher.published.single() as RichOrderUpdate
+        assertThat(richOrderUpdate.price).isEqualByComparingTo(order.origPrice)
+        assertThat(richOrderUpdate.quantity).isEqualByComparingTo(order.origQuantity)
+        assertThat(richOrderUpdate.remainedQuantity).isEqualByComparingTo(
+            orderEvent.remainedQuantity.toBigDecimal().multiply(order.leftSideFraction)
+        )
+        assertThat(richOrderUpdate.executedQuantity()).isEqualByComparingTo(order.filledOrigQuantity)
         assertThat(orderPersister.saved).hasSize(1)
     }
 

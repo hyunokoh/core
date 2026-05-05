@@ -101,6 +101,15 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
         assertThat(trades.first().quoteQuantity).isEqualByComparingTo(BigDecimal.valueOf(9.0))
     }
 
+    @Test
+    fun givenTradeBeforeOrdersProjected_whenAllTrades_thenSkipIncompleteProjection(): Unit = runBlocking {
+        seedTrade()
+
+        val trades = userQueryHandler.allTrades(VALID.PRINCIPAL.name, TradeRequest(VALID.ETH_USDT, null, null, null, 100))
+
+        assertThat(trades).isEmpty()
+    }
+
     private suspend fun seedOrder(
         order: OrderModel = VALID.MAKER_ORDER_MODEL.copy(id = null, clientOrderId = "2"),
         status: OrderStatus,

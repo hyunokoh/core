@@ -236,7 +236,13 @@ wait_log() {
   local service="$1"
   local label="$2"
   local pattern="$3"
-  wait_log_since "$service" "$label" "$pattern" "5m" 180
+  local logs
+  logs="$("${COMPOSE[@]}" logs "$service" 2>/dev/null || true)"
+  if grep -q "$pattern" <<<"$logs"; then
+    echo "ready: $label"
+  else
+    wait_log_since "$service" "$label" "$pattern" "$(log_since_now)" 180
+  fi
 }
 
 log_since_now() {
@@ -785,14 +791,18 @@ replay_cancel_request_duplicate() {
 }
 
 replay_accountant_event_duplicates() {
-  local since
-  since="$(log_since_now)"
+  local action_count_before action_count_after
+  action_count_before="$(psql_query "postgres-accountant" "select count(*) from fi_actions;")"
   replay_first_kafka_record_by_type "events_ETH_USDT" "co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent"
-  wait_log_since "accountant" "accountant duplicate cancel event replay ignored" "Duplicate cancel order event ignored" "$since" 120
+  sleep 5
+  action_count_after="$(psql_query "postgres-accountant" "select count(*) from fi_actions;")"
+  assert_text_eq "accountant duplicate cancel replay did not create financial actions" "$action_count_after" "$action_count_before"
 
-  since="$(log_since_now)"
+  action_count_before="$(psql_query "postgres-accountant" "select count(*) from fi_actions;")"
   replay_first_kafka_record_by_type "trades_ETH_USDT" "co.nilin.opex.matching.engine.core.eventh.events.TradeEvent"
-  wait_log_since "accountant" "accountant duplicate trade event replay ignored" "Duplicate trade event ignored" "$since" 120
+  sleep 5
+  action_count_after="$(psql_query "postgres-accountant" "select count(*) from fi_actions;")"
+  assert_text_eq "accountant duplicate trade replay did not create financial actions" "$action_count_after" "$action_count_before"
   sleep 5
 }
 
@@ -1100,6 +1110,48 @@ wait_order_status() {
   done
 }
 
+wait_order_projection() {
+  local owner="$1"
+  local ouid="$2"
+  local expected_status="$3"
+  local expected_executed_quantity="$4"
+  local expected_accumulative_quote_qty="$5"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(curl -fsS "http://127.0.0.1:8096/v1/user/${owner}/order/${ouid}")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg expected_status "$expected_status" \
+      --argjson expected_executed_quantity "$expected_executed_quantity" \
+      --argjson expected_accumulative_quote_qty "$expected_accumulative_quote_qty" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        .status == $expected_status and
+        nearly_equal(.executedQuantity; $expected_executed_quantity) and
+        nearly_equal(.accumulativeQuoteQty; $expected_accumulative_quote_qty)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for order $ouid status=$expected_status executedQuantity=$expected_executed_quantity accumulativeQuoteQty=$expected_accumulative_quote_qty" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine accountant market wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+wait_vault_e2e_secret() {
+  local deadline=$((SECONDS + 900))
+  until "${COMPOSE[@]}" exec -T vault sh -c 'VAULT_TOKEN="$(cat /vault/file/tokens.txt 2>/dev/null)" vault kv get secret/opex-wallet >/dev/null 2>&1'; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for vault e2e secrets" >&2
+      "${COMPOSE[@]}" logs --tail=200 vault >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  echo "ready: vault e2e secrets loaded"
+}
+
 wait_user_trade_price() {
   local owner="$1"
   local symbol="$2"
@@ -1171,14 +1223,8 @@ main() {
   wait_kafka_broker_ready
   ensure_exchange_topics_ready
 
-  local vault_since
-  vault_since="$(log_since_now)"
   "${COMPOSE[@]}" up -d vault
-  if "${COMPOSE[@]}" logs vault 2>/dev/null | grep -q "secret/opex-wallet"; then
-    echo "ready: vault e2e secrets loaded"
-  else
-    wait_log_since "vault" "vault e2e secrets loaded" "secret/opex-wallet" "$vault_since" 900
-  fi
+  wait_vault_e2e_secret
 
   "${COMPOSE[@]}" up -d
 
@@ -1556,7 +1602,7 @@ main() {
   expect_2xx_retry "cancel unmatched ask order" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$cancel_request' '$cancel_owner'" >/tmp/opex-e2e-cancel-order.json
 
   wait_no_user_open_orders "$cancel_owner" "ETH_USDT"
-  wait_order_status "$cancel_owner" "$cancel_ouid" "CANCELED"
+  wait_order_projection "$cancel_owner" "$cancel_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$cancel_owner" "ETH" "1"; do
     if (( SECONDS > deadline )); then
@@ -1588,7 +1634,7 @@ main() {
   fi
 
   expect_2xx_retry "partial bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$partial_bid' '$partial_buyer'" >/tmp/opex-e2e-partial-bid.json
-  wait_order_status "$partial_seller" "$partial_ask_ouid" "PARTIALLY_FILLED"
+  wait_order_projection "$partial_seller" "$partial_ask_ouid" "PARTIALLY_FILLED" "0.4" "48"
   wait_order_book_level "ETH_USDT" "ASK" "120" "0.6"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$partial_seller" "ETH" "1" &&
@@ -1610,7 +1656,7 @@ main() {
   partial_cancel_request="$(jq -nc --arg ouid "$partial_ask_ouid" --arg uuid "$partial_seller" --argjson orderId "$partial_ask_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel partial ask remainder" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$partial_cancel_request' '$partial_seller'" >/tmp/opex-e2e-partial-cancel-order.json
   wait_no_user_open_orders "$partial_seller" "ETH_USDT"
-  wait_order_status "$partial_seller" "$partial_ask_ouid" "CANCELED"
+  wait_order_projection "$partial_seller" "$partial_ask_ouid" "CANCELED" "0.4" "48"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$partial_seller" "ETH" "1.6"; do
     if (( SECONDS > deadline )); then
@@ -1661,7 +1707,7 @@ main() {
 
   expect_2xx_retry "market taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_ask' '$market_seller'" >/tmp/opex-e2e-market-ask.json
   wait_user_order_status_by_price "$market_seller" "ETH_USDT" "0" "0.2" "FILLED"
-  wait_order_status "$market_buyer" "$market_bid_ouid" "PARTIALLY_FILLED"
+  wait_order_projection "$market_buyer" "$market_bid_ouid" "PARTIALLY_FILLED" "0.2" "26"
   wait_order_book_level "ETH_USDT" "BID" "130" "0.1"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$market_seller" "ETH" "0.8" &&
@@ -1683,7 +1729,7 @@ main() {
   market_cancel_request="$(jq -nc --arg ouid "$market_bid_ouid" --arg uuid "$market_buyer" --argjson orderId "$market_bid_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel market maker bid remainder" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$market_cancel_request' '$market_buyer'" >/tmp/opex-e2e-market-cancel-order.json
   wait_no_user_open_orders "$market_buyer" "ETH_USDT"
-  wait_order_status "$market_buyer" "$market_bid_ouid" "CANCELED"
+  wait_order_projection "$market_buyer" "$market_bid_ouid" "CANCELED" "0.2" "26"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$market_buyer" "USDT" "14"; do
     if (( SECONDS > deadline )); then
@@ -1723,7 +1769,7 @@ main() {
   expect_2xx_retry "sweep market taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$sweep_market_ask' '$sweep_seller'" >/tmp/opex-e2e-sweep-market-ask.json
   wait_user_order_status_by_price "$sweep_seller" "ETH_USDT" "0" "0.3" "FILLED"
   wait_no_user_open_orders "$sweep_high_buyer" "ETH_USDT"
-  wait_order_status "$sweep_low_buyer" "$sweep_low_ouid" "PARTIALLY_FILLED"
+  wait_order_projection "$sweep_low_buyer" "$sweep_low_ouid" "PARTIALLY_FILLED" "0.2" "28"
   wait_order_book_level "ETH_USDT" "BID" "140" "0.1"
   wait_user_trade_price "$sweep_high_buyer" "ETH_USDT" "150" "0.1"
   wait_user_trade_price "$sweep_low_buyer" "ETH_USDT" "140" "0.2"
@@ -1751,7 +1797,7 @@ main() {
   sweep_low_cancel_request="$(jq -nc --arg ouid "$sweep_low_ouid" --arg uuid "$sweep_low_buyer" --argjson orderId "$sweep_low_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel sweep low bid remainder" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$sweep_low_cancel_request' '$sweep_low_buyer'" >/tmp/opex-e2e-sweep-low-cancel.json
   wait_no_user_open_orders "$sweep_low_buyer" "ETH_USDT"
-  wait_order_status "$sweep_low_buyer" "$sweep_low_ouid" "CANCELED"
+  wait_order_projection "$sweep_low_buyer" "$sweep_low_ouid" "CANCELED" "0.2" "28"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$sweep_low_buyer" "USDT" "22"; do
     if (( SECONDS > deadline )); then
@@ -1791,7 +1837,7 @@ main() {
   expect_2xx_retry "bid-sweep market taker bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$bid_sweep_market_bid' '$bid_sweep_buyer'" >/tmp/opex-e2e-bid-sweep-market-bid.json
   wait_user_order_status_by_price "$bid_sweep_buyer" "ETH_USDT" "200" "0.3" "FILLED"
   wait_no_user_open_orders "$bid_sweep_low_seller" "ETH_USDT"
-  wait_order_status "$bid_sweep_high_seller" "$bid_sweep_high_ouid" "PARTIALLY_FILLED"
+  wait_order_projection "$bid_sweep_high_seller" "$bid_sweep_high_ouid" "PARTIALLY_FILLED" "0.2" "20"
   wait_order_book_level "ETH_USDT" "ASK" "100" "0.1"
   wait_user_trade_price "$bid_sweep_low_seller" "ETH_USDT" "90" "0.1"
   wait_user_trade_price "$bid_sweep_high_seller" "ETH_USDT" "100" "0.2"
@@ -1819,7 +1865,7 @@ main() {
   bid_sweep_high_cancel_request="$(jq -nc --arg ouid "$bid_sweep_high_ouid" --arg uuid "$bid_sweep_high_seller" --argjson orderId "$bid_sweep_high_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   expect_2xx_retry "cancel bid-sweep high ask remainder" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$bid_sweep_high_cancel_request' '$bid_sweep_high_seller'" >/tmp/opex-e2e-bid-sweep-high-cancel.json
   wait_no_user_open_orders "$bid_sweep_high_seller" "ETH_USDT"
-  wait_order_status "$bid_sweep_high_seller" "$bid_sweep_high_ouid" "CANCELED"
+  wait_order_projection "$bid_sweep_high_seller" "$bid_sweep_high_ouid" "CANCELED" "0.2" "20"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$bid_sweep_high_seller" "ETH" "0.8"; do
     if (( SECONDS > deadline )); then
@@ -2537,7 +2583,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,17\nSubmitOrderEvent,PROCESSED,43\nTradeEvent,PROCESSED,65' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,15\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,43\nTradeEvent,PROCESSED,65' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -3154,7 +3200,7 @@ main() {
     group by w.currency, w.wallet_type
     order by w.currency, w.wallet_type;
   "
-  wait_query_eq "BTC_USDT scenario accountant actions" "postgres-accountant" $'RejectOrderEvent,PROCESSED,1\nSubmitOrderEvent,PROCESSED,10\nTradeEvent,PROCESSED,24' "
+  wait_query_eq "BTC_USDT scenario accountant actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,1\nSubmitOrderEvent,PROCESSED,10\nTradeEvent,PROCESSED,24' "
     select event_type, status, count(*)
     from fi_actions
     where sender in ('$btc_seller', '$btc_buyer', '$concurrent_seller', '$concurrent_buyer_one', '$concurrent_buyer_two', '$concurrent_buyer_three', '$overfill_seller', '$overfill_buyer_one', '$overfill_buyer_two', '$overfill_buyer_three')
