@@ -5,6 +5,7 @@ import co.nilin.opex.accountant.core.spi.WalletProxy
 import co.nilin.opex.accountant.ports.walletproxy.data.BooleanResponse
 import co.nilin.opex.accountant.ports.walletproxy.data.TransferResult
 import kotlinx.coroutines.reactive.awaitFirst
+import kotlinx.coroutines.withTimeout
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
@@ -16,7 +17,9 @@ import java.math.BigDecimal
 class WalletProxyImpl(
     private val webClient: WebClient,
     @Value("\${app.wallet.url}")
-    private val walletBaseUrl: String
+    private val walletBaseUrl: String,
+    @Value("\${app.wallet.request-timeout-ms:10000}")
+    private val requestTimeoutMs: Long = 10_000
 ) : WalletProxy {
 
     data class TransferBody(
@@ -36,24 +39,28 @@ class WalletProxyImpl(
         transferRef: String?,
         transferCategory: String
     ) {
-        webClient.post()
-            .uri("$walletBaseUrl/v2/transfer/${amount}_$symbol/from/${senderUuid}_$senderWalletType/to/${receiverUuid}_$receiverWalletType")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(TransferBody(description, transferRef, transferCategory))
-            .retrieve()
-            .onStatus({ t -> t.isError }, { it.createException() })
-            .bodyToMono<TransferResult>()
-            .awaitFirst()
+        withTimeout(requestTimeoutMs) {
+            webClient.post()
+                .uri("$walletBaseUrl/v2/transfer/${amount}_$symbol/from/${senderUuid}_$senderWalletType/to/${receiverUuid}_$receiverWalletType")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(TransferBody(description, transferRef, transferCategory))
+                .retrieve()
+                .onStatus({ t -> t.isError }, { it.createException() })
+                .bodyToMono<TransferResult>()
+                .awaitFirst()
+        }
     }
 
     override suspend fun canFulfil(symbol: String, walletType: WalletType, uuid: String, amount: BigDecimal): Boolean {
-        return webClient.get()
-            .uri("$walletBaseUrl/inquiry/$uuid/wallet_type/$walletType/can_withdraw/${amount}_$symbol")
-            .header("Content-Type", "application/json")
-            .retrieve()
-            .onStatus({ t -> t.isError }, { it.createException() })
-            .bodyToMono<BooleanResponse>()
-            .awaitFirst()
-            .result
+        return withTimeout(requestTimeoutMs) {
+            webClient.get()
+                .uri("$walletBaseUrl/inquiry/$uuid/wallet_type/$walletType/can_withdraw/${amount}_$symbol")
+                .header("Content-Type", "application/json")
+                .retrieve()
+                .onStatus({ t -> t.isError }, { it.createException() })
+                .bodyToMono<BooleanResponse>()
+                .awaitFirst()
+                .result
+        }
     }
 }

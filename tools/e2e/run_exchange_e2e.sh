@@ -979,6 +979,48 @@ wait_user_order_status_by_price() {
   done
 }
 
+wait_user_order_projection_by_price() {
+  local owner="$1"
+  local symbol="$2"
+  local price="$3"
+  local quantity="$4"
+  local expected_status="$5"
+  local expected_executed_quantity="$6"
+  local expected_accumulative_quote_qty="$7"
+  local output_file="$8"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://127.0.0.1:8096/v1/user/${owner}/orders")" &&
+    printf '%s\n' "$body" | jq -e \
+      --argjson price "$price" \
+      --argjson quantity "$quantity" \
+      --arg expected_status "$expected_status" \
+      --argjson expected_executed_quantity "$expected_executed_quantity" \
+      --argjson expected_accumulative_quote_qty "$expected_accumulative_quote_qty" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        [
+          .[] |
+          select(
+            .price == $price and
+            .quantity == $quantity and
+            .status == $expected_status and
+            nearly_equal(.executedQuantity; $expected_executed_quantity) and
+            nearly_equal(.accumulativeQuoteQty; $expected_accumulative_quote_qty)
+          )
+        ] | length >= 1
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for owner=$owner symbol=$symbol price=$price quantity=$quantity status=$expected_status executedQuantity=$expected_executed_quantity accumulativeQuoteQty=$expected_accumulative_quote_qty" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine accountant market wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_order_book_level() {
   local symbol="$1"
   local direction="$2"
@@ -1406,6 +1448,8 @@ main() {
 
   wait_user_trade_projection "$seller" "ETH_USDT" "100" "1" "100" "1" "USDT" false true false /tmp/opex-e2e-seller-trades.json
   wait_user_trade_projection "$buyer" "ETH_USDT" "100" "1" "100" "0.01" "ETH" true false false /tmp/opex-e2e-buyer-trades.json
+  wait_user_order_projection_by_price "$seller" "ETH_USDT" "100" "1" "FILLED" "1" "100" /tmp/opex-e2e-seller-orders.json
+  wait_user_order_projection_by_price "$buyer" "ETH_USDT" "100" "1" "FILLED" "1" "100" /tmp/opex-e2e-buyer-orders.json
   wait_binance_recent_trade_level "ETHUSDT" "100" "1" "100" /tmp/opex-e2e-binance-recent-trades.json
 
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
