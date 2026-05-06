@@ -73,22 +73,23 @@ Runs a real Docker-backed exchange E2E flow:
   26. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   27. Verify wallet/accountant/market database invariants after settlement.
   28. Verify accountant and wallet fee ledgers match market trade commissions.
-  29. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  30. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  31. Restart Market and verify public market state is still available from persisted data.
-  32. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  33. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  34. Restart Matching Engine with an open order and verify it can still be matched.
-  35. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  36. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  37. Restart Matching Gateway and verify new order submission still works.
-  38. Restart all core exchange services and verify a fresh trade still settles.
-  39. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  40. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  41. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  42. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  43. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  44. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  29. Verify eventlog trade audit rows match market trade projections before replay.
+  30. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  31. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  32. Restart Market and verify public market state is still available from persisted data.
+  33. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  34. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  35. Restart Matching Engine with an open order and verify it can still be matched.
+  36. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  37. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  38. Restart Matching Gateway and verify new order submission still works.
+  39. Restart all core exchange services and verify a fresh trade still settles.
+  40. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  41. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  42. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  43. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  44. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  45. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -1692,6 +1693,64 @@ wait_wallet_fee_transactions_match_accountant_actions() {
       cat "$diff_file" >&2
       rm -f "$accountant_file" "$wallet_file" "$diff_file"
       "${COMPOSE[@]}" logs --tail=200 accountant wallet >&2 || true
+      exit 1
+    fi
+
+    sleep 2
+  done
+}
+
+wait_eventlog_trades_match_market_projection() {
+  local label="$1"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local eventlog_file market_file diff_file
+  eventlog_file="$(mktemp)"
+  market_file="$(mktemp)"
+  diff_file="$(mktemp)"
+
+  while true; do
+    psql_query "postgres-market" "
+      select
+        symbol,
+        taker_ouid,
+        maker_ouid,
+        taker_uuid,
+        maker_uuid,
+        round(maker_price * 100)::bigint,
+        round(matched_quantity * 1000000)::bigint,
+        count(*)
+      from trades
+      where maker_uuid like 'e2e-%' or taker_uuid like 'e2e-%'
+      group by symbol, taker_ouid, maker_ouid, taker_uuid, maker_uuid, round(maker_price * 100)::bigint, round(matched_quantity * 1000000)::bigint
+      order by symbol, taker_ouid, maker_ouid, taker_uuid, maker_uuid, round(maker_price * 100)::bigint, round(matched_quantity * 1000000)::bigint;
+    " > "$market_file"
+
+    psql_query "postgres-eventlog" "
+      select
+        symbol,
+        taker_ouid,
+        maker_ouid,
+        taker_uuid,
+        maker_uuid,
+        maker_price,
+        matched_quantity,
+        count(*)
+      from opex_trades
+      where maker_uuid like 'e2e-%' or taker_uuid like 'e2e-%'
+      group by symbol, taker_ouid, maker_ouid, taker_uuid, maker_uuid, maker_price, matched_quantity
+      order by symbol, taker_ouid, maker_ouid, taker_uuid, maker_uuid, maker_price, matched_quantity;
+    " > "$eventlog_file"
+
+    if diff -u "$market_file" "$eventlog_file" > "$diff_file"; then
+      rm -f "$eventlog_file" "$market_file" "$diff_file"
+      return 0
+    fi
+
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for $label" >&2
+      cat "$diff_file" >&2
+      rm -f "$eventlog_file" "$market_file" "$diff_file"
+      "${COMPOSE[@]}" logs --tail=200 eventlog market >&2 || true
       exit 1
     fi
 
@@ -3341,6 +3400,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   replay_order_request_duplicate
   replay_cancel_request_duplicate
+  wait_eventlog_trades_match_market_projection "eventlog trade audit rows match market trade projection before replay"
   replay_accountant_event_duplicates
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
