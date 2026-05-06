@@ -83,6 +83,7 @@ Runs a real Docker-backed exchange E2E flow:
   35b. Verify Binance-compatible price ticker reflects the latest executed trade.
   35c. Verify Binance-compatible 24h ticker reflects the latest executed trade statistics.
   36. Verify Binance-compatible private order submission/cancel/account/order/trade APIs reflect settled balances and executions.
+  36b. Verify Binance-compatible openOrders/allOrders without a symbol returns the user's orders across markets.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -1517,6 +1518,114 @@ wait_binance_private_no_open_orders() {
     printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for Binance no open orders owner=$owner symbol=$symbol" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_private_open_orders_across_symbols() {
+  local owner="$1"
+  local symbol_one="$2"
+  local client_order_id_one="$3"
+  local price_one="$4"
+  local quantity_one="$5"
+  local side_one="$6"
+  local symbol_two="$7"
+  local client_order_id_two="$8"
+  local price_two="$9"
+  local quantity_two="${10}"
+  local side_two="${11}"
+  local output_file="${12}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/openOrders" "limit=20")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol_one "$symbol_one" \
+      --arg client_order_id_one "$client_order_id_one" \
+      --argjson price_one "$price_one" \
+      --argjson quantity_one "$quantity_one" \
+      --arg side_one "$side_one" \
+      --arg symbol_two "$symbol_two" \
+      --arg client_order_id_two "$client_order_id_two" \
+      --argjson price_two "$price_two" \
+      --argjson quantity_two "$quantity_two" \
+      --arg side_two "$side_two" '
+        def order_matches($symbol; $client_order_id; $price; $quantity; $side):
+          .symbol == $symbol and
+          .clientOrderId == $client_order_id and
+          .price == $price and
+          .origQty == $quantity and
+          .executedQty == 0 and
+          .cummulativeQuoteQty == 0 and
+          .status == "NEW" and
+          .side == $side and
+          .type == "LIMIT" and
+          .isWorking == true and
+          (.orderId | type == "number") and
+          (.orderId > 0);
+        length == 2 and
+        ([.[] | select(order_matches($symbol_one; $client_order_id_one; $price_one; $quantity_one; $side_one))] | length == 1) and
+        ([.[] | select(order_matches($symbol_two; $client_order_id_two; $price_two; $quantity_two; $side_two))] | length == 1)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance all-symbol open orders owner=$owner" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_private_all_orders_across_symbols() {
+  local owner="$1"
+  local symbol_one="$2"
+  local price_one="$3"
+  local quantity_one="$4"
+  local status_one="$5"
+  local side_one="$6"
+  local symbol_two="$7"
+  local price_two="$8"
+  local quantity_two="$9"
+  local status_two="${10}"
+  local side_two="${11}"
+  local output_file="${12}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/allOrders" "limit=20")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol_one "$symbol_one" \
+      --argjson price_one "$price_one" \
+      --argjson quantity_one "$quantity_one" \
+      --arg status_one "$status_one" \
+      --arg side_one "$side_one" \
+      --arg symbol_two "$symbol_two" \
+      --argjson price_two "$price_two" \
+      --argjson quantity_two "$quantity_two" \
+      --arg status_two "$status_two" \
+      --arg side_two "$side_two" '
+        def order_matches($symbol; $price; $quantity; $status; $side):
+          .symbol == $symbol and
+          .price == $price and
+          .origQty == $quantity and
+          .executedQty == 0 and
+          .cummulativeQuoteQty == 0 and
+          .status == $status and
+          .side == $side and
+          .type == "LIMIT" and
+          (.orderId | type == "number") and
+          (.orderId > 0);
+        length == 2 and
+        ([.[] | select(order_matches($symbol_one; $price_one; $quantity_one; $status_one; $side_one))] | length == 1) and
+        ([.[] | select(order_matches($symbol_two; $price_two; $quantity_two; $status_two; $side_two))] | length == 1)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance all-symbol all orders owner=$owner" >&2
       echo "$body" >&2
       "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
       exit 1
@@ -3107,6 +3216,42 @@ main() {
   wait_binance_account_balance "$api_duplicate_client_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-duplicate-client-reuse-released-account.json
   wait_binance_private_order_status_by_client_order_id "$api_duplicate_client_owner" "ETHUSDT" "$api_duplicate_client_id" "166" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-duplicate-client-reuse-query-canceled.json
 
+  local api_all_symbol_owner="e2e-api-all-symbol-$(date +%s)"
+  local api_all_symbol_ref="e2e-api-all-symbol-$(date +%s)"
+  local api_all_symbol_eth_client_id="e2e-all-symbol-eth-$(date +%s)"
+  local api_all_symbol_btc_client_id="e2e-all-symbol-btc-$(date +%s)"
+  expect_2xx "Binance API all-symbol ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_all_symbol_owner}_MAIN?description=e2e-api-all-symbol&transferRef=${api_all_symbol_ref}-eth")" >/dev/null
+  expect_2xx "Binance API all-symbol BTC deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.002_test-bitcoin_BTC/${api_all_symbol_owner}_MAIN?description=e2e-api-all-symbol&transferRef=${api_all_symbol_ref}-btc")" >/dev/null
+  expect_2xx_retry "Binance API all-symbol ETH ask" "binance_private_post '$api_all_symbol_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=168&newClientOrderId=${api_all_symbol_eth_client_id}'" >/tmp/opex-e2e-binance-api-all-symbol-eth-ask.json
+  expect_2xx_retry "Binance API all-symbol BTC ask" "binance_private_post '$api_all_symbol_owner' '/v3/order' 'symbol=BTCUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.001&price=23000&newClientOrderId=${api_all_symbol_btc_client_id}'" >/tmp/opex-e2e-binance-api-all-symbol-btc-ask.json
+  wait_order_book_level "ETH_USDT" "ASK" "168" "0.2"
+  wait_order_book_level "BTC_USDT" "ASK" "23000" "0.001"
+  wait_binance_account_balance "$api_all_symbol_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-all-symbol-eth-reserved-account.json
+  wait_binance_account_balance "$api_all_symbol_owner" "BTC" "0.001" "0.001" /tmp/opex-e2e-binance-api-all-symbol-btc-reserved-account.json
+  wait_binance_private_open_orders_across_symbols \
+    "$api_all_symbol_owner" \
+    "ETHUSDT" "$api_all_symbol_eth_client_id" "168" "0.2" "SELL" \
+    "BTCUSDT" "$api_all_symbol_btc_client_id" "23000" "0.001" "SELL" \
+    /tmp/opex-e2e-binance-api-all-symbol-open-orders.json
+  wait_binance_private_all_orders_across_symbols \
+    "$api_all_symbol_owner" \
+    "ETHUSDT" "168" "0.2" "NEW" "SELL" \
+    "BTCUSDT" "23000" "0.001" "NEW" "SELL" \
+    /tmp/opex-e2e-binance-api-all-symbol-all-orders-new.json
+  expect_2xx_retry "Binance API all-symbol ETH cleanup cancel" "binance_private_delete '$api_all_symbol_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_all_symbol_eth_client_id}'" >/tmp/opex-e2e-binance-api-all-symbol-eth-cancel-response.json
+  expect_2xx_retry "Binance API all-symbol BTC cleanup cancel" "binance_private_delete '$api_all_symbol_owner' '/v3/order' 'symbol=BTCUSDT&origClientOrderId=${api_all_symbol_btc_client_id}'" >/tmp/opex-e2e-binance-api-all-symbol-btc-cancel-response.json
+  wait_order_book_empty_at_price "ETH_USDT" "ASK" "168"
+  wait_order_book_empty_at_price "BTC_USDT" "ASK" "23000"
+  wait_binance_private_no_open_orders "$api_all_symbol_owner" "ETHUSDT" /tmp/opex-e2e-binance-api-all-symbol-eth-open-orders-empty.json
+  wait_binance_private_no_open_orders "$api_all_symbol_owner" "BTCUSDT" /tmp/opex-e2e-binance-api-all-symbol-btc-open-orders-empty.json
+  wait_binance_account_balance "$api_all_symbol_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-all-symbol-eth-released-account.json
+  wait_binance_account_balance "$api_all_symbol_owner" "BTC" "0.002" "0" /tmp/opex-e2e-binance-api-all-symbol-btc-released-account.json
+  wait_binance_private_all_orders_across_symbols \
+    "$api_all_symbol_owner" \
+    "ETHUSDT" "168" "0.2" "CANCELED" "SELL" \
+    "BTCUSDT" "23000" "0.001" "CANCELED" "SELL" \
+    /tmp/opex-e2e-binance-api-all-symbol-all-orders-canceled.json
+
   local engine_restart_seller="e2e-engine-restart-seller-$(date +%s)"
   local engine_restart_buyer="e2e-engine-restart-buyer-$(date +%s)"
   local engine_restart_ref="e2e-engine-restart-$(date +%s)"
@@ -4665,7 +4810,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,61\nFEE,36\nORDER_CANCEL,30\nORDER_CREATE,57\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,63\nFEE,36\nORDER_CANCEL,32\nORDER_CREATE,59\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -4676,7 +4821,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,36.05000000\nUSDT,2765.34200000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,37.05000000\nUSDT,2765.34200000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -4740,7 +4885,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,25\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,57\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,27\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,59\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -5601,6 +5746,12 @@ main() {
     "clientOrderId": "$api_generated_client_id",
     "openOrdersVerified": true,
     "finalStatus": "CANCELED"
+  },
+  "binanceAllSymbolOrderQueryScenario": {
+    "owner": "$api_all_symbol_owner",
+    "symbols": ["ETHUSDT", "BTCUSDT"],
+    "openOrdersWithoutSymbolVerified": true,
+    "allOrdersWithoutSymbolFinalStatus": "CANCELED"
   },
   "matchingEngineRestartScenario": {
     "restingAskPrice": 111,
