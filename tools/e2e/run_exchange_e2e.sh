@@ -2004,6 +2004,8 @@ main() {
   wait_no_user_open_orders "$sweep_high_buyer" "ETH_USDT"
   wait_order_projection "$sweep_low_buyer" "$sweep_low_ouid" "PARTIALLY_FILLED" "0.2" "28"
   wait_order_book_level "ETH_USDT" "BID" "140" "0.1"
+  wait_user_trade_projection "$sweep_seller" "ETH_USDT" "150" "0.1" "15" "0.15" "USDT" false false true /tmp/opex-e2e-sweep-seller-high-trades.json
+  wait_user_trade_projection "$sweep_seller" "ETH_USDT" "140" "0.2" "28" "0.28" "USDT" false false true /tmp/opex-e2e-sweep-seller-low-trades.json
   wait_user_trade_projection "$sweep_high_buyer" "ETH_USDT" "150" "0.1" "15" "0.001" "ETH" true true true /tmp/opex-e2e-sweep-high-buyer-trades.json
   wait_user_trade_projection "$sweep_low_buyer" "ETH_USDT" "140" "0.2" "28" "0.002" "ETH" true true true /tmp/opex-e2e-sweep-low-buyer-trades.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -2074,6 +2076,8 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "100" "0.1"
   wait_user_trade_projection "$bid_sweep_low_seller" "ETH_USDT" "90" "0.1" "9" "0.09" "USDT" false true false /tmp/opex-e2e-bid-sweep-low-seller-trades.json
   wait_user_trade_projection "$bid_sweep_high_seller" "ETH_USDT" "100" "0.2" "20" "0.2" "USDT" false true false /tmp/opex-e2e-bid-sweep-high-seller-trades.json
+  wait_user_trade_projection "$bid_sweep_buyer" "ETH_USDT" "90" "0.1" "9" "0.001" "ETH" true false false /tmp/opex-e2e-bid-sweep-buyer-low-trades.json
+  wait_user_trade_projection "$bid_sweep_buyer" "ETH_USDT" "100" "0.2" "20" "0.002" "ETH" true false false /tmp/opex-e2e-bid-sweep-buyer-high-trades.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$bid_sweep_buyer" "ETH" "0.297" &&
     try_wallet_balance "$bid_sweep_buyer" "USDT" "51" &&
