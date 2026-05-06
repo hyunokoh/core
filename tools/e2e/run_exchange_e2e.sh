@@ -1305,30 +1305,6 @@ wait_user_trade_price() {
   done
 }
 
-wait_user_trade_quote_quantity() {
-  local owner="$1"
-  local symbol="$2"
-  local price="$3"
-  local quantity="$4"
-  local quote_quantity="$5"
-  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  local body
-  local trade_query
-  trade_query="{\"symbol\":\"${symbol}\",\"fromTrade\":null,\"startTime\":null,\"endTime\":null,\"limit\":20}"
-  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://127.0.0.1:8096/v1/user/${owner}/trades")" &&
-    printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" --argjson quote_quantity "$quote_quantity" '
-      [.[] | select(.price == $price and .quantity == $quantity and .quoteQuantity == $quote_quantity)] | length >= 1
-    ' >/dev/null; do
-    if (( SECONDS > deadline )); then
-      echo "Timed out waiting for trade owner=$owner symbol=$symbol price=$price quantity=$quantity quoteQuantity=$quote_quantity" >&2
-      echo "$body" >&2
-      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine accountant market wallet >&2 || true
-      exit 1
-    fi
-    sleep 2
-  done
-}
-
 wait_user_trade_projection() {
   local owner="$1"
   local symbol="$2"
@@ -1991,8 +1967,8 @@ main() {
   wait_no_user_open_orders "$sweep_high_buyer" "ETH_USDT"
   wait_order_projection "$sweep_low_buyer" "$sweep_low_ouid" "PARTIALLY_FILLED" "0.2" "28"
   wait_order_book_level "ETH_USDT" "BID" "140" "0.1"
-  wait_user_trade_price "$sweep_high_buyer" "ETH_USDT" "150" "0.1"
-  wait_user_trade_price "$sweep_low_buyer" "ETH_USDT" "140" "0.2"
+  wait_user_trade_projection "$sweep_high_buyer" "ETH_USDT" "150" "0.1" "15" "0.001" "ETH" true true true /tmp/opex-e2e-sweep-high-buyer-trades.json
+  wait_user_trade_projection "$sweep_low_buyer" "ETH_USDT" "140" "0.2" "28" "0.002" "ETH" true true true /tmp/opex-e2e-sweep-low-buyer-trades.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$sweep_seller" "ETH" "0.7" &&
     try_wallet_balance "$sweep_seller" "USDT" "42.57" &&
@@ -2059,8 +2035,8 @@ main() {
   wait_no_user_open_orders "$bid_sweep_low_seller" "ETH_USDT"
   wait_order_projection "$bid_sweep_high_seller" "$bid_sweep_high_ouid" "PARTIALLY_FILLED" "0.2" "20"
   wait_order_book_level "ETH_USDT" "ASK" "100" "0.1"
-  wait_user_trade_price "$bid_sweep_low_seller" "ETH_USDT" "90" "0.1"
-  wait_user_trade_price "$bid_sweep_high_seller" "ETH_USDT" "100" "0.2"
+  wait_user_trade_projection "$bid_sweep_low_seller" "ETH_USDT" "90" "0.1" "9" "0.09" "USDT" false true false /tmp/opex-e2e-bid-sweep-low-seller-trades.json
+  wait_user_trade_projection "$bid_sweep_high_seller" "ETH_USDT" "100" "0.2" "20" "0.2" "USDT" false true false /tmp/opex-e2e-bid-sweep-high-seller-trades.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$bid_sweep_buyer" "ETH" "0.297" &&
     try_wallet_balance "$bid_sweep_buyer" "USDT" "51" &&
@@ -2122,8 +2098,8 @@ main() {
   expect_2xx_retry "priority high bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$high_bid' '$priority_high_buyer'" >/tmp/opex-e2e-priority-high-bid.json
   wait_user_open_order "$priority_high_buyer" "ETH_USDT" "140" "0.2" /tmp/opex-e2e-priority-high-open-orders.json
   expect_2xx_retry "priority taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$priority_ask' '$priority_seller'" >/tmp/opex-e2e-priority-ask.json
-  wait_user_trade_quote_quantity "$priority_seller" "ETH_USDT" "140" "0.2" "28"
-  wait_user_trade_price "$priority_high_buyer" "ETH_USDT" "140" "0.2"
+  wait_user_trade_projection "$priority_seller" "ETH_USDT" "140" "0.2" "28" "0.28" "USDT" false false true /tmp/opex-e2e-priority-seller-trades.json
+  wait_user_trade_projection "$priority_high_buyer" "ETH_USDT" "140" "0.2" "28" "0.002" "ETH" true true true /tmp/opex-e2e-priority-high-buyer-trades.json
   wait_no_user_open_orders "$priority_high_buyer" "ETH_USDT"
   wait_order_projection "$priority_low_buyer" "$priority_low_ouid" "NEW" "0" "0"
   wait_order_book_level "ETH_USDT" "BID" "110" "0.2"
@@ -2188,8 +2164,8 @@ main() {
   fi
 
   expect_2xx_retry "fifo taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$fifo_ask' '$fifo_seller'" >/tmp/opex-e2e-fifo-ask.json
-  wait_user_trade_quote_quantity "$fifo_seller" "ETH_USDT" "125" "0.2" "25"
-  wait_user_trade_price "$fifo_first_buyer" "ETH_USDT" "125" "0.2"
+  wait_user_trade_projection "$fifo_seller" "ETH_USDT" "125" "0.2" "25" "0.25" "USDT" false false true /tmp/opex-e2e-fifo-seller-trades.json
+  wait_user_trade_projection "$fifo_first_buyer" "ETH_USDT" "125" "0.2" "25" "0.002" "ETH" true true true /tmp/opex-e2e-fifo-first-buyer-trades.json
   wait_no_user_open_orders "$fifo_first_buyer" "ETH_USDT"
   wait_order_projection "$fifo_second_buyer" "$fifo_second_ouid" "NEW" "0" "0"
   wait_order_book_level "ETH_USDT" "BID" "125" "0.2"
