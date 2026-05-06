@@ -92,6 +92,7 @@ Runs a real Docker-backed exchange E2E flow:
   36h. Verify Binance-compatible origClientOrderId lookup/cancel cannot affect another user's order.
   36i. Verify Binance-compatible orderId cancel cannot affect another user's order.
   36j. Verify Binance-compatible duplicate orderId cancel keeps balances unchanged.
+  36k. Verify Binance-compatible filled orderId cancel is rejected and keeps balances unchanged.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -3294,6 +3295,10 @@ main() {
     exit 1
   fi
   wait_binance_private_trade_projection_for_order_id "$api_order_seller" "ETHUSDT" "$api_order_seller_binance_order_id" "$api_order_seller_binance_trade_id" "101" "0.2" "20.2" "0.202" "USDT" false true /tmp/opex-e2e-binance-api-seller-my-trades-order-id.json
+  expect_http_status "Binance API filled order-id cancel rejected" "403" "$(binance_private_delete "$api_order_seller" "/v3/order" "symbol=ETHUSDT&orderId=${api_order_seller_binance_order_id}")" >/tmp/opex-e2e-binance-api-filled-order-id-cancel.json
+  wait_binance_private_order_status_by_order_id "$api_order_seller" "ETHUSDT" "$api_order_seller_binance_order_id" "101" "0.2" "FILLED" "0.2" "20.2" "SELL" /tmp/opex-e2e-binance-api-filled-order-id-query-after-cancel-reject.json
+  wait_binance_account_balance "$api_order_seller" "ETH" "0.8" "0" /tmp/opex-e2e-binance-api-filled-order-id-eth-account-after-cancel-reject.json
+  wait_binance_account_balance "$api_order_seller" "USDT" "19.998" "0" /tmp/opex-e2e-binance-api-filled-order-id-usdt-account-after-cancel-reject.json
   wait_binance_private_trades_empty_for_order_id "$api_order_buyer" "ETHUSDT" "$api_order_seller_binance_order_id" /tmp/opex-e2e-binance-api-buyer-seller-order-id-my-trades.json
   expect_http_status "Binance API buyer seller order lookup forbidden" "403" "$(binance_private_get_status "$api_order_buyer" "/v3/order" "symbol=ETHUSDT&orderId=${api_order_seller_binance_order_id}")" >/tmp/opex-e2e-binance-api-buyer-seller-order-id-query.json
 
@@ -5980,6 +5985,15 @@ main() {
     "tradeId": $api_order_seller_binance_trade_id,
     "orderIdDiffersFromTradeId": true,
     "orderTradeFilterVerified": true
+  },
+  "binanceFilledOrderIdCancel": {
+    "symbol": "ETHUSDT",
+    "owner": "$api_order_seller",
+    "orderId": $api_order_seller_binance_order_id,
+    "cancelStatus": "HTTP_403",
+    "ownerOrderStatusAfterCancelReject": "FILLED",
+    "ownerEthAvailableAfterCancelReject": 0.8,
+    "ownerUsdtAvailableAfterCancelReject": 19.998
   },
   "binanceMyTradesOrderIdIsolation": {
     "symbol": "ETHUSDT",
