@@ -1942,6 +1942,8 @@ main() {
   wait_user_order_status_by_price "$market_seller" "ETH_USDT" "0" "0.2" "FILLED"
   wait_order_projection "$market_buyer" "$market_bid_ouid" "PARTIALLY_FILLED" "0.2" "26"
   wait_order_book_level "ETH_USDT" "BID" "130" "0.1"
+  wait_user_trade_projection "$market_seller" "ETH_USDT" "130" "0.2" "26" "0.26" "USDT" false false true /tmp/opex-e2e-market-seller-trades.json
+  wait_user_trade_projection "$market_buyer" "ETH_USDT" "130" "0.2" "26" "0.002" "ETH" true true true /tmp/opex-e2e-market-buyer-trades.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$market_seller" "ETH" "0.8" &&
     try_wallet_balance "$market_seller" "USDT" "25.74" &&
