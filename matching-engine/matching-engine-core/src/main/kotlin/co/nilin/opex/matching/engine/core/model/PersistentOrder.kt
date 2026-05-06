@@ -9,6 +9,7 @@ class PersistentOrder {
     lateinit var matchConstraint: MatchConstraint
     lateinit var orderType: OrderType
     lateinit var direction: OrderDirection
+    var clientOrderId: String? = null
     var filledQuantity: Long = 0
 
     constructor() {
@@ -24,7 +25,8 @@ class PersistentOrder {
         matchConstraint: MatchConstraint,
         orderType: OrderType,
         direction: OrderDirection,
-        filledQuantity: Long
+        filledQuantity: Long,
+        clientOrderId: String? = null
     ) {
         this.id = id
         this.ouid = ouid
@@ -34,6 +36,7 @@ class PersistentOrder {
         this.matchConstraint = matchConstraint
         this.orderType = orderType
         this.direction = direction
+        this.clientOrderId = clientOrderId
         this.filledQuantity = filledQuantity
     }
 }

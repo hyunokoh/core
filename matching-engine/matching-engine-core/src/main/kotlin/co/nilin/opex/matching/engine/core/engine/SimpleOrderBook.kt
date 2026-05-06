@@ -41,6 +41,10 @@ class SimpleOrderBook(
             rejectOrder(orderCommand, RejectReason.INVALID_ORDER)
             return null
         }
+        if (hasDuplicateOpenClientOrderId(orderCommand)) {
+            rejectOrder(orderCommand, RejectReason.DUPLICATE_CLIENT_ORDER_ID)
+            return null
+        }
         val order = when (orderCommand.matchConstraint) {
             MatchConstraint.GTC -> {
                 if (orderCommand.orderType == OrderType.MARKET_ORDER) {
@@ -63,7 +67,8 @@ class SimpleOrderBook(
                     0,
                     null,
                     null,
-                    null
+                    null,
+                    orderCommand.clientOrderId
                 )
                 if (!replayMode) {
                     EventDispatcher.emit(
@@ -108,7 +113,8 @@ class SimpleOrderBook(
                     0,
                     null,
                     null,
-                    null
+                    null,
+                    orderCommand.clientOrderId
                 )
                 if (!replayMode) {
                     EventDispatcher.emit(
@@ -274,7 +280,8 @@ class SimpleOrderBook(
             order.filledQuantity,
             null,
             null,
-            null
+            null,
+            order.clientOrderId
         )
 
         return when (order.matchConstraint) {
@@ -431,6 +438,13 @@ class SimpleOrderBook(
             makerOrder = makerOrder.worse
         }
         return false
+    }
+
+    private fun hasDuplicateOpenClientOrderId(orderCommand: OrderCreateCommand): Boolean {
+        val clientOrderId = orderCommand.clientOrderId ?: return false
+        return orders.values.any { order ->
+            order.uuid == orderCommand.uuid && order.clientOrderId == clientOrderId
+        }
     }
 
     private fun wouldSelfTrade(orderCommand: OrderEditCommand, order: SimpleOrder): Boolean {
@@ -724,7 +738,8 @@ class SimpleOrderBook(
             filledQuantity,
             null,
             null,
-            null
+            null,
+            clientOrderId
         )
     }
 

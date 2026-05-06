@@ -117,6 +117,24 @@ private class OrderServiceTest {
     }
 
     @Test
+    fun givenInvalidClientOrderId_whenSubmitNewOrder_thenThrowBadRequestBeforeAccountantCheck(): Unit = runBlocking {
+        val accountant = RecordingAccountantApiProxy()
+        val service = orderService(accountant)
+        val tooLongClientOrderId = "x".repeat(73)
+
+        listOf(" ", tooLongClientOrderId).forEach { clientOrderId ->
+            assertThatThrownBy {
+                runBlocking {
+                    service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(clientOrderId = clientOrderId))
+                }
+            }.isBadRequest()
+        }
+
+        assertThat(accountant.lastSymbol).isNull()
+        assertThat(accountant.lastValue).isNull()
+    }
+
+    @Test
     fun givenUnsupportedMatchConstraint_whenSubmitNewOrder_thenThrowBadRequestBeforeAccountantCheck(): Unit = runBlocking {
         val accountant = RecordingAccountantApiProxy()
         val service = orderService(accountant)

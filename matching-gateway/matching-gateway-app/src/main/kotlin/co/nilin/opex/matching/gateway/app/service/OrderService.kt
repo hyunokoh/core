@@ -30,6 +30,7 @@ class OrderService(
 ) {
 
     private val logger = LoggerFactory.getLogger(OrderService::class.java)
+    private val maxClientOrderIdLength = 72
 
     suspend fun submitNewOrder(createOrderRequest: CreateOrderRequest): OrderSubmitResult {
         val uuid = createOrderRequest.uuid ?: badRequest("uuid is required")
@@ -50,6 +51,7 @@ class OrderService(
         }
         if (createOrderRequest.quantity <= BigDecimal.ZERO)
             badRequest("quantity must be greater than zero")
+        validateClientOrderId(createOrderRequest.clientOrderId)
         val symbolSides = parsePair(createOrderRequest.pair)
         val symbol = if (createOrderRequest.direction == OrderDirection.ASK)
             symbolSides[0]
@@ -165,6 +167,11 @@ class OrderService(
         } catch (ex: ArithmeticException) {
             badRequest("$field does not match pair precision")
         }
+    }
+
+    private fun validateClientOrderId(clientOrderId: String?) {
+        if (clientOrderId != null && (clientOrderId.isBlank() || clientOrderId.length > maxClientOrderIdLength))
+            badRequest("clientOrderId must be non-blank and at most $maxClientOrderIdLength characters")
     }
 
     private fun badRequest(message: String): Nothing {

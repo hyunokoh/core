@@ -118,6 +118,39 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
     }
 
     @Test
+    fun givenDuplicateClientOrderIdHistoryForUser_whenQueryOrder_thenReturnOpenOrder(): Unit = runBlocking {
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "rejected-duplicate-order",
+                clientOrderId = "reused-client-id",
+                orderId = 12,
+                createDate = VALID.MAKER_ORDER_MODEL.createDate!!.plusSeconds(1),
+                updateDate = VALID.MAKER_ORDER_MODEL.updateDate.plusSeconds(1)
+            ),
+            status = OrderStatus.REJECTED
+        )
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "open-order",
+                clientOrderId = "reused-client-id",
+                orderId = 13
+            ),
+            status = OrderStatus.NEW
+        )
+
+        val order = userQueryHandler.queryOrder(
+            VALID.PRINCIPAL.name,
+            QueryOrderRequest(VALID.ETH_USDT, null, "reused-client-id")
+        )
+
+        assertThat(order).isNotNull
+        assertThat(order!!.ouid).isEqualTo("open-order")
+        assertThat(order.status).isEqualTo(OrderStatus.NEW)
+    }
+
+    @Test
     fun givenMissingLookupIdentifier_whenQueryOrder_thenThrowBadRequest(): Unit = runBlocking {
         assertThatThrownBy {
             runBlocking {

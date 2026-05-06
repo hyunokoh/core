@@ -122,7 +122,29 @@ interface OrderRepository : ReactiveCrudRepository<OrderModel, Long> {
         orderId: Long
     ): Mono<OrderModel>
 
-    @Query("select * from orders where uuid = :uuid and symbol = :symbol and client_order_id = :origClientOrderId")
+    @Query(
+        """
+        with latest_status as (
+            select distinct on (ouid)
+                ouid,
+                status,
+                date
+            from order_status
+            order by ouid, date desc, id desc
+        )
+        select orders.*
+        from orders
+        left join latest_status on latest_status.ouid = orders.ouid
+        where uuid = :uuid
+          and symbol = :symbol
+          and client_order_id = :origClientOrderId
+        order by
+          case when latest_status.status in (1, 4) then 0 else 1 end,
+          orders.create_date desc,
+          orders.id desc
+        limit 1
+        """
+    )
     fun findByUuidAndSymbolAndClientOrderId(
         @Param("uuid")
         uuid: String,

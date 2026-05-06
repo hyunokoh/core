@@ -14,9 +14,11 @@ import io.swagger.annotations.ApiResponse
 import io.swagger.annotations.Example
 import io.swagger.annotations.ExampleProperty
 import org.springframework.http.MediaType
+import org.springframework.http.HttpStatus
 import org.springframework.security.core.annotation.CurrentSecurityContext
 import org.springframework.security.core.context.SecurityContext
 import org.springframework.web.bind.annotation.*
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
 import java.security.Principal
 import java.time.ZoneId
@@ -33,6 +35,7 @@ class AccountController(
 
     private val defaultAccountQueryLimit = 500
     private val maxAccountQueryLimit = 1000
+    private val maxClientOrderIdLength = 72
 
     /*
     Send in a new order.
@@ -97,10 +100,13 @@ class AccountController(
         validateRequiredSymbol(symbol)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateNewOrderParams(type, price, quantity, timeInForce, stopPrice, quoteOrderQty)
+        validateNewClientOrderId(newClientOrderId)
         validateUnsupportedNewOrderParams(icebergQty, newOrderRespType)
+        val authentication = securityContext.jwtAuthentication()
+        rejectDuplicateOpenClientOrderId(Principal { authentication.name }, internalSymbol, newClientOrderId)
 
         matchingGatewayProxy.createNewOrder(
-            securityContext.jwtAuthentication().name,
+            authentication.name,
             internalSymbol,
             price ?: BigDecimal.ZERO, // Maybe make this nullable as well?
             quantity ?: BigDecimal.ZERO,
@@ -109,7 +115,7 @@ class AccountController(
             type.asMatchingOrderType(),
             "*",
             newClientOrderId,
-            securityContext.jwtAuthentication().tokenValue()
+            authentication.tokenValue()
         )
         return NewOrderResponse(
             symbol,
@@ -481,6 +487,30 @@ class AccountController(
             throw OpexError.InvalidRequestParam.exception("Parameter 'icebergQty' is either missing or invalid")
         if (newOrderRespType != null)
             throw OpexError.InvalidRequestParam.exception("Parameter 'newOrderRespType' is either missing or invalid")
+    }
+
+    private fun validateNewClientOrderId(newClientOrderId: String?) {
+        if (newClientOrderId != null && (newClientOrderId.isBlank() || newClientOrderId.length > maxClientOrderIdLength))
+            throw OpexError.InvalidRequestParam.exception("Parameter 'newClientOrderId' is either missing or invalid")
+    }
+
+    private suspend fun rejectDuplicateOpenClientOrderId(
+        principal: Principal,
+        symbol: String,
+        newClientOrderId: String?
+    ) {
+        if (newClientOrderId == null)
+            return
+        val existingOrder = try {
+            queryHandler.queryOrder(principal, symbol, null, newClientOrderId)
+        } catch (ex: WebClientResponseException) {
+            if (ex.statusCode == HttpStatus.NOT_FOUND)
+                null
+            else
+                throw ex
+        }
+        if (existingOrder?.status?.isWorking() == true)
+            throw OpexError.BadRequest.exception("newClientOrderId is already in use by an open order")
     }
 
     private fun checkDecimal(decimal: BigDecimal?, paramName: String) {

@@ -12,7 +12,8 @@ data class SimpleOrder(
     var filledQuantity: Long,
     var worse: SimpleOrder?,
     var better: SimpleOrder?,
-    var bucket: Bucket?
+    var bucket: Bucket?,
+    val clientOrderId: String? = null
 ) : Order {
 
     fun remainedQuantity() = quantity - filledQuantity
@@ -33,7 +34,8 @@ data class SimpleOrder(
             matchConstraint,
             orderType,
             direction,
-            filledQuantity
+            filledQuantity,
+            clientOrderId
         )
     }
 }

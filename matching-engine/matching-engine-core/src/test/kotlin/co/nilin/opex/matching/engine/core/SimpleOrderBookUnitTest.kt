@@ -118,6 +118,106 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenOpenClientOrderIdForUser_whenDuplicateClientOrderIdCreated_thenRejectBeforeBookMutation() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        val clientOrderId = "client-1"
+        val firstAsk = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER,
+                clientOrderId
+            )
+        ) as SimpleOrder
+        val rejectedOuid = UUID.randomUUID().toString()
+        val rejectedDuplicate = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                rejectedOuid,
+                uuid,
+                pair,
+                11,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER,
+                clientOrderId
+            )
+        )
+        val otherUserAsk = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                pair,
+                12,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER,
+                clientOrderId
+            )
+        )
+
+        Assertions.assertNull(rejectedDuplicate)
+        Assertions.assertNotNull(otherUserAsk)
+        Assertions.assertEquals(1, rejectEvents.count { it.ouid == rejectedOuid && it.reason == RejectReason.DUPLICATE_CLIENT_ORDER_ID })
+        Assertions.assertEquals(2, orderBook.orders.size)
+        Assertions.assertEquals(firstAsk, orderBook.bestAskOrder)
+        Assertions.assertFalse(orderBook.orders.values.any { it.ouid == rejectedOuid })
+    }
+
+    @Test
+    fun givenOpenClientOrderIdSnapshot_whenRebuilt_thenDuplicateClientOrderIdIsRejected() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        val publishedEvents = mutableListOf<OrderBookPublishedEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        EventDispatcher.register(OrderBookPublishedEvent::class.java) { publishedEvents.add(it) }
+        val clientOrderId = "client-1"
+        orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER,
+                clientOrderId
+            )
+        )
+
+        val rebuiltOrderBook = SimpleOrderBook(pair, false)
+        rebuiltOrderBook.rebuild(publishedEvents.last().persistentOrderBook)
+        val rejectedOuid = UUID.randomUUID().toString()
+        val rejectedDuplicate = rebuiltOrderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                rejectedOuid,
+                uuid,
+                pair,
+                11,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER,
+                clientOrderId
+            )
+        )
+
+        Assertions.assertNull(rejectedDuplicate)
+        Assertions.assertEquals(1, rejectEvents.count { it.ouid == rejectedOuid && it.reason == RejectReason.DUPLICATE_CLIENT_ORDER_ID })
+        Assertions.assertEquals(1, rebuiltOrderBook.orders.size)
+        Assertions.assertEquals(clientOrderId, rebuiltOrderBook.bestAskOrder!!.clientOrderId)
+    }
+
+    @Test
     fun givenCrossingOwnOrder_whenGtcLimitOrderCreated_thenSelfTradeIsRejected() {
         val orderBook = SimpleOrderBook(pair, false, preventSelfTrade = true)
         val rejectEvents = mutableListOf<RejectOrderEvent>()

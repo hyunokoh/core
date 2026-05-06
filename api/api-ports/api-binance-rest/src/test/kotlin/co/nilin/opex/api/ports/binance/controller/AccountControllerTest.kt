@@ -12,11 +12,13 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
+import org.springframework.http.HttpHeaders
 import org.springframework.security.core.context.SecurityContext
 import org.springframework.security.core.context.SecurityContextImpl
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import java.math.BigDecimal
 import java.security.Principal
 import java.time.LocalDateTime
@@ -585,8 +587,11 @@ private class AccountControllerTest {
 
     @Test
     fun givenClientOrderId_whenCreateOrderRequested_thenSubmitExpectedMatchingOrder(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponse = null
+        }
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
-        val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
+        val controller = controller(queryHandler = queryHandler, matchingGatewayProxy = matchingGatewayProxy)
 
         val response = controller.createNewOrder(
             symbol = "ETHUSDT",
@@ -606,8 +611,111 @@ private class AccountControllerTest {
         )
 
         assertThat(response.clientOrderId).isEqualTo("client-1")
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
+        assertThat(queryHandler.queryOrigClientOrderId).isEqualTo("client-1")
         assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("client-1")
+    }
+
+    @Test
+    fun givenOpenClientOrderId_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler = queryHandler, matchingGatewayProxy = matchingGatewayProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.createNewOrder(
+                    symbol = "ETHUSDT",
+                    side = OrderSide.BUY,
+                    type = OrderType.LIMIT,
+                    timeInForce = TimeInForce.GTC,
+                    quantity = BigDecimal("0.5"),
+                    quoteOrderQty = null,
+                    price = BigDecimal("100"),
+                    newClientOrderId = "client-1",
+                    stopPrice = null,
+                    icebergQty = null,
+                    newOrderRespType = null,
+                    recvWindow = null,
+                    timestamp = signedTimestamp(),
+                    securityContext = securityContext()
+                )
+            }
+        }.isOpexError(OpexError.BadRequest)
+
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenMissingClientOrderIdLookup_whenCreateOrderRequested_thenSubmitOrder(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderFailure = WebClientResponseException.create(
+                404,
+                "Not Found",
+                HttpHeaders.EMPTY,
+                ByteArray(0),
+                null
+            )
+        }
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler = queryHandler, matchingGatewayProxy = matchingGatewayProxy)
+
+        controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("100"),
+            newClientOrderId = "client-missing",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("client-missing")
+    }
+
+    @Test
+    fun givenInvalidClientOrderId_whenCreateOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler = queryHandler, matchingGatewayProxy = matchingGatewayProxy)
+        val tooLongClientOrderId = "x".repeat(73)
+
+        listOf(" ", tooLongClientOrderId).forEach { clientOrderId ->
+            assertThatThrownBy {
+                runBlocking {
+                    controller.createNewOrder(
+                        symbol = "ETHUSDT",
+                        side = OrderSide.BUY,
+                        type = OrderType.LIMIT,
+                        timeInForce = TimeInForce.GTC,
+                        quantity = BigDecimal("0.5"),
+                        quoteOrderQty = null,
+                        price = BigDecimal("100"),
+                        newClientOrderId = clientOrderId,
+                        stopPrice = null,
+                        icebergQty = null,
+                        newOrderRespType = null,
+                        recvWindow = null,
+                        timestamp = signedTimestamp(),
+                        securityContext = securityContext()
+                    )
+                }
+            }.isOpexError(OpexError.InvalidRequestParam)
+        }
+
+        assertThat(queryHandler.queryOrderCallCount).isZero()
+        assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
     }
 
     @Test
@@ -742,6 +850,8 @@ private class AccountControllerTest {
         var queryOrderSymbol: String? = null
         var queryOrderId: Long? = null
         var queryOrigClientOrderId: String? = null
+        var queryOrderResponse: Order? = order()
+        var queryOrderFailure: RuntimeException? = null
 
         override suspend fun queryOrder(
             principal: Principal,
@@ -753,7 +863,8 @@ private class AccountControllerTest {
             queryOrderSymbol = symbol
             queryOrderId = orderId
             queryOrigClientOrderId = origClientOrderId
-            return order()
+            queryOrderFailure?.let { throw it }
+            return queryOrderResponse
         }
 
         override suspend fun openOrders(principal: Principal, symbol: String?, limit: Int?): List<Order> {
