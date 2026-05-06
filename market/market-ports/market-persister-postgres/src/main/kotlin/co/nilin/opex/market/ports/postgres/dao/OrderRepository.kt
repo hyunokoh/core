@@ -122,8 +122,10 @@ interface OrderRepository : ReactiveCrudRepository<OrderModel, Long> {
         orderId: Long
     ): Mono<OrderModel>
 
-    @Query("select * from orders where symbol = :symbol and client_order_id = :origClientOrderId")
-    fun findBySymbolAndClientOrderId(
+    @Query("select * from orders where uuid = :uuid and symbol = :symbol and client_order_id = :origClientOrderId")
+    fun findByUuidAndSymbolAndClientOrderId(
+        @Param("uuid")
+        uuid: String,
         @Param("symbol")
         symbol: String,
         @Param("origClientOrderId")

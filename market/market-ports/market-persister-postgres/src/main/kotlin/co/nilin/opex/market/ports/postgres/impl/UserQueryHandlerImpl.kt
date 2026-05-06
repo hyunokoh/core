@@ -49,7 +49,7 @@ class UserQueryHandlerImpl(
             throw OpexError.InvalidRequestParam.exception("Parameter 'origClientOrderId' is either missing or invalid")
 
         val order = (if (origClientOrderId != null) {
-            orderRepository.findBySymbolAndClientOrderId(request.symbol, origClientOrderId)
+            orderRepository.findByUuidAndSymbolAndClientOrderId(uuid, request.symbol, origClientOrderId)
         } else {
             orderRepository.findBySymbolAndOrderId(request.symbol, orderId!!)
         }).awaitFirstOrNull() ?: return null

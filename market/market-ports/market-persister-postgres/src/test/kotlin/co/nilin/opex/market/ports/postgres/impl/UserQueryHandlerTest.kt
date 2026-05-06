@@ -85,6 +85,39 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
     }
 
     @Test
+    fun givenSameClientOrderIdForDifferentUsers_whenQueryOrder_thenReturnRequesterOrder(): Unit = runBlocking {
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "intruder-order",
+                uuid = "intruder-user",
+                clientOrderId = "shared-client-id",
+                orderId = 10
+            ),
+            status = OrderStatus.FILLED
+        )
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "owner-order",
+                uuid = VALID.PRINCIPAL.name,
+                clientOrderId = "shared-client-id",
+                orderId = 11
+            ),
+            status = OrderStatus.NEW
+        )
+
+        val order = userQueryHandler.queryOrder(
+            VALID.PRINCIPAL.name,
+            QueryOrderRequest(VALID.ETH_USDT, null, "shared-client-id")
+        )
+
+        assertThat(order).isNotNull
+        assertThat(order!!.ouid).isEqualTo("owner-order")
+        assertThat(order.status).isEqualTo(OrderStatus.NEW)
+    }
+
+    @Test
     fun givenMissingLookupIdentifier_whenQueryOrder_thenThrowBadRequest(): Unit = runBlocking {
         assertThatThrownBy {
             runBlocking {
