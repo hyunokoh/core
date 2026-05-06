@@ -97,7 +97,7 @@ class AccountController(
         validateRequiredSymbol(symbol)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateNewOrderParams(type, price, quantity, timeInForce, stopPrice, quoteOrderQty)
-        validateUnsupportedNewOrderParams(newClientOrderId, icebergQty, newOrderRespType)
+        validateUnsupportedNewOrderParams(icebergQty, newOrderRespType)
 
         matchingGatewayProxy.createNewOrder(
             securityContext.jwtAuthentication().name,
@@ -108,13 +108,14 @@ class AccountController(
             timeInForce?.asMatchConstraint(),
             type.asMatchingOrderType(),
             "*",
+            newClientOrderId,
             securityContext.jwtAuthentication().tokenValue()
         )
         return NewOrderResponse(
             symbol,
             -1,
             -1,
-            null,
+            newClientOrderId,
             Date(),
             null,
             null,
@@ -473,12 +474,9 @@ class AccountController(
     }
 
     private fun validateUnsupportedNewOrderParams(
-        newClientOrderId: String?,
         icebergQty: BigDecimal?,
         newOrderRespType: OrderResponseType?
     ) {
-        if (newClientOrderId != null)
-            throw OpexError.InvalidRequestParam.exception("Parameter 'newClientOrderId' is either missing or invalid")
         if (icebergQty != null)
             throw OpexError.InvalidRequestParam.exception("Parameter 'icebergQty' is either missing or invalid")
         if (newOrderRespType != null)
@@ -555,7 +553,7 @@ class AccountController(
         ouid,
         orderId ?: 0,
         -1,
-        "",
+        clientOrderId ?: "",
         price,
         quantity,
         executedQuantity,

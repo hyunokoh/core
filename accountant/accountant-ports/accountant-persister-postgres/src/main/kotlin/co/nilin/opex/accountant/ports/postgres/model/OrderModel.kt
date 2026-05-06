@@ -14,6 +14,7 @@ data class OrderModel(
     @Id var id: Long?,
     val ouid: String,
     val uuid: String,
+    @Column("client_order_id") val clientOrderId: String?,
     val pair: String,
     @Column(value = "matching_engine_id") val matchingEngineId: Long?,
     @Column("maker_fee") val makerFee: BigDecimal,

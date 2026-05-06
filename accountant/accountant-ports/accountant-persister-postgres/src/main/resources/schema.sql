@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS orders
     id                       SERIAL PRIMARY KEY,
     ouid                     VARCHAR(72) NOT NULL UNIQUE,
     uuid                     VARCHAR(72) NOT NULL,
+    client_order_id          VARCHAR(128),
     pair                     VARCHAR(72) NOT NULL,
     matching_engine_id       INTEGER,
     maker_fee                DECIMAL     NOT NULL,
@@ -30,6 +31,9 @@ CREATE TABLE IF NOT EXISTS orders
 
 ALTER TABLE orders
     ADD COLUMN IF NOT EXISTS accumulative_quote_qty DECIMAL NOT NULL DEFAULT 0;
+
+ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS client_order_id VARCHAR(128);
 
 CREATE TABLE IF NOT EXISTS fi_actions
 (

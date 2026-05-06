@@ -99,7 +99,8 @@ open class OrderManagerImpl(
                 BigDecimal(submitOrderEvent.quantity - submitOrderEvent.remainedQuantity).multiply(pairFeeConfig.pairConfig.leftSideFraction),
                 amount,
                 amount,
-                OrderStatus.REQUESTED.code
+                OrderStatus.REQUESTED.code,
+                clientOrderId = submitOrderEvent.clientOrderId
             )
         )
         val financialAction = FinancialAction(
@@ -485,7 +486,8 @@ open class OrderManagerImpl(
                     OrderStatus.NEW.code
                 } else {
                     OrderStatus.PARTIALLY_FILLED.code
-                }
+                },
+                order.clientOrderId
             )
         )
     }

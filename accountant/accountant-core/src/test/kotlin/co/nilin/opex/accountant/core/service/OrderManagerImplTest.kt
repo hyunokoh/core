@@ -56,7 +56,8 @@ internal class OrderManagerImplTest {
             BigDecimal.valueOf(0.001)
         )
         val submitOrderEvent = SubmitOrderEvent(
-            "ouid", "uuid", null, pair, 30, 60, 0, OrderDirection.ASK, MatchConstraint.GTC, OrderType.LIMIT_ORDER
+            "ouid", "uuid", null, pair, 30, 60, 0, OrderDirection.ASK, MatchConstraint.GTC, OrderType.LIMIT_ORDER,
+            clientOrderId = "client-1"
         )
 
         pairConfigLoader.put(
@@ -95,6 +96,7 @@ internal class OrderManagerImplTest {
             assertThat(receiver).isEqualTo(financialActions[0].receiver)
             assertThat(receiverWalletType).isEqualTo(financialActions[0].receiverWalletType)
         }
+        assertThat(orderPersister.orders.getValue(submitOrderEvent.ouid).clientOrderId).isEqualTo("client-1")
     }
 
     @Test

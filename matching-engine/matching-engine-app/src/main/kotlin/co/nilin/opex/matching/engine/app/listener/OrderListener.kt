@@ -30,7 +30,8 @@ class OrderListener : OrderRequestEventListener {
                     order.quantity,
                     order.direction,
                     order.matchConstraint,
-                    order.orderType
+                    order.orderType,
+                    order.clientOrderId
                 )
             )
 

@@ -77,7 +77,8 @@ class SimpleOrderBook(
                             order.remainedQuantity(),
                             orderCommand.direction,
                             orderCommand.matchConstraint,
-                            orderCommand.orderType
+                            orderCommand.orderType,
+                            orderCommand.clientOrderId
                         )
                     )
                 }
@@ -115,7 +116,8 @@ class SimpleOrderBook(
                             orderCommand.ouid, orderCommand.uuid,
                             order.id!!, orderCommand.pair, orderCommand.price,
                             orderCommand.quantity, order.remainedQuantity(),
-                            orderCommand.direction, orderCommand.matchConstraint, orderCommand.orderType
+                            orderCommand.direction, orderCommand.matchConstraint, orderCommand.orderType,
+                            orderCommand.clientOrderId
                         )
                     )
                 }

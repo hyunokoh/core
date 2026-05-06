@@ -45,7 +45,8 @@ class OrderPersisterImpl(private val orderRepository: OrderRepository) : OrderPe
             remainedTransferAmount,
             status,
             id,
-            accumulativeQuoteQty
+            accumulativeQuoteQty,
+            clientOrderId
         )
     }
 
@@ -55,6 +56,7 @@ class OrderPersisterImpl(private val orderRepository: OrderRepository) : OrderPe
                 order.id,
                 order.ouid,
                 order.uuid,
+                order.clientOrderId,
                 order.pair,
                 order.matchingEngineId,
                 order.makerFee,

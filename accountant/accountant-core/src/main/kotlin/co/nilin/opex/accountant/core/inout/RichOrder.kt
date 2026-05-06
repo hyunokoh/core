@@ -23,5 +23,6 @@ data class RichOrder(
     val quoteQuantity: BigDecimal,
     val executedQuantity: BigDecimal,
     val accumulativeQuoteQty: BigDecimal,
-    val status: Int = 0
+    val status: Int = 0,
+    val clientOrderId: String? = null
 ) : RichOrderEvent

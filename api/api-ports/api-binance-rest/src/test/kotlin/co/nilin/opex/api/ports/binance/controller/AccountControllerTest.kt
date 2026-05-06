@@ -584,32 +584,30 @@ private class AccountControllerTest {
     }
 
     @Test
-    fun givenClientOrderId_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+    fun givenClientOrderId_whenCreateOrderRequested_thenSubmitExpectedMatchingOrder(): Unit = runBlocking {
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
 
-        assertThatThrownBy {
-            runBlocking {
-                controller.createNewOrder(
-                    symbol = "ETHUSDT",
-                    side = OrderSide.BUY,
-                    type = OrderType.LIMIT,
-                    timeInForce = TimeInForce.GTC,
-                    quantity = BigDecimal("0.5"),
-                    quoteOrderQty = null,
-                    price = BigDecimal("100"),
-                    newClientOrderId = "client-1",
-                    stopPrice = null,
-                    icebergQty = null,
-                    newOrderRespType = null,
-                    recvWindow = null,
-                    timestamp = signedTimestamp(),
-                    securityContext = securityContext()
-                )
-            }
-        }.isOpexError(OpexError.InvalidRequestParam)
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("100"),
+            newClientOrderId = "client-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
 
-        assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
+        assertThat(response.clientOrderId).isEqualTo("client-1")
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("client-1")
     }
 
     @Test
@@ -700,6 +698,7 @@ private class AccountControllerTest {
         assertThat(matchingGatewayProxy.createOrderDirection).isEqualTo(OrderDirection.ASK)
         assertThat(matchingGatewayProxy.createOrderConstraint).isEqualTo(MatchConstraint.GTC)
         assertThat(matchingGatewayProxy.createOrderType).isEqualTo(MatchingOrderType.LIMIT_ORDER)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isNull()
         assertThat(matchingGatewayProxy.createOrderToken).isEqualTo("token-1")
     }
 
@@ -839,6 +838,7 @@ private class AccountControllerTest {
         var createOrderDirection: OrderDirection? = null
         var createOrderConstraint: MatchConstraint? = null
         var createOrderType: MatchingOrderType? = null
+        var createOrderClientOrderId: String? = null
         var createOrderToken: String? = null
         var cancelOrderCallCount = 0
         var cancelOrderUuid: String? = null
@@ -853,6 +853,7 @@ private class AccountControllerTest {
             matchConstraint: MatchConstraint?,
             orderType: MatchingOrderType,
             userLevel: String,
+            clientOrderId: String?,
             token: String?
         ): OrderSubmitResult? {
             createOrderCallCount += 1
@@ -863,6 +864,7 @@ private class AccountControllerTest {
             createOrderDirection = direction
             createOrderConstraint = matchConstraint
             createOrderType = orderType
+            createOrderClientOrderId = clientOrderId
             createOrderToken = token
             return OrderSubmitResult(1)
         }

@@ -16,4 +16,5 @@ class OrderSubmitRequestEvent(
     val orderType: OrderType,
     val userLevel: String,
     val orderId: Long? = null,
+    val clientOrderId: String? = null,
 ) : OrderRequestEvent(ouid, uuid, pair)

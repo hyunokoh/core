@@ -34,6 +34,7 @@ class MatchingGatewayProxyImplTest {
             matchConstraint = MatchConstraint.GTC,
             orderType = MatchingOrderType.LIMIT_ORDER,
             userLevel = "*",
+            clientOrderId = "client-1",
             token = "token-1"
         )
 

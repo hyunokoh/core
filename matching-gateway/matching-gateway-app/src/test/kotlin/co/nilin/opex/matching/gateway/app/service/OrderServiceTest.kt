@@ -43,12 +43,13 @@ private class OrderServiceTest {
         val service = orderService()
 
         val result = consumer().use { kafkaConsumer ->
-            val result = service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK)
+            val result = service.submitNewOrder(VALID.CREATE_ORDER_REQUEST_ASK.copy(clientOrderId = "client-1"))
             val recordValue = nextRecordValue(kafkaConsumer)
 
             assertThat(recordValue).contains("\"direction\":\"ASK\"")
             assertThat(recordValue).contains("\"price\":10000000")
             assertThat(recordValue).contains("\"quantity\":10")
+            assertThat(recordValue).contains("\"clientOrderId\":\"client-1\"")
             result
         }
 

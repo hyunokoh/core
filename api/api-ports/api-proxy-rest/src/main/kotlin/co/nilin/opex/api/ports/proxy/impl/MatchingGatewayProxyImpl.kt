@@ -38,10 +38,11 @@ class MatchingGatewayProxyImpl(private val client: WebClient) : MatchingGatewayP
         matchConstraint: MatchConstraint?,
         orderType: MatchingOrderType,
         userLevel: String,
+        clientOrderId: String?,
         token: String?
     ): OrderSubmitResult? {
         logger.info("calling matching-gateway order create")
-        val body = CreateOrderRequest(uuid, pair, price, quantity, direction, matchConstraint, orderType, userLevel)
+        val body = CreateOrderRequest(uuid, pair, price, quantity, direction, matchConstraint, orderType, userLevel, clientOrderId)
         return withContext(ProxyDispatchers.general) {
             val request = client.post()
                 .uri(URI.create("$baseUrl/order"))

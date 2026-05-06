@@ -89,7 +89,8 @@ class OrderService(
             createOrderRequest.direction,
             createOrderRequest.matchConstraint,
             createOrderRequest.orderType,
-            createOrderRequest.userLevel
+            createOrderRequest.userLevel,
+            clientOrderId = createOrderRequest.clientOrderId
         )
         return orderRequestEventSubmitter.submit(orderSubmitRequest)
     }

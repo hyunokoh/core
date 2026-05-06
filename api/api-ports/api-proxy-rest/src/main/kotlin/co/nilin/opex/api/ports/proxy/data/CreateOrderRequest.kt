@@ -13,5 +13,6 @@ data class CreateOrderRequest(
     val direction: OrderDirection,
     val matchConstraint: MatchConstraint?,
     val orderType: MatchingOrderType,
-    val userLevel: String
+    val userLevel: String,
+    val clientOrderId: String?
 )

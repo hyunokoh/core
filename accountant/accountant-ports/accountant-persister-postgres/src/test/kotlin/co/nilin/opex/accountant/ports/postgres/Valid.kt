@@ -20,6 +20,7 @@ object Valid {
         1,
         "order_1",
         "user_1",
+        null,
         "BTC_USDT",
         1,
         0.01.toBigDecimal(),

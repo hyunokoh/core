@@ -1429,6 +1429,52 @@ wait_binance_private_order_status_by_order_id() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_private_order_status_by_client_order_id() {
+  local owner="$1"
+  local symbol="$2"
+  local client_order_id="$3"
+  local price="$4"
+  local quantity="$5"
+  local expected_status="$6"
+  local expected_executed_quantity="$7"
+  local expected_quote_quantity="$8"
+  local side="$9"
+  local output_file="${10}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/order" "symbol=${symbol}&origClientOrderId=${client_order_id}")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol "$symbol" \
+      --arg client_order_id "$client_order_id" \
+      --argjson price "$price" \
+      --argjson quantity "$quantity" \
+      --arg expected_status "$expected_status" \
+      --argjson expected_executed_quantity "$expected_executed_quantity" \
+      --argjson expected_quote_quantity "$expected_quote_quantity" \
+      --arg side "$side" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        .symbol == $symbol and
+        .clientOrderId == $client_order_id and
+        .price == $price and
+        .origQty == $quantity and
+        .status == $expected_status and
+        .side == $side and
+        .type == "LIMIT" and
+        nearly_equal(.executedQty; $expected_executed_quantity) and
+        nearly_equal(.cummulativeQuoteQty; $expected_quote_quantity)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance private order query owner=$owner symbol=$symbol origClientOrderId=$client_order_id status=$expected_status executed=$expected_executed_quantity quote=$expected_quote_quantity" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_binance_private_trade_projection() {
   local owner="$1"
   local symbol="$2"
@@ -2799,6 +2845,26 @@ main() {
   wait_binance_account_balance "$api_cancel_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-cancel-released-account.json
   wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-canceled.json
   wait_binance_private_order_projection "$api_cancel_owner" "ETHUSDT" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-orders.json
+
+  local api_client_cancel_owner="e2e-api-client-cancel-$(date +%s)"
+  local api_client_cancel_ref="e2e-api-client-cancel-$(date +%s)"
+  local api_client_cancel_id="e2e-client-cancel-$(date +%s)"
+  expect_2xx "Binance API client cancel ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_client_cancel_owner}_MAIN?description=e2e-api-client-cancel&transferRef=${api_client_cancel_ref}-eth")" >/dev/null
+  expect_2xx_retry "Binance API client-id cancel owner limit ask" "binance_private_post '$api_client_cancel_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=161&newClientOrderId=${api_client_cancel_id}'" >/tmp/opex-e2e-binance-api-client-cancel-ask.json
+  wait_user_open_order "$api_client_cancel_owner" "ETH_USDT" "161" "0.2" /tmp/opex-e2e-binance-api-client-cancel-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "161" "0.2"
+  wait_binance_account_balance "$api_client_cancel_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-client-cancel-reserved-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_client_cancel_owner" "ETHUSDT" "$api_client_cancel_id" "161" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-client-cancel-query-new.json
+  expect_2xx_retry "Binance API client-id cancel owner limit ask" "binance_private_delete '$api_client_cancel_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_client_cancel_id}'" >/tmp/opex-e2e-binance-api-client-cancel-response.json
+  jq -e \
+    --arg clientOrderId "$api_client_cancel_id" \
+    '.symbol == "ETHUSDT" and .origClientOrderId == $clientOrderId and .clientOrderId == $clientOrderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
+    /tmp/opex-e2e-binance-api-client-cancel-response.json >/dev/null
+  wait_no_user_open_orders "$api_client_cancel_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_account_balance "$api_client_cancel_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-client-cancel-released-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_client_cancel_owner" "ETHUSDT" "$api_client_cancel_id" "161" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-client-cancel-query-canceled.json
+  wait_binance_private_order_projection "$api_client_cancel_owner" "ETHUSDT" "161" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-client-cancel-orders.json
 
   local engine_restart_seller="e2e-engine-restart-seller-$(date +%s)"
   local engine_restart_buyer="e2e-engine-restart-buyer-$(date +%s)"
@@ -4346,7 +4412,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,56\nFEE,36\nORDER_CANCEL,24\nORDER_CREATE,51\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,57\nFEE,36\nORDER_CANCEL,25\nORDER_CREATE,52\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -4357,7 +4423,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,31.05000000\nUSDT,2765.34200000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,32.05000000\nUSDT,2765.34200000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -4421,7 +4487,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,19\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,51\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,20\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,52\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
