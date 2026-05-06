@@ -618,6 +618,37 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenNoClientOrderId_whenCreateOrderRequested_thenGenerateAndSubmitClientOrderId(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler = queryHandler, matchingGatewayProxy = matchingGatewayProxy)
+
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("100"),
+            newClientOrderId = null,
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(response.clientOrderId).isNotBlank()
+        assertThat(response.clientOrderId).hasSizeLessThanOrEqualTo(72)
+        assertThat(response.clientOrderId).startsWith("x-")
+        assertThat(queryHandler.queryOrderCallCount).isZero()
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo(response.clientOrderId)
+    }
+
+    @Test
     fun givenOpenClientOrderId_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
@@ -837,7 +868,8 @@ private class AccountControllerTest {
         assertThat(matchingGatewayProxy.createOrderDirection).isEqualTo(OrderDirection.ASK)
         assertThat(matchingGatewayProxy.createOrderConstraint).isEqualTo(MatchConstraint.GTC)
         assertThat(matchingGatewayProxy.createOrderType).isEqualTo(MatchingOrderType.LIMIT_ORDER)
-        assertThat(matchingGatewayProxy.createOrderClientOrderId).isNull()
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isNotBlank()
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).startsWith("x-")
         assertThat(matchingGatewayProxy.createOrderToken).isEqualTo("token-1")
     }
 

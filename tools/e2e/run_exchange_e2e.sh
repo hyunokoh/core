@@ -2886,6 +2886,31 @@ main() {
   wait_binance_private_order_status_by_client_order_id "$api_client_cancel_owner" "ETHUSDT" "$api_client_cancel_id" "161" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-client-cancel-query-canceled.json
   wait_binance_private_order_projection "$api_client_cancel_owner" "ETHUSDT" "161" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-client-cancel-orders.json
 
+  local api_generated_client_owner="e2e-api-generated-client-$(date +%s)"
+  local api_generated_client_ref="e2e-api-generated-client-$(date +%s)"
+  expect_2xx "Binance API generated client owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_generated_client_owner}_MAIN?description=e2e-api-generated-client&transferRef=${api_generated_client_ref}-eth")" >/dev/null
+  expect_2xx_retry "Binance API generated client-id limit ask" "binance_private_post '$api_generated_client_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=167'" >/tmp/opex-e2e-binance-api-generated-client-ask.json
+  local api_generated_client_id
+  api_generated_client_id="$(jq -r '.clientOrderId // empty' /tmp/opex-e2e-binance-api-generated-client-ask.json)"
+  if [[ -z "$api_generated_client_id" || "$api_generated_client_id" == "null" || "${#api_generated_client_id}" -gt 72 ]]; then
+    echo "Binance API generated client order id invalid: '$api_generated_client_id'" >&2
+    cat /tmp/opex-e2e-binance-api-generated-client-ask.json >&2
+    exit 1
+  fi
+  wait_user_open_order "$api_generated_client_owner" "ETH_USDT" "167" "0.2" /tmp/opex-e2e-binance-api-generated-client-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "167" "0.2"
+  wait_binance_account_balance "$api_generated_client_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-generated-client-reserved-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_generated_client_owner" "ETHUSDT" "$api_generated_client_id" "167" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-generated-client-query-new.json
+  expect_2xx_retry "Binance API generated client-id cleanup cancel" "binance_private_delete '$api_generated_client_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_generated_client_id}'" >/tmp/opex-e2e-binance-api-generated-client-cancel-response.json
+  jq -e \
+    --arg clientOrderId "$api_generated_client_id" \
+    '.symbol == "ETHUSDT" and .origClientOrderId == $clientOrderId and .clientOrderId == $clientOrderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
+    /tmp/opex-e2e-binance-api-generated-client-cancel-response.json >/dev/null
+  wait_no_user_open_orders "$api_generated_client_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_account_balance "$api_generated_client_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-generated-client-released-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_generated_client_owner" "ETHUSDT" "$api_generated_client_id" "167" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-generated-client-query-canceled.json
+
   local api_scoped_client_owner_one="e2e-api-scoped-client-1-$(date +%s)"
   local api_scoped_client_owner_two="e2e-api-scoped-client-2-$(date +%s)"
   local api_scoped_client_ref="e2e-api-scoped-client-$(date +%s)"
@@ -4513,7 +4538,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,60\nFEE,36\nORDER_CANCEL,29\nORDER_CREATE,56\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,61\nFEE,36\nORDER_CANCEL,30\nORDER_CREATE,57\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -4524,7 +4549,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,35.05000000\nUSDT,2765.34200000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,36.05000000\nUSDT,2765.34200000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -4588,7 +4613,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,24\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,56\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,25\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,57\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -5337,7 +5362,7 @@ main() {
   wait_order_book_empty "BTC_USDT" "BID"
 
   echo "E2E exchange flow passed"
-  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder malformedEditOwner=$malformed_edit_owner fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller editBidOwner=$edit_bid_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
+  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner apiGeneratedClientOwner=$api_generated_client_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder malformedEditOwner=$malformed_edit_owner fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller editBidOwner=$edit_bid_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
   cat > /tmp/opex-e2e-summary.json <<EOF
 {
   "status": "passed",
@@ -5358,6 +5383,8 @@ main() {
   "postgresRestartSeller": "$postgres_restart_seller",
   "postgresRestartBuyer": "$postgres_restart_buyer",
   "cancelOwner": "$cancel_owner",
+  "apiGeneratedClientOwner": "$api_generated_client_owner",
+  "apiGeneratedClientOrderId": "$api_generated_client_id",
   "partialSeller": "$partial_seller",
   "partialBuyer": "$partial_buyer",
   "iocOwner": "$ioc_owner",
@@ -5429,6 +5456,12 @@ main() {
     "duplicateStatus": "HTTP_400",
     "reusedAfterCancelPrice": 166,
     "reusedAfterCancelStatus": "CANCELED",
+    "finalStatus": "CANCELED"
+  },
+  "binanceGeneratedClientOrderIdScenario": {
+    "price": 167,
+    "quantity": 0.2,
+    "clientOrderId": "$api_generated_client_id",
     "finalStatus": "CANCELED"
   },
   "matchingEngineRestartScenario": {
@@ -5687,10 +5720,10 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 60,
+      "DEPOSIT": 61,
       "FEE": 36,
-      "ORDER_CANCEL": 29,
-      "ORDER_CREATE": 56,
+      "ORDER_CANCEL": 30,
+      "ORDER_CREATE": 57,
       "ORDER_FINALIZED": 1,
       "TRADE": 36,
       "WITHDRAW_ACCEPT": 1,
@@ -5699,7 +5732,7 @@ main() {
       "WITHDRAW_REQUEST": 4
     },
     "walletAggregateBalances": {
-      "ETH": 35.05,
+      "ETH": 36.05,
       "USDT": 2765.342
     },
     "walletWithdrawStatuses": {
@@ -5713,9 +5746,9 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 24,
+      "CancelOrderEvent": 25,
       "RejectOrderEvent": 2,
-      "SubmitOrderEvent": 56,
+      "SubmitOrderEvent": 57,
       "TradeEvent": 73,
       "UpdatedOrderEvent": 3
     },
@@ -5796,6 +5829,7 @@ main() {
     "postgresRestartSeller": {"ETH": 0.8, "USDT": 23.166},
     "postgresRestartBuyer": {"ETH": 0.198, "USDT": 76.6},
     "cancelOwner": {"ETH": 1},
+    "apiGeneratedClientOwner": {"ETH": 1},
     "apiDuplicateClientOwner": {"ETH": 1},
     "partialSeller": {"ETH": 1.6, "USDT": 47.52},
     "partialBuyer": {"ETH": 0.396, "USDT": 2},

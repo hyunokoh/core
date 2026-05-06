@@ -103,6 +103,7 @@ class AccountController(
         validateNewClientOrderId(newClientOrderId)
         validateUnsupportedNewOrderParams(icebergQty, newOrderRespType)
         val authentication = securityContext.jwtAuthentication()
+        val effectiveClientOrderId = newClientOrderId ?: generateClientOrderId()
         rejectDuplicateOpenClientOrderId(Principal { authentication.name }, internalSymbol, newClientOrderId)
 
         matchingGatewayProxy.createNewOrder(
@@ -114,14 +115,14 @@ class AccountController(
             timeInForce?.asMatchConstraint(),
             type.asMatchingOrderType(),
             "*",
-            newClientOrderId,
+            effectiveClientOrderId,
             authentication.tokenValue()
         )
         return NewOrderResponse(
             symbol,
             -1,
             -1,
-            newClientOrderId,
+            effectiveClientOrderId,
             Date(),
             null,
             null,
@@ -493,6 +494,9 @@ class AccountController(
         if (newClientOrderId != null && (newClientOrderId.isBlank() || newClientOrderId.length > maxClientOrderIdLength))
             throw OpexError.InvalidRequestParam.exception("Parameter 'newClientOrderId' is either missing or invalid")
     }
+
+    private fun generateClientOrderId(): String =
+        "x-${UUID.randomUUID().toString().replace("-", "")}"
 
     private suspend fun rejectDuplicateOpenClientOrderId(
         principal: Principal,
