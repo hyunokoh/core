@@ -204,6 +204,18 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
     }
 
     @Test
+    fun givenTradeIdFilter_whenAllTrades_thenReturnTradesFromThatExchangeTradeId(): Unit = runBlocking {
+        seedOrder(status = OrderStatus.FILLED)
+        seedOrder(VALID.TAKER_ORDER_MODEL.copy(id = null, clientOrderId = "taker-client"), status = OrderStatus.FILLED)
+        seedTrade(VALID.TRADE_MODEL.copyTradeId(100))
+        seedTrade(VALID.TRADE_MODEL.copyTradeId(101))
+
+        val trades = userQueryHandler.allTrades(VALID.PRINCIPAL.name, TradeRequest(VALID.ETH_USDT, 100, null, null, 100))
+
+        assertThat(trades.map { it.id }).containsExactlyInAnyOrder(100L, 101L)
+    }
+
+    @Test
     fun givenTradeBeforeOrdersProjected_whenAllTrades_thenSkipIncompleteProjection(): Unit = runBlocking {
         seedTrade()
 
@@ -308,6 +320,28 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
         makerUuid,
         takerUuid,
         createDate
+    )
+
+    private fun TradeModel.copyTradeId(tradeId: Long) = TradeModel(
+        id,
+        tradeId,
+        symbol,
+        baseAsset,
+        quoteAsset,
+        matchedPrice,
+        matchedQuantity,
+        takerPrice,
+        makerPrice,
+        takerCommission,
+        makerCommission,
+        takerCommissionAsset,
+        makerCommissionAsset,
+        tradeDate.plusNanos(tradeId),
+        makerOuid,
+        takerOuid,
+        makerUuid,
+        takerUuid,
+        createDate.plusNanos(tradeId)
     )
 
     private fun TradeModel.copyTaker(takerUuid: String) = TradeModel(

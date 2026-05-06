@@ -98,7 +98,7 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
     @Query(
             """
         select * from trades where :uuid in (taker_uuid, maker_uuid) 
-            and (:fromTrade is null or id > :fromTrade) 
+            and (:fromTrade is null or trade_id >= :fromTrade)
             and (:symbol is null or symbol = :symbol) 
             and (:startTime is null or trade_date >= :startTime) 
             and (:endTime is null or trade_date < :endTime)
