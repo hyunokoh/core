@@ -90,6 +90,7 @@ Runs a real Docker-backed exchange E2E flow:
   36f. Verify Binance-compatible myTrades orderId does not leak another user's trades.
   36g. Verify Binance-compatible order lookup by orderId rejects another user's order.
   36h. Verify Binance-compatible origClientOrderId lookup/cancel cannot affect another user's order.
+  36i. Verify Binance-compatible orderId cancel cannot affect another user's order.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -3311,6 +3312,10 @@ main() {
     exit 1
   fi
   wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-new.json
+  expect_http_status "Binance API intruder order-id cancel forbidden" "403" "$(binance_private_delete "${api_cancel_owner}-intruder" "/v3/order" "symbol=ETHUSDT&orderId=${api_cancel_order_id}")" >/tmp/opex-e2e-binance-api-cancel-intruder-order-id-cancel.json
+  wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-still-new-after-intruder.json
+  wait_order_book_level "ETH_USDT" "ASK" "160" "0.3"
+  wait_binance_account_balance "$api_cancel_owner" "ETH" "0.7" "0.3" /tmp/opex-e2e-binance-api-cancel-still-reserved-account.json
   expect_2xx_retry "Binance API cancel owner limit ask" "binance_private_delete '$api_cancel_owner' '/v3/order' 'symbol=ETHUSDT&orderId=${api_cancel_order_id}'" >/tmp/opex-e2e-binance-api-cancel-response.json
   jq -e \
     --argjson orderId "$api_cancel_order_id" \
@@ -5978,6 +5983,15 @@ main() {
     "owner": "$api_order_buyer",
     "foreignOrderId": $api_order_seller_binance_order_id,
     "status": "HTTP_403"
+  },
+  "binanceOrderIdCancelIsolation": {
+    "symbol": "ETHUSDT",
+    "owner": "$api_cancel_owner",
+    "intruder": "${api_cancel_owner}-intruder",
+    "orderId": $api_cancel_order_id,
+    "cancelStatus": "HTTP_403",
+    "ownerOrderStatusAfterIntruderCancel": "NEW",
+    "ownerLockedBalanceAfterIntruderCancel": 0.3
   },
   "cancelScenario": {
     "price": 150,
