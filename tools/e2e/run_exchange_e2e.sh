@@ -1403,6 +1403,69 @@ wait_binance_private_order_projection() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_private_open_order() {
+  local owner="$1"
+  local symbol="$2"
+  local client_order_id="$3"
+  local price="$4"
+  local quantity="$5"
+  local side="$6"
+  local output_file="$7"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/openOrders" "symbol=${symbol}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol "$symbol" \
+      --arg client_order_id "$client_order_id" \
+      --argjson price "$price" \
+      --argjson quantity "$quantity" \
+      --arg side "$side" '
+        [
+          .[] |
+          select(
+            .symbol == $symbol and
+            .clientOrderId == $client_order_id and
+            .price == $price and
+            .origQty == $quantity and
+            .status == "NEW" and
+            .side == $side and
+            .type == "LIMIT" and
+            .isWorking == true and
+            (.orderId | type == "number") and
+            (.orderId > 0)
+          )
+        ] | length == 1
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance open order owner=$owner symbol=$symbol clientOrderId=$client_order_id price=$price quantity=$quantity side=$side" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_private_no_open_orders() {
+  local owner="$1"
+  local symbol="$2"
+  local output_file="$3"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/openOrders" "symbol=${symbol}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance no open orders owner=$owner symbol=$symbol" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_binance_private_order_status_by_order_id() {
   local owner="$1"
   local symbol="$2"
@@ -2900,6 +2963,7 @@ main() {
   wait_user_open_order "$api_generated_client_owner" "ETH_USDT" "167" "0.2" /tmp/opex-e2e-binance-api-generated-client-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "167" "0.2"
   wait_binance_account_balance "$api_generated_client_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-generated-client-reserved-account.json
+  wait_binance_private_open_order "$api_generated_client_owner" "ETHUSDT" "$api_generated_client_id" "167" "0.2" "SELL" /tmp/opex-e2e-binance-api-generated-client-open-orders-rest.json
   wait_binance_private_order_status_by_client_order_id "$api_generated_client_owner" "ETHUSDT" "$api_generated_client_id" "167" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-generated-client-query-new.json
   expect_2xx_retry "Binance API generated client-id cleanup cancel" "binance_private_delete '$api_generated_client_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_generated_client_id}'" >/tmp/opex-e2e-binance-api-generated-client-cancel-response.json
   jq -e \
@@ -2907,6 +2971,7 @@ main() {
     '.symbol == "ETHUSDT" and .origClientOrderId == $clientOrderId and .clientOrderId == $clientOrderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
     /tmp/opex-e2e-binance-api-generated-client-cancel-response.json >/dev/null
   wait_no_user_open_orders "$api_generated_client_owner" "ETH_USDT"
+  wait_binance_private_no_open_orders "$api_generated_client_owner" "ETHUSDT" /tmp/opex-e2e-binance-api-generated-client-open-orders-empty.json
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_generated_client_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-generated-client-released-account.json
   wait_binance_private_order_status_by_client_order_id "$api_generated_client_owner" "ETHUSDT" "$api_generated_client_id" "167" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-generated-client-query-canceled.json
@@ -5462,6 +5527,7 @@ main() {
     "price": 167,
     "quantity": 0.2,
     "clientOrderId": "$api_generated_client_id",
+    "openOrdersVerified": true,
     "finalStatus": "CANCELED"
   },
   "matchingEngineRestartScenario": {
