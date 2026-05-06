@@ -1490,6 +1490,93 @@ wait_market_order_status_matches_trade_totals() {
   "
 }
 
+wait_accountant_market_order_projections_match() {
+  local label="$1"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local accountant_file market_file diff_file
+  accountant_file="$(mktemp)"
+  market_file="$(mktemp)"
+  diff_file="$(mktemp)"
+
+  while true; do
+    psql_query "postgres-accountant" "
+      select
+        ouid,
+        uuid,
+        pair,
+        direction,
+        status,
+        to_char(filled_orig_quantity, 'FM9999999990.00000000'),
+        to_char(accumulative_quote_qty, 'FM9999999990.00000000')
+      from orders
+      where uuid like 'e2e-%'
+        and status <> 3
+      order by ouid;
+    " > "$accountant_file"
+
+    psql_query "postgres-market" "
+      with ranked_order_status as (
+        select
+          os.*,
+          row_number() over (partition by ouid order by appearance desc, executed_quantity desc) as rank
+        from order_status os
+      ),
+      status_totals as (
+        select
+          ouid,
+          coalesce(
+            max(case when appearance > 1 then executed_quantity end),
+            max(executed_quantity)
+          ) as executed_quantity,
+          coalesce(
+            max(case when appearance > 1 then accumulative_quote_qty end),
+            max(accumulative_quote_qty)
+          ) as accumulative_quote_qty
+        from order_status
+        group by ouid
+      ),
+      latest_order_status as (
+        select
+          ranked_order_status.ouid,
+          status_totals.executed_quantity,
+          status_totals.accumulative_quote_qty,
+          ranked_order_status.status
+        from ranked_order_status
+        join status_totals on status_totals.ouid = ranked_order_status.ouid
+        where ranked_order_status.rank = 1
+      )
+      select
+        o.ouid,
+        o.uuid,
+        o.symbol,
+        o.side,
+        os.status,
+        to_char(coalesce(os.executed_quantity, 0), 'FM9999999990.00000000'),
+        to_char(coalesce(os.accumulative_quote_qty, 0), 'FM9999999990.00000000')
+      from orders o
+      join latest_order_status os on os.ouid = o.ouid
+      where o.uuid like 'e2e-%'
+        and os.status <> 3
+      order by o.ouid;
+    " > "$market_file"
+
+    if diff -u "$accountant_file" "$market_file" > "$diff_file"; then
+      rm -f "$accountant_file" "$market_file" "$diff_file"
+      return 0
+    fi
+
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for $label" >&2
+      cat "$diff_file" >&2
+      rm -f "$accountant_file" "$market_file" "$diff_file"
+      "${COMPOSE[@]}" logs --tail=200 accountant market >&2 || true
+      exit 1
+    fi
+
+    sleep 2
+  done
+}
+
 main() {
   write_defaults
   cd "$ROOT_DIR"
@@ -3291,6 +3378,7 @@ main() {
       );
   "
   wait_market_order_status_matches_trade_totals "market e2e order status matches trade totals"
+  wait_accountant_market_order_projections_match "accountant and market e2e order projections match"
   wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
@@ -3940,6 +4028,7 @@ main() {
       );
   "
   wait_market_order_status_matches_trade_totals "all e2e market order status matches trade totals after BTC"
+  wait_accountant_market_order_projections_match "all e2e accountant and market order projections match after BTC"
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
 
