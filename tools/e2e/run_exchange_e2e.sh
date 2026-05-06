@@ -1869,6 +1869,8 @@ main() {
   expect_2xx_retry "partial bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$partial_bid' '$partial_buyer'" >/tmp/opex-e2e-partial-bid.json
   wait_order_projection "$partial_seller" "$partial_ask_ouid" "PARTIALLY_FILLED" "0.4" "48"
   wait_order_book_level "ETH_USDT" "ASK" "120" "0.6"
+  wait_user_trade_projection "$partial_seller" "ETH_USDT" "120" "0.4" "48" "0.48" "USDT" false true false /tmp/opex-e2e-partial-seller-trades.json
+  wait_user_trade_projection "$partial_buyer" "ETH_USDT" "120" "0.4" "48" "0.004" "ETH" true false false /tmp/opex-e2e-partial-buyer-trades.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$partial_seller" "ETH" "1" &&
     try_wallet_balance "$partial_seller" "USDT" "47.52" &&
