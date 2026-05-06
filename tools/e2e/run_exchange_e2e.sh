@@ -1282,29 +1282,6 @@ wait_vault_e2e_secret() {
   echo "ready: vault e2e secrets loaded"
 }
 
-wait_user_trade_price() {
-  local owner="$1"
-  local symbol="$2"
-  local price="$3"
-  local quantity="$4"
-  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  local body
-  local trade_query
-  trade_query="{\"symbol\":\"${symbol}\",\"fromTrade\":null,\"startTime\":null,\"endTime\":null,\"limit\":20}"
-  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://127.0.0.1:8096/v1/user/${owner}/trades")" &&
-    printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" '
-      [.[] | select(.price == $price and .quantity == $quantity)] | length >= 1
-    ' >/dev/null; do
-    if (( SECONDS > deadline )); then
-      echo "Timed out waiting for trade owner=$owner symbol=$symbol price=$price quantity=$quantity" >&2
-      echo "$body" >&2
-      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine accountant market wallet >&2 || true
-      exit 1
-    fi
-    sleep 2
-  done
-}
-
 wait_user_trade_projection() {
   local owner="$1"
   local symbol="$2"
@@ -3512,10 +3489,10 @@ main() {
   wait "$concurrent_bid_pid_three"
 
   wait_no_user_open_orders "$concurrent_seller" "BTC_USDT"
-  wait_user_trade_price "$concurrent_seller" "BTC_USDT" "21000" "0.001"
-  wait_user_trade_price "$concurrent_buyer_one" "BTC_USDT" "21000" "0.001"
-  wait_user_trade_price "$concurrent_buyer_two" "BTC_USDT" "21000" "0.001"
-  wait_user_trade_price "$concurrent_buyer_three" "BTC_USDT" "21000" "0.001"
+  wait_user_trade_projection "$concurrent_seller" "BTC_USDT" "21000" "0.001" "21" "0.21" "USDT" false true false /tmp/opex-e2e-concurrent-seller-trades.json
+  wait_user_trade_projection "$concurrent_buyer_one" "BTC_USDT" "21000" "0.001" "21" "0.00001" "BTC" true false false /tmp/opex-e2e-concurrent-buyer-one-trades.json
+  wait_user_trade_projection "$concurrent_buyer_two" "BTC_USDT" "21000" "0.001" "21" "0.00001" "BTC" true false false /tmp/opex-e2e-concurrent-buyer-two-trades.json
+  wait_user_trade_projection "$concurrent_buyer_three" "BTC_USDT" "21000" "0.001" "21" "0.00001" "BTC" true false false /tmp/opex-e2e-concurrent-buyer-three-trades.json
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
   wait_wallet_type_balance "concurrent seller EXCHANGE BTC fully settled" "$concurrent_seller" "EXCHANGE" "BTC" "0.00000000"
@@ -3598,7 +3575,7 @@ main() {
   wait_no_user_open_orders "$overfill_seller" "BTC_USDT"
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_level "BTC_USDT" "BID" "22000" "0.001"
-  wait_user_trade_price "$overfill_seller" "BTC_USDT" "22000" "0.001"
+  wait_user_trade_projection "$overfill_seller" "BTC_USDT" "22000" "0.001" "22" "0.22" "USDT" false true false /tmp/opex-e2e-overfill-seller-trades.json
   wait_query_eq "overfill BTC_USDT persisted trade count" "postgres-market" "2" "
     select count(*) from trades
     where symbol = 'BTC_USDT'
@@ -3638,7 +3615,7 @@ main() {
   wait_wallet_type_balance "overfill residual buyer MAIN USDT reserved" "$overfill_open_owner" "MAIN" "USDT" "8.00000000"
   wait_wallet_type_balance "overfill residual buyer EXCHANGE USDT reservation" "$overfill_open_owner" "EXCHANGE" "USDT" "22.00000000"
   for overfill_filled_buyer in "${overfill_filled_buyers[@]}"; do
-    wait_user_trade_price "$overfill_filled_buyer" "BTC_USDT" "22000" "0.001"
+    wait_user_trade_projection "$overfill_filled_buyer" "BTC_USDT" "22000" "0.001" "22" "0.00001" "BTC" true false false "/tmp/opex-e2e-overfill-${overfill_filled_buyer}-trades.json"
     wait_wallet_type_balance "overfill filled buyer EXCHANGE USDT fully settled" "$overfill_filled_buyer" "EXCHANGE" "USDT" "0.00000000"
   done
   local overfill_cancel_request
