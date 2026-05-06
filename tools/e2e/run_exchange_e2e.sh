@@ -72,7 +72,7 @@ Runs a real Docker-backed exchange E2E flow:
   25. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
   26. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   27. Verify wallet/accountant/market database invariants after settlement.
-  28. Verify accountant fee actions match market trade commissions.
+  28. Verify accountant and wallet fee ledgers match market trade commissions.
   29. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
   30. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   31. Restart Market and verify public market state is still available from persisted data.
@@ -1631,6 +1631,67 @@ wait_accountant_trade_fees_match_market_commissions() {
       cat "$diff_file" >&2
       rm -f "$accountant_file" "$market_file" "$diff_file"
       "${COMPOSE[@]}" logs --tail=200 accountant market >&2 || true
+      exit 1
+    fi
+
+    sleep 2
+  done
+}
+
+wait_wallet_fee_transactions_match_accountant_actions() {
+  local label="$1"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local accountant_file wallet_file diff_file
+  accountant_file="$(mktemp)"
+  wallet_file="$(mktemp)"
+  diff_file="$(mktemp)"
+
+  while true; do
+    psql_query "postgres-accountant" "
+      select
+        symbol,
+        to_char(coalesce(sum(amount), 0), 'FM9999999990.00000000'),
+        count(*)
+      from fi_actions
+      where event_type = 'TradeEvent'
+        and status = 'PROCESSED'
+        and sender_wallet_type = 'MAIN'
+        and receiver = '1'
+        and receiver_wallet_type = 'EXCHANGE'
+        and sender like 'e2e-%'
+      group by symbol
+      order by symbol;
+    " > "$accountant_file"
+
+    psql_query "postgres-wallet" "
+      select
+        dw.currency,
+        to_char(coalesce(sum(t.dest_amount), 0), 'FM9999999990.00000000'),
+        count(*)
+      from transaction t
+      join wallet sw on sw.id = t.source_wallet
+      join wallet_owner swo on swo.id = sw.owner
+      join wallet dw on dw.id = t.dest_wallet
+      join wallet_owner dwo on dwo.id = dw.owner
+      where t.transfer_category = 'FEE'
+        and sw.wallet_type = 'MAIN'
+        and dwo.uuid = '1'
+        and dw.wallet_type = 'EXCHANGE'
+        and swo.uuid like 'e2e-%'
+      group by dw.currency
+      order by dw.currency;
+    " > "$wallet_file"
+
+    if diff -u "$accountant_file" "$wallet_file" > "$diff_file"; then
+      rm -f "$accountant_file" "$wallet_file" "$diff_file"
+      return 0
+    fi
+
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for $label" >&2
+      cat "$diff_file" >&2
+      rm -f "$accountant_file" "$wallet_file" "$diff_file"
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet >&2 || true
       exit 1
     fi
 
@@ -3441,6 +3502,7 @@ main() {
   wait_market_order_status_matches_trade_totals "market e2e order status matches trade totals"
   wait_accountant_market_order_projections_match "accountant and market e2e order projections match"
   wait_accountant_trade_fees_match_market_commissions "accountant e2e trade fee actions match market commissions"
+  wait_wallet_fee_transactions_match_accountant_actions "wallet e2e fee transactions match accountant fee actions"
   wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
@@ -4092,6 +4154,7 @@ main() {
   wait_market_order_status_matches_trade_totals "all e2e market order status matches trade totals after BTC"
   wait_accountant_market_order_projections_match "all e2e accountant and market order projections match after BTC"
   wait_accountant_trade_fees_match_market_commissions "all e2e accountant trade fee actions match market commissions after BTC"
+  wait_wallet_fee_transactions_match_accountant_actions "all e2e wallet fee transactions match accountant fee actions after BTC"
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
 
