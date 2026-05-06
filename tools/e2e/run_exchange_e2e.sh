@@ -88,6 +88,7 @@ Runs a real Docker-backed exchange E2E flow:
   36d. Verify Binance-compatible myTrades orderId returns trades for that user order.
   36e. Verify Binance-compatible myTrades orderId is not confused with exchange trade id.
   36f. Verify Binance-compatible myTrades orderId does not leak another user's trades.
+  36g. Verify Binance-compatible order lookup by orderId rejects another user's order.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -1328,6 +1329,32 @@ binance_private_get() {
   else
     curl -fsS -H "X-Opex-User: $owner" "http://127.0.0.1:8094${path}?timestamp=${timestamp}&recvWindow=60000"
   fi
+}
+
+binance_private_get_status() {
+  local owner="$1"
+  local path="$2"
+  local query="${3:-}"
+  local timestamp
+  timestamp=$(( $(date +%s) * 1000 ))
+
+  if [[ -n "$query" ]]; then
+    query="${query}&timestamp=${timestamp}&recvWindow=60000"
+  else
+    query="timestamp=${timestamp}&recvWindow=60000"
+  fi
+
+  local response_file
+  response_file="$(mktemp)"
+  local status
+  status="$(curl -sS -X GET \
+    -H "X-Opex-User: $owner" \
+    -w "%{http_code}" \
+    -o "$response_file" \
+    "http://127.0.0.1:8094${path}?${query}")"
+  printf '%s\n' "$status"
+  cat "$response_file"
+  rm -f "$response_file"
 }
 
 binance_private_post() {
@@ -3265,6 +3292,7 @@ main() {
   fi
   wait_binance_private_trade_projection_for_order_id "$api_order_seller" "ETHUSDT" "$api_order_seller_binance_order_id" "$api_order_seller_binance_trade_id" "101" "0.2" "20.2" "0.202" "USDT" false true /tmp/opex-e2e-binance-api-seller-my-trades-order-id.json
   wait_binance_private_trades_empty_for_order_id "$api_order_buyer" "ETHUSDT" "$api_order_seller_binance_order_id" /tmp/opex-e2e-binance-api-buyer-seller-order-id-my-trades.json
+  expect_http_status "Binance API buyer seller order lookup forbidden" "403" "$(binance_private_get_status "$api_order_buyer" "/v3/order" "symbol=ETHUSDT&orderId=${api_order_seller_binance_order_id}")" >/tmp/opex-e2e-binance-api-buyer-seller-order-id-query.json
 
   local api_cancel_owner="e2e-api-cancel-$(date +%s)"
   local api_cancel_ref="e2e-api-cancel-$(date +%s)"
@@ -5939,6 +5967,12 @@ main() {
     "foreignOrderId": $api_order_seller_binance_order_id,
     "foreignOrderTradesVisible": 0,
     "status": "passed"
+  },
+  "binanceOrderIdLookupIsolation": {
+    "symbol": "ETHUSDT",
+    "owner": "$api_order_buyer",
+    "foreignOrderId": $api_order_seller_binance_order_id,
+    "status": "HTTP_403"
   },
   "cancelScenario": {
     "price": 150,
