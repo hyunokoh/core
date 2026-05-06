@@ -93,6 +93,7 @@ Runs a real Docker-backed exchange E2E flow:
   36i. Verify Binance-compatible orderId cancel cannot affect another user's order.
   36j. Verify Binance-compatible duplicate orderId cancel keeps balances unchanged.
   36k. Verify Binance-compatible filled orderId cancel is rejected and keeps balances unchanged.
+  36l. Verify Binance-compatible partial fill orderId cancel releases only the remaining locked balance.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -1142,7 +1143,7 @@ wait_recent_trades_distribution() {
   local body
   until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/${symbol}/recent-trades?limit=20")" &&
     printf '%s\n' "$body" | jq -e '
-      length == 18 and
+      length == 19 and
       ([.[] | select(.price == 90) | .quantity] | add == 0.1) and
       ([.[] | select(.price == 100) | .quantity] | add == 1.4) and
       ([.[] | select(.price == 101) | .quantity] | add == 0.2) and
@@ -1157,7 +1158,8 @@ wait_recent_trades_distribution() {
       ([.[] | select(.price == 125) | .quantity] | add == 0.2) and
       ([.[] | select(.price == 130) | .quantity] | add == 0.2) and
       ([.[] | select(.price == 140) | .quantity] | add == 0.4) and
-      ([.[] | select(.price == 150) | .quantity] | add == 0.1)
+      ([.[] | select(.price == 150) | .quantity] | add == 0.1) and
+      ([.[] | select(.price == 169) | .quantity] | add == 0.2)
     ' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for recent trades distribution symbol=$symbol" >&2
@@ -3342,6 +3344,41 @@ main() {
   wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-still-canceled-after-duplicate.json
   wait_binance_private_order_projection "$api_cancel_owner" "ETHUSDT" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-orders.json
 
+  local api_partial_cancel_seller="e2e-api-pfc-s-$(date +%s)"
+  local api_partial_cancel_buyer="e2e-api-pfc-b-$(date +%s)"
+  local api_partial_cancel_ref="e2e-api-pfc-$(date +%s)"
+  expect_2xx "Binance API partial-cancel seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_partial_cancel_seller}_MAIN?description=e2e-api-partial-cancel&transferRef=${api_partial_cancel_ref}-eth")" >/dev/null
+  expect_2xx "Binance API partial-cancel buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${api_partial_cancel_buyer}_MAIN?description=e2e-api-partial-cancel&transferRef=${api_partial_cancel_ref}-usdt")" >/dev/null
+  expect_2xx_retry "Binance API partial-cancel seller limit ask" "binance_private_post '$api_partial_cancel_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.5&price=169'" >/tmp/opex-e2e-binance-api-partial-cancel-ask.json
+  wait_user_open_order "$api_partial_cancel_seller" "ETH_USDT" "169" "0.5" /tmp/opex-e2e-binance-api-partial-cancel-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "169" "0.5"
+  wait_binance_account_balance "$api_partial_cancel_seller" "ETH" "0.5" "0.5" /tmp/opex-e2e-binance-api-partial-cancel-reserved-account.json
+
+  local api_partial_cancel_order_id
+  api_partial_cancel_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-binance-api-partial-cancel-open-orders.json)"
+  if [[ -z "$api_partial_cancel_order_id" || "$api_partial_cancel_order_id" == "null" ]]; then
+    echo "Binance API partial-cancel open order did not include orderId" >&2
+    cat /tmp/opex-e2e-binance-api-partial-cancel-open-orders.json >&2
+    exit 1
+  fi
+  expect_2xx_retry "Binance API partial-cancel buyer limit bid" "binance_private_post '$api_partial_cancel_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=0.2&price=169'" >/tmp/opex-e2e-binance-api-partial-cancel-bid.json
+  wait_user_trade_projection "$api_partial_cancel_seller" "ETH_USDT" "169" "0.2" "33.8" "0.338" "USDT" false true false /tmp/opex-e2e-binance-api-partial-cancel-seller-trades.json
+  wait_user_trade_projection "$api_partial_cancel_buyer" "ETH_USDT" "169" "0.2" "33.8" "0.002" "ETH" true false false /tmp/opex-e2e-binance-api-partial-cancel-buyer-trades.json
+  wait_binance_private_order_status_by_order_id "$api_partial_cancel_seller" "ETHUSDT" "$api_partial_cancel_order_id" "169" "0.5" "PARTIALLY_FILLED" "0.2" "33.8" "SELL" /tmp/opex-e2e-binance-api-partial-cancel-query-partial.json
+  wait_order_book_level "ETH_USDT" "ASK" "169" "0.3"
+  wait_binance_account_balance "$api_partial_cancel_seller" "ETH" "0.5" "0.3" /tmp/opex-e2e-binance-api-partial-cancel-seller-account-partial-eth.json
+  wait_binance_account_balance "$api_partial_cancel_seller" "USDT" "33.462" "0" /tmp/opex-e2e-binance-api-partial-cancel-seller-account-partial-usdt.json
+  expect_2xx_retry "Binance API partial-cancel seller order-id cancel" "binance_private_delete '$api_partial_cancel_seller' '/v3/order' 'symbol=ETHUSDT&orderId=${api_partial_cancel_order_id}'" >/tmp/opex-e2e-binance-api-partial-cancel-response.json
+  jq -e \
+    --argjson orderId "$api_partial_cancel_order_id" \
+    '.symbol == "ETHUSDT" and .orderId == $orderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
+    /tmp/opex-e2e-binance-api-partial-cancel-response.json >/dev/null
+  wait_no_user_open_orders "$api_partial_cancel_seller" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_private_order_status_by_order_id "$api_partial_cancel_seller" "ETHUSDT" "$api_partial_cancel_order_id" "169" "0.5" "CANCELED" "0.2" "33.8" "SELL" /tmp/opex-e2e-binance-api-partial-cancel-query-canceled.json
+  wait_binance_account_balance "$api_partial_cancel_seller" "ETH" "0.8" "0" /tmp/opex-e2e-binance-api-partial-cancel-seller-account-canceled-eth.json
+  wait_binance_account_balance "$api_partial_cancel_seller" "USDT" "33.462" "0" /tmp/opex-e2e-binance-api-partial-cancel-seller-account-canceled-usdt.json
+
   local api_client_cancel_owner="e2e-api-client-cancel-$(date +%s)"
   local api_client_cancel_ref="e2e-api-client-cancel-$(date +%s)"
   local api_client_cancel_id="e2e-client-cancel-$(date +%s)"
@@ -5056,7 +5093,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,63\nFEE,36\nORDER_CANCEL,32\nORDER_CREATE,59\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,65\nFEE,38\nORDER_CANCEL,33\nORDER_CREATE,61\nORDER_FINALIZED,1\nTRADE,38\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -5067,7 +5104,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,37.05000000\nUSDT,2765.34200000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,38.04800000\nUSDT,2805.00400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -5131,7 +5168,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,27\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,59\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,28\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,61\nTradeEvent,PROCESSED,77\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -5219,7 +5256,7 @@ main() {
   wait_wallet_fee_transactions_match_accountant_actions "wallet e2e fee transactions match accountant fee actions"
   wait_wallet_transactions_match_accountant_actions "wallet e2e transactions match accountant financial actions"
   wait_wallet_user_transactions_match_wallet_transactions "wallet e2e user transactions match wallet movements"
-  wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n101.00,0.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
+  wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n101.00,0.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000\n169.00,0.20000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
       to_char(sum(matched_quantity), 'FM9999999990.00000000')
@@ -5231,7 +5268,7 @@ main() {
   wait_query_eq "market open orders unchanged after duplicate richOrder replay" "postgres-market" "0" "
     select count(*) from open_orders;
   "
-  wait_query_eq "market trade distribution unchanged after duplicate richTrade replay" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n101.00,0.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
+  wait_query_eq "market trade distribution unchanged after duplicate richTrade replay" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n101.00,0.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000\n169.00,0.20000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
       to_char(sum(matched_quantity), 'FM9999999990.00000000')
@@ -6026,6 +6063,20 @@ main() {
     "ownerAvailableBalanceAfterDuplicateCancel": 1,
     "ownerLockedBalanceAfterDuplicateCancel": 0
   },
+  "binancePartialFillOrderIdCancel": {
+    "symbol": "ETHUSDT",
+    "seller": "$api_partial_cancel_seller",
+    "buyer": "$api_partial_cancel_buyer",
+    "orderId": $api_partial_cancel_order_id,
+    "price": 169,
+    "origQty": 0.5,
+    "executedQtyBeforeCancel": 0.2,
+    "remainingQtyCanceled": 0.3,
+    "quoteQty": 33.8,
+    "sellerEthAfterCancel": 0.8,
+    "sellerUsdtAfterFee": 33.462,
+    "finalStatus": "CANCELED"
+  },
   "cancelScenario": {
     "price": 150,
     "quantity": 0.25,
@@ -6303,10 +6354,11 @@ main() {
     "bidLevels": 0
   },
   "recentTradesScenario": {
-    "count": 17,
+    "count": 19,
     "quantitiesByPrice": {
       "90": 0.1,
       "100": 1.4,
+      "101": 0.2,
       "111": 0.5,
       "112": 0.4,
       "113": 0.3,
@@ -6318,25 +6370,27 @@ main() {
       "125": 0.2,
       "130": 0.2,
       "140": 0.4,
-      "150": 0.1
+      "150": 0.1,
+      "169": 0.2
     }
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 61,
-      "FEE": 36,
-      "ORDER_CANCEL": 30,
-      "ORDER_CREATE": 57,
+      "DEPOSIT": 65,
+      "FEE": 38,
+      "ORDER_CANCEL": 33,
+      "ORDER_CREATE": 61,
       "ORDER_FINALIZED": 1,
-      "TRADE": 36,
+      "TRADE": 38,
       "WITHDRAW_ACCEPT": 1,
       "WITHDRAW_CANCEL": 1,
       "WITHDRAW_REJECT": 2,
       "WITHDRAW_REQUEST": 4
     },
     "walletAggregateBalances": {
-      "ETH": 36.05,
-      "USDT": 2765.342
+      "BTC": 0.002,
+      "ETH": 38.048,
+      "USDT": 2805.004
     },
     "walletWithdrawStatuses": {
       "CANCELED": 1,
@@ -6349,10 +6403,10 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 25,
+      "CancelOrderEvent": 28,
       "RejectOrderEvent": 2,
-      "SubmitOrderEvent": 57,
-      "TradeEvent": 73,
+      "SubmitOrderEvent": 61,
+      "TradeEvent": 77,
       "UpdatedOrderEvent": 3
     },
     "accountantRetryQueueDrained": true,
@@ -6362,20 +6416,20 @@ main() {
     "marketOpenOrders": 0,
     "marketInvalidTrades": 0,
     "marketDuplicateTradeEvents": 0,
-    "marketPersistedTrades": 17
+    "marketPersistedTrades": 19
   },
   "marketKafkaReplayIdempotencyScenario": {
     "replayedTopics": ["richOrder", "richTrade"],
     "poisonRecordsSkipped": true,
     "marketOpenOrdersAfterReplay": 0,
-    "marketPersistedTradesAfterReplay": 17,
+    "marketPersistedTradesAfterReplay": 19,
     "status": "passed"
   },
   "marketRestartScenario": {
     "status": "passed",
     "askLevelsAfterRestart": 0,
     "bidLevelsAfterRestart": 0,
-    "recentTradesAfterRestart": 16
+    "recentTradesAfterRestart": 19
   },
   "multiMarketScenario": {
     "pair": "BTC_USDT",
