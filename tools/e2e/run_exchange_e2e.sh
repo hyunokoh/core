@@ -87,6 +87,7 @@ Runs a real Docker-backed exchange E2E flow:
   36c. Verify Binance-compatible myTrades fromId returns trades by inclusive exchange trade id.
   36d. Verify Binance-compatible myTrades orderId returns trades for that user order.
   36e. Verify Binance-compatible myTrades orderId is not confused with exchange trade id.
+  36f. Verify Binance-compatible myTrades orderId does not leak another user's trades.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -1894,6 +1895,26 @@ wait_binance_private_trade_projection_for_order_id() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_private_trades_empty_for_order_id() {
+  local owner="$1"
+  local symbol="$2"
+  local order_id="$3"
+  local output_file="$4"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/myTrades" "symbol=${symbol}&orderId=${order_id}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for empty Binance private trades owner=$owner symbol=$symbol orderId=$order_id" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_order_status() {
   local owner="$1"
   local ouid="$2"
@@ -3243,6 +3264,7 @@ main() {
     exit 1
   fi
   wait_binance_private_trade_projection_for_order_id "$api_order_seller" "ETHUSDT" "$api_order_seller_binance_order_id" "$api_order_seller_binance_trade_id" "101" "0.2" "20.2" "0.202" "USDT" false true /tmp/opex-e2e-binance-api-seller-my-trades-order-id.json
+  wait_binance_private_trades_empty_for_order_id "$api_order_buyer" "ETHUSDT" "$api_order_seller_binance_order_id" /tmp/opex-e2e-binance-api-buyer-seller-order-id-my-trades.json
 
   local api_cancel_owner="e2e-api-cancel-$(date +%s)"
   local api_cancel_ref="e2e-api-cancel-$(date +%s)"
@@ -5910,6 +5932,13 @@ main() {
     "tradeId": $api_order_seller_binance_trade_id,
     "orderIdDiffersFromTradeId": true,
     "orderTradeFilterVerified": true
+  },
+  "binanceMyTradesOrderIdIsolation": {
+    "symbol": "ETHUSDT",
+    "owner": "$api_order_buyer",
+    "foreignOrderId": $api_order_seller_binance_order_id,
+    "foreignOrderTradesVisible": 0,
+    "status": "passed"
   },
   "cancelScenario": {
     "price": 150,
