@@ -73,23 +73,24 @@ Runs a real Docker-backed exchange E2E flow:
   26. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   27. Verify wallet/accountant/market database invariants after settlement.
   28. Verify accountant and wallet fee ledgers match market trade commissions.
-  29. Verify eventlog trade audit rows match market trade projections before replay.
-  30. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  31. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  32. Restart Market and verify public market state is still available from persisted data.
-  33. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  34. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  35. Restart Matching Engine with an open order and verify it can still be matched.
-  36. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  37. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  38. Restart Matching Gateway and verify new order submission still works.
-  39. Restart all core exchange services and verify a fresh trade still settles.
-  40. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  41. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  42. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  43. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  44. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  45. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  29. Verify every processed accountant financial action for E2E users has a matching wallet transaction.
+  30. Verify eventlog trade audit rows match market trade projections before replay.
+  31. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  32. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  33. Restart Market and verify public market state is still available from persisted data.
+  34. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  35. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  36. Restart Matching Engine with an open order and verify it can still be matched.
+  37. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  38. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  39. Restart Matching Gateway and verify new order submission still works.
+  40. Restart all core exchange services and verify a fresh trade still settles.
+  41. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  42. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  43. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  44. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  45. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  46. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -1681,6 +1682,68 @@ wait_wallet_fee_transactions_match_accountant_actions() {
         and swo.uuid like 'e2e-%'
       group by dw.currency
       order by dw.currency;
+    " > "$wallet_file"
+
+    if diff -u "$accountant_file" "$wallet_file" > "$diff_file"; then
+      rm -f "$accountant_file" "$wallet_file" "$diff_file"
+      return 0
+    fi
+
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for $label" >&2
+      cat "$diff_file" >&2
+      rm -f "$accountant_file" "$wallet_file" "$diff_file"
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet >&2 || true
+      exit 1
+    fi
+
+    sleep 2
+  done
+}
+
+wait_wallet_transactions_match_accountant_actions() {
+  local label="$1"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local accountant_file wallet_file diff_file
+  accountant_file="$(mktemp)"
+  wallet_file="$(mktemp)"
+  diff_file="$(mktemp)"
+
+  while true; do
+    psql_query "postgres-accountant" "
+      select
+        concat('accountant:fiActions:', uuid),
+        category_name,
+        symbol,
+        to_char(amount, 'FM9999999990.00000000'),
+        sender,
+        sender_wallet_type,
+        receiver,
+        receiver_wallet_type
+      from fi_actions
+      where status = 'PROCESSED'
+        and (sender like 'e2e-%' or receiver like 'e2e-%')
+      order by 1;
+    " > "$accountant_file"
+
+    psql_query "postgres-wallet" "
+      select
+        t.transfer_ref,
+        t.transfer_category,
+        sw.currency,
+        to_char(t.dest_amount, 'FM9999999990.00000000'),
+        swo.uuid,
+        sw.wallet_type,
+        dwo.uuid,
+        dw.wallet_type
+      from transaction t
+      join wallet sw on sw.id = t.source_wallet
+      join wallet_owner swo on swo.id = sw.owner
+      join wallet dw on dw.id = t.dest_wallet
+      join wallet_owner dwo on dwo.id = dw.owner
+      where t.transfer_ref like 'accountant:fiActions:%'
+        and (swo.uuid like 'e2e-%' or dwo.uuid like 'e2e-%')
+      order by t.transfer_ref;
     " > "$wallet_file"
 
     if diff -u "$accountant_file" "$wallet_file" > "$diff_file"; then
@@ -3563,6 +3626,7 @@ main() {
   wait_accountant_market_order_projections_match "accountant and market e2e order projections match"
   wait_accountant_trade_fees_match_market_commissions "accountant e2e trade fee actions match market commissions"
   wait_wallet_fee_transactions_match_accountant_actions "wallet e2e fee transactions match accountant fee actions"
+  wait_wallet_transactions_match_accountant_actions "wallet e2e transactions match accountant financial actions"
   wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
@@ -4215,6 +4279,7 @@ main() {
   wait_accountant_market_order_projections_match "all e2e accountant and market order projections match after BTC"
   wait_accountant_trade_fees_match_market_commissions "all e2e accountant trade fee actions match market commissions after BTC"
   wait_wallet_fee_transactions_match_accountant_actions "all e2e wallet fee transactions match accountant fee actions after BTC"
+  wait_wallet_transactions_match_accountant_actions "all e2e wallet transactions match accountant financial actions after BTC"
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
 
