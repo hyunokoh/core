@@ -2944,6 +2944,16 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_duplicate_client_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-duplicate-client-released-account.json
   wait_binance_private_order_status_by_client_order_id "$api_duplicate_client_owner" "ETHUSDT" "$api_duplicate_client_id" "164" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-duplicate-client-query-canceled.json
+  expect_2xx_retry "Binance API canceled client id reuse ask" "binance_private_post '$api_duplicate_client_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=166&newClientOrderId=${api_duplicate_client_id}'" >/tmp/opex-e2e-binance-api-duplicate-client-reuse-ask.json
+  wait_user_open_order "$api_duplicate_client_owner" "ETH_USDT" "166" "0.2" /tmp/opex-e2e-binance-api-duplicate-client-reuse-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "166" "0.2"
+  wait_binance_account_balance "$api_duplicate_client_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-duplicate-client-reuse-reserved-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_duplicate_client_owner" "ETHUSDT" "$api_duplicate_client_id" "166" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-duplicate-client-reuse-query-new.json
+  expect_2xx_retry "Binance API reused client id cleanup cancel" "binance_private_delete '$api_duplicate_client_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_duplicate_client_id}'" >/tmp/opex-e2e-binance-api-duplicate-client-reuse-cancel-response.json
+  wait_no_user_open_orders "$api_duplicate_client_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_account_balance "$api_duplicate_client_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-duplicate-client-reuse-released-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_duplicate_client_owner" "ETHUSDT" "$api_duplicate_client_id" "166" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-duplicate-client-reuse-query-canceled.json
 
   local engine_restart_seller="e2e-engine-restart-seller-$(date +%s)"
   local engine_restart_buyer="e2e-engine-restart-buyer-$(date +%s)"
@@ -4503,7 +4513,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,60\nFEE,36\nORDER_CANCEL,28\nORDER_CREATE,55\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,60\nFEE,36\nORDER_CANCEL,29\nORDER_CREATE,56\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -4578,7 +4588,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,23\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,55\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,24\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,56\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -5417,6 +5427,8 @@ main() {
     "quantity": 0.2,
     "duplicatePrice": 165,
     "duplicateStatus": "HTTP_400",
+    "reusedAfterCancelPrice": 166,
+    "reusedAfterCancelStatus": "CANCELED",
     "finalStatus": "CANCELED"
   },
   "matchingEngineRestartScenario": {
@@ -5677,8 +5689,8 @@ main() {
     "walletTransactionCategories": {
       "DEPOSIT": 60,
       "FEE": 36,
-      "ORDER_CANCEL": 28,
-      "ORDER_CREATE": 55,
+      "ORDER_CANCEL": 29,
+      "ORDER_CREATE": 56,
       "ORDER_FINALIZED": 1,
       "TRADE": 36,
       "WITHDRAW_ACCEPT": 1,
@@ -5701,9 +5713,9 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 23,
+      "CancelOrderEvent": 24,
       "RejectOrderEvent": 2,
-      "SubmitOrderEvent": 55,
+      "SubmitOrderEvent": 56,
       "TradeEvent": 73,
       "UpdatedOrderEvent": 3
     },

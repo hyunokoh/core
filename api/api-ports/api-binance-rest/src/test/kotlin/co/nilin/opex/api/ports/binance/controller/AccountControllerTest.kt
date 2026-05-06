@@ -649,6 +649,37 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenClosedClientOrderId_whenCreateOrderRequested_thenSubmitOrder(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponse = queryOrderResponse!!.copy(status = OrderStatus.CANCELED)
+        }
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler = queryHandler, matchingGatewayProxy = matchingGatewayProxy)
+
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("100"),
+            newClientOrderId = "client-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(response.clientOrderId).isEqualTo("client-1")
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("client-1")
+    }
+
+    @Test
     fun givenMissingClientOrderIdLookup_whenCreateOrderRequested_thenSubmitOrder(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy().apply {
             queryOrderFailure = WebClientResponseException.create(

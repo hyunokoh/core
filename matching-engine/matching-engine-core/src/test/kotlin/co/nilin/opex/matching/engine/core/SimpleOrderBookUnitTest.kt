@@ -218,6 +218,49 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
+    fun givenCanceledClientOrderIdForUser_whenClientOrderIdReused_thenOrderIsAccepted() {
+        val orderBook = SimpleOrderBook(pair, false)
+        val rejectEvents = mutableListOf<RejectOrderEvent>()
+        EventDispatcher.register(RejectOrderEvent::class.java) { rejectEvents.add(it) }
+        val clientOrderId = "client-1"
+        val firstOuid = UUID.randomUUID().toString()
+        val firstOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                firstOuid,
+                uuid,
+                pair,
+                10,
+                2,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER,
+                clientOrderId
+            )
+        ) as SimpleOrder
+
+        orderBook.handleCancelCommand(OrderCancelCommand(firstOuid, uuid, firstOrder.id()!!, pair))
+        val reusedOrder = orderBook.handleNewOrderCommand(
+            OrderCreateCommand(
+                UUID.randomUUID().toString(),
+                uuid,
+                pair,
+                11,
+                1,
+                OrderDirection.ASK,
+                MatchConstraint.GTC,
+                OrderType.LIMIT_ORDER,
+                clientOrderId
+            )
+        )
+
+        Assertions.assertNotNull(reusedOrder)
+        Assertions.assertEquals(0, rejectEvents.count { it.reason == RejectReason.DUPLICATE_CLIENT_ORDER_ID })
+        Assertions.assertEquals(1, orderBook.orders.size)
+        Assertions.assertEquals(clientOrderId, orderBook.bestAskOrder!!.clientOrderId)
+        Assertions.assertEquals(11L, orderBook.bestAskOrder!!.price)
+    }
+
+    @Test
     fun givenCrossingOwnOrder_whenGtcLimitOrderCreated_thenSelfTradeIsRejected() {
         val orderBook = SimpleOrderBook(pair, false, preventSelfTrade = true)
         val rejectEvents = mutableListOf<RejectOrderEvent>()
