@@ -190,6 +190,30 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenInvalidOrderId_whenMyTradesRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.fetchAllTrades(
+                    Principal { "user-1" },
+                    "ETHUSDT",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    signedTimestamp(),
+                    orderId = 0
+                )
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("not-called")
+    }
+
+    @Test
     fun givenBlankSymbol_whenMyTradesRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val controller = controller(queryHandler)
@@ -244,6 +268,27 @@ private class AccountControllerTest {
 
         assertThat(queryHandler.allTradesSymbol).isEqualTo("ETH_USDT")
         assertThat(queryHandler.allTradesLimit).isEqualTo(500)
+    }
+
+    @Test
+    fun givenOrderId_whenMyTradesRequested_thenPassOrderIdToProxy(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        controller.fetchAllTrades(
+            Principal { "user-1" },
+            "ETHUSDT",
+            null,
+            null,
+            null,
+            null,
+            null,
+            signedTimestamp(),
+            orderId = 123
+        )
+
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("ETH_USDT")
+        assertThat(queryHandler.allTradesOrderId).isEqualTo(123)
     }
 
     @Test
@@ -909,6 +954,7 @@ private class AccountControllerTest {
         var allOrdersLimit: Int? = null
         var allTradesSymbol: String? = "not-called"
         var allTradesLimit: Int? = null
+        var allTradesOrderId: Long? = null
         var queryOrderCallCount = 0
         var queryOrderSymbol: String? = null
         var queryOrderId: Long? = null
@@ -954,10 +1000,12 @@ private class AccountControllerTest {
             fromTrade: Long?,
             startTime: Date?,
             endTime: Date?,
-            limit: Int?
+            limit: Int?,
+            orderId: Long?
         ): List<Trade> {
             allTradesSymbol = symbol
             allTradesLimit = limit
+            allTradesOrderId = orderId
             return emptyList()
         }
 

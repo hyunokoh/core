@@ -85,6 +85,7 @@ Runs a real Docker-backed exchange E2E flow:
   36. Verify Binance-compatible private order submission/cancel/account/order/trade APIs reflect settled balances and executions.
   36b. Verify Binance-compatible openOrders/allOrders without a symbol returns the user's orders across markets.
   36c. Verify Binance-compatible myTrades fromId returns trades by inclusive exchange trade id.
+  36d. Verify Binance-compatible myTrades orderId returns trades for that user order.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -1839,6 +1840,59 @@ wait_binance_private_trade_projection_from_id() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_private_trade_projection_for_order_id() {
+  local owner="$1"
+  local symbol="$2"
+  local order_id="$3"
+  local trade_id="$4"
+  local price="$5"
+  local quantity="$6"
+  local quote_quantity="$7"
+  local commission="$8"
+  local commission_asset="$9"
+  local is_buyer="${10}"
+  local is_maker="${11}"
+  local output_file="${12}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/myTrades" "symbol=${symbol}&orderId=${order_id}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol "$symbol" \
+      --argjson order_id "$order_id" \
+      --argjson trade_id "$trade_id" \
+      --argjson price "$price" \
+      --argjson quantity "$quantity" \
+      --argjson quote_quantity "$quote_quantity" \
+      --argjson commission "$commission" \
+      --arg commission_asset "$commission_asset" \
+      --argjson is_buyer "$is_buyer" \
+      --argjson is_maker "$is_maker" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        length == 1 and
+        .[0].symbol == $symbol and
+        .[0].id == $trade_id and
+        .[0].orderId == $order_id and
+        .[0].price == $price and
+        .[0].qty == $quantity and
+        .[0].quoteQty == $quote_quantity and
+        nearly_equal(.[0].commission; $commission) and
+        .[0].commissionAsset == $commission_asset and
+        .[0].isBuyer == $is_buyer and
+        .[0].isMaker == $is_maker and
+        .[0].isBestMatch == true
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance private trade orderId owner=$owner symbol=$symbol orderId=$order_id tradeId=$trade_id" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_order_status() {
   local owner="$1"
   local ouid="$2"
@@ -3106,6 +3160,26 @@ main() {
   wait_binance_account_balance "$buyer" "ETH" "0.99" "0" /tmp/opex-e2e-binance-buyer-account.json
   wait_binance_private_order_projection "$seller" "ETHUSDT" "100" "1" "FILLED" "1" "100" "SELL" /tmp/opex-e2e-binance-seller-orders.json
   wait_binance_private_order_projection "$buyer" "ETHUSDT" "100" "1" "FILLED" "1" "100" "BUY" /tmp/opex-e2e-binance-buyer-orders.json
+  local seller_binance_order_id
+  seller_binance_order_id="$(
+    jq -r '
+      [
+        .[] |
+        select(
+          .symbol == "ETHUSDT" and
+          .price == 100 and
+          .origQty == 1 and
+          .status == "FILLED" and
+          .side == "SELL"
+        )
+      ][0].orderId
+    ' /tmp/opex-e2e-binance-seller-orders.json
+  )"
+  if [[ -z "$seller_binance_order_id" || "$seller_binance_order_id" == "null" ]]; then
+    echo "Binance seller order response did not include an orderId required for myTrades orderId verification" >&2
+    cat /tmp/opex-e2e-binance-seller-orders.json >&2
+    exit 1
+  fi
   wait_binance_private_trade_projection "$seller" "ETHUSDT" "100" "1" "100" "1" "USDT" false true /tmp/opex-e2e-binance-seller-my-trades.json
   local seller_binance_trade_id
   seller_binance_trade_id="$(jq -r '.[0].id' /tmp/opex-e2e-binance-seller-my-trades.json)"
@@ -3115,6 +3189,7 @@ main() {
     exit 1
   fi
   wait_binance_private_trade_projection_from_id "$seller" "ETHUSDT" "$seller_binance_trade_id" "100" "1" "100" "1" "USDT" false true /tmp/opex-e2e-binance-seller-my-trades-from-id.json
+  wait_binance_private_trade_projection_for_order_id "$seller" "ETHUSDT" "$seller_binance_order_id" "$seller_binance_trade_id" "100" "1" "100" "1" "USDT" false true /tmp/opex-e2e-binance-seller-my-trades-order-id.json
   wait_binance_private_trade_projection "$buyer" "ETHUSDT" "100" "1" "100" "0.01" "ETH" true false /tmp/opex-e2e-binance-buyer-my-trades.json
 
   local api_order_seller="e2e-api-order-seller-$(date +%s)"
@@ -5791,6 +5866,12 @@ main() {
     "symbol": "ETHUSDT",
     "fromId": $seller_binance_trade_id,
     "inclusiveTradeIdVerified": true
+  },
+  "binanceMyTradesOrderId": {
+    "symbol": "ETHUSDT",
+    "orderId": $seller_binance_order_id,
+    "tradeId": $seller_binance_trade_id,
+    "orderTradeFilterVerified": true
   },
   "cancelScenario": {
     "price": 150,

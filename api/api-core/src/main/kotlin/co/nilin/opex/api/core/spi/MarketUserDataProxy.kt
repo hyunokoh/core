@@ -25,6 +25,7 @@ interface MarketUserDataProxy {
         fromTrade: Long?,
         startTime: Date?,
         endTime: Date?,
-        limit: Int?
+        limit: Int?,
+        orderId: Long? = null
     ): List<Trade>
 }

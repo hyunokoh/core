@@ -7,5 +7,6 @@ class TradeRequest(
     val fromTrade: Long?,
     val startTime: Date?,
     val endTime: Date?,
-    val limit: Int
+    val limit: Int,
+    val orderId: Long? = null
 )

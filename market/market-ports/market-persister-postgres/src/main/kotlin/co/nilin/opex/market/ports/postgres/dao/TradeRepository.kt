@@ -99,6 +99,12 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
             """
         select * from trades where :uuid in (taker_uuid, maker_uuid) 
             and (:fromTrade is null or trade_id >= :fromTrade)
+            and (:orderId is null or exists (
+                select 1 from orders
+                where orders.uuid = :uuid
+                    and orders.order_id = :orderId
+                    and orders.ouid in (trades.taker_ouid, trades.maker_ouid)
+            ))
             and (:symbol is null or symbol = :symbol) 
             and (:startTime is null or trade_date >= :startTime) 
             and (:endTime is null or trade_date < :endTime)
@@ -113,6 +119,8 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
             symbol: String?,
             @Param("fromTrade")
             fromTrade: Long?,
+            @Param("orderId")
+            orderId: Long?,
             @Param("startTime")
             startTime: Date?,
             @Param("endTime")

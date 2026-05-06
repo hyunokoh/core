@@ -100,14 +100,15 @@ class MarketUserDataProxyImpl(private val webClient: WebClient) : MarketUserData
         fromTrade: Long?,
         startTime: Date?,
         endTime: Date?,
-        limit: Int?
+        limit: Int?,
+        orderId: Long?
     ): List<Trade> {
         return withContext(ProxyDispatchers.market) {
             webClient.post()
                 .uri("$baseUrl/v1/user/${principal.name}/trades")
                 .accept(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .body(Mono.just(TradeRequest(symbol, fromTrade, startTime, endTime, limit ?: 500)))
+                .body(Mono.just(TradeRequest(symbol, fromTrade, startTime, endTime, limit ?: 500, orderId)))
                 .retrieve()
                 .onStatus({ t -> t.isError }, { it.createException() })
                 .bodyToFlux<Trade>()

@@ -216,6 +216,47 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
     }
 
     @Test
+    fun givenOrderIdFilter_whenAllTrades_thenReturnTradesForThatUserOrder(): Unit = runBlocking {
+        val takerUuid = "order-id-filter-taker"
+        val takerOuid = "shared-taker-order"
+        val makerOrderOne = VALID.MAKER_ORDER_MODEL.copy(
+            id = null,
+            ouid = "maker-order-100",
+            clientOrderId = "maker-client-100",
+            orderId = 100
+        )
+        val makerOrderTwo = VALID.MAKER_ORDER_MODEL.copy(
+            id = null,
+            ouid = "maker-order-101",
+            clientOrderId = "maker-client-101",
+            orderId = 101
+        )
+        seedOrder(makerOrderOne, status = OrderStatus.FILLED)
+        seedOrder(makerOrderTwo, status = OrderStatus.FILLED)
+        seedOrder(
+            VALID.TAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = takerOuid,
+                uuid = takerUuid,
+                clientOrderId = "taker-client",
+                orderId = 200
+            ),
+            status = OrderStatus.FILLED
+        )
+        seedTrade(VALID.TRADE_MODEL.copyTradeIdAndOrderParticipants(300, makerOrderOne.ouid, takerOuid, takerUuid))
+        seedTrade(VALID.TRADE_MODEL.copyTradeIdAndOrderParticipants(301, makerOrderTwo.ouid, takerOuid, takerUuid))
+
+        val trades = userQueryHandler.allTrades(
+            VALID.PRINCIPAL.name,
+            TradeRequest(VALID.ETH_USDT, null, null, null, 100, orderId = 100)
+        )
+
+        assertThat(trades).hasSize(1)
+        assertThat(trades.first().id).isEqualTo(300)
+        assertThat(trades.first().orderId).isEqualTo(100)
+    }
+
+    @Test
     fun givenTradeBeforeOrdersProjected_whenAllTrades_thenSkipIncompleteProjection(): Unit = runBlocking {
         seedTrade()
 
@@ -323,6 +364,33 @@ private class UserQueryHandlerTest : MarketPostgresIntegrationTest() {
     )
 
     private fun TradeModel.copyTradeId(tradeId: Long) = TradeModel(
+        id,
+        tradeId,
+        symbol,
+        baseAsset,
+        quoteAsset,
+        matchedPrice,
+        matchedQuantity,
+        takerPrice,
+        makerPrice,
+        takerCommission,
+        makerCommission,
+        takerCommissionAsset,
+        makerCommissionAsset,
+        tradeDate.plusNanos(tradeId),
+        makerOuid,
+        takerOuid,
+        makerUuid,
+        takerUuid,
+        createDate.plusNanos(tradeId)
+    )
+
+    private fun TradeModel.copyTradeIdAndOrderParticipants(
+        tradeId: Long,
+        makerOuid: String,
+        takerOuid: String,
+        takerUuid: String
+    ) = TradeModel(
         id,
         tradeId,
         symbol,

@@ -87,7 +87,7 @@ class UserQueryHandlerImpl(
     override suspend fun allTrades(uuid: String, request: TradeRequest): List<Trade> {
         val trades = mutableListOf<Trade>()
         tradeRepository.findByUuidAndSymbolAndTimeBetweenAndTradeIdGreaterThan(
-                uuid, request.symbol, request.fromTrade, request.startTime, request.endTime, request.limit
+                uuid, request.symbol, request.fromTrade, request.orderId, request.startTime, request.endTime, request.limit
         ).collect {
             val takerOrder = orderRepository.findByOuid(it.takerOuid).awaitFirstOrNull()
             val makerOrder = orderRepository.findByOuid(it.makerOuid).awaitFirstOrNull()

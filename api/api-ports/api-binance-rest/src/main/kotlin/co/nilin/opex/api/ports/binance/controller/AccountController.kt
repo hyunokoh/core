@@ -371,16 +371,19 @@ class AccountController(
         @RequestParam(required = false)
         recvWindow: Long?, //The value cannot be greater than 60000
         @RequestParam
-        timestamp: Long
+        timestamp: Long,
+        @RequestParam(required = false)
+        orderId: Long? = null
     ): List<TradeResponse> {
         validateSignedRequest(recvWindow, timestamp)
         validateRequiredSymbol(symbol)
         validateAccountTimeRange(startTime, endTime)
         validateFromId(fromId)
+        validateOrderId(orderId)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         val validLimit = validAccountQueryLimit(limit)
 
-        return queryHandler.allTrades(principal, internalSymbol, fromId, startTime, endTime, validLimit)
+        return queryHandler.allTrades(principal, internalSymbol, fromId, startTime, endTime, validLimit, orderId)
             .map {
                 TradeResponse(
                     symbol ?: "",
@@ -566,6 +569,11 @@ class AccountController(
     private fun validateFromId(fromId: Long?) {
         if (fromId != null && fromId < 0)
             throw OpexError.InvalidRequestParam.exception("Parameter 'fromId' is either missing or invalid")
+    }
+
+    private fun validateOrderId(orderId: Long?) {
+        if (orderId != null && orderId <= 0)
+            throw OpexError.InvalidRequestParam.exception("Parameter 'orderId' is either missing or invalid")
     }
 
     private fun validateOptionalSymbol(symbol: String?) {
