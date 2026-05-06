@@ -82,6 +82,50 @@ private class OrderPersisterTest : MarketPostgresIntegrationTest() {
     }
 
     @Test
+    fun givenOutOfOrderStatusRows_whenMostRecentStatusLoaded_thenUseTerminalStatusAndMaxFillTotals(): Unit = runBlocking {
+        val orderQuantity = BigDecimal.valueOf(0.3)
+        val staleFilledQuote = BigDecimal.valueOf(28)
+        val latestAccumulatedQuote = BigDecimal.valueOf(43)
+
+        orderPersister.update(
+            VALID.RICH_ORDER_UPDATE.copy(
+                quantity = orderQuantity,
+                remainedQuantity = BigDecimal.ZERO,
+                status = OrderStatus.FILLED,
+                accumulativeQuoteQty = staleFilledQuote
+            )
+        )
+        orderPersister.save(VALID.RICH_ORDER.copy(quantity = orderQuantity))
+        orderPersister.update(
+            VALID.RICH_ORDER_UPDATE.copy(
+                quantity = orderQuantity,
+                remainedQuantity = BigDecimal.valueOf(0.2),
+                status = OrderStatus.PARTIALLY_FILLED,
+                accumulativeQuoteQty = latestAccumulatedQuote
+            )
+        )
+        orderStatusRepository.insert(
+            VALID.RICH_ORDER.ouid,
+            orderQuantity,
+            BigDecimal.valueOf(100000000),
+            OrderStatus.NEW.code,
+            OrderStatus.NEW.orderOfAppearance
+        ).awaitFirstOrNull()
+
+        val status = orderStatusRepository.findMostRecentByOUID(VALID.RICH_ORDER.ouid).awaitSingle()
+        val loadedOrder = orderPersister.load(VALID.RICH_ORDER.ouid)
+        val openOrder = openOrderRepository.findAll().awaitFirstOrNull()
+
+        assertThat(status.status).isEqualTo(OrderStatus.FILLED.code)
+        assertThat(status.executedQuantity).isEqualByComparingTo(orderQuantity)
+        assertThat(status.accumulativeQuoteQty).isEqualByComparingTo(latestAccumulatedQuote)
+        assertThat(loadedOrder?.status).isEqualTo(OrderStatus.FILLED)
+        assertThat(loadedOrder?.executedQuantity).isEqualByComparingTo(orderQuantity)
+        assertThat(loadedOrder?.accumulativeQuoteQty).isEqualByComparingTo(latestAccumulatedQuote)
+        assertThat(openOrder).isNull()
+    }
+
+    @Test
     fun givenOpenOrder_whenUpdatePriceAndQuantity_thenPersistOrderDetails(): Unit = runBlocking {
         val editedPrice = BigDecimal.valueOf(1000002)
         val editedQuantity = BigDecimal.valueOf(0.008)

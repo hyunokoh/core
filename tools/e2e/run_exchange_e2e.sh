@@ -1431,6 +1431,65 @@ wait_user_trade_aggregate() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_market_order_status_matches_trade_totals() {
+  local label="$1"
+  wait_query_eq "$label" "postgres-market" "0" "
+    with e2e_trade_totals as (
+      select
+        trade_orders.ouid,
+        trade_orders.uuid,
+        sum(trade_orders.matched_quantity) as executed_quantity,
+        sum(trade_orders.matched_price * trade_orders.matched_quantity) as accumulative_quote_qty
+      from (
+        select maker_ouid as ouid, maker_uuid as uuid, matched_price, matched_quantity
+        from trades
+        where maker_uuid like 'e2e-%'
+        union all
+        select taker_ouid as ouid, taker_uuid as uuid, matched_price, matched_quantity
+        from trades
+        where taker_uuid like 'e2e-%'
+      ) trade_orders
+      group by trade_orders.ouid, trade_orders.uuid
+    ),
+    latest_order_status as (
+      select
+        ranked_status.ouid,
+        status_totals.executed_quantity,
+        status_totals.accumulative_quote_qty
+      from (
+        select
+          os.*,
+          row_number() over (partition by ouid order by appearance desc, executed_quantity desc) as rank
+        from order_status os
+      ) ranked_status
+      join (
+        select
+          ouid,
+          coalesce(
+            max(case when appearance > 1 then executed_quantity end),
+            max(executed_quantity)
+          ) as executed_quantity,
+          coalesce(
+            max(case when appearance > 1 then accumulative_quote_qty end),
+            max(accumulative_quote_qty)
+          ) as accumulative_quote_qty
+        from order_status
+        group by ouid
+      ) status_totals on status_totals.ouid = ranked_status.ouid
+      where rank = 1
+    )
+    select count(*)
+    from orders o
+    join latest_order_status os on os.ouid = o.ouid
+    left join e2e_trade_totals tt on tt.ouid = o.ouid and tt.uuid = o.uuid
+    where o.uuid like 'e2e-%'
+      and (
+        abs(coalesce(os.executed_quantity, 0) - coalesce(tt.executed_quantity, 0)) > 0.000001
+        or abs(coalesce(os.accumulative_quote_qty, 0) - coalesce(tt.accumulative_quote_qty, 0)) > 0.000001
+      );
+  "
+}
+
 main() {
   write_defaults
   cd "$ROOT_DIR"
@@ -3231,6 +3290,7 @@ main() {
         or coalesce(taker_commission_asset, '') not in (base_asset, quote_asset)
       );
   "
+  wait_market_order_status_matches_trade_totals "market e2e order status matches trade totals"
   wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
@@ -3879,6 +3939,7 @@ main() {
         or coalesce(taker_commission_asset, '') not in (base_asset, quote_asset)
       );
   "
+  wait_market_order_status_matches_trade_totals "all e2e market order status matches trade totals after BTC"
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
 

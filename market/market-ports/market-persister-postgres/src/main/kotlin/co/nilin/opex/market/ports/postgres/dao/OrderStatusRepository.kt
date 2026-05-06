@@ -33,10 +33,33 @@ interface OrderStatusRepository : ReactiveCrudRepository<OrderStatusModel, Long>
             SELECT *, ROW_NUMBER() OVER (PARTITION BY ouid ORDER BY appearance DESC, executed_quantity DESC) AS rnk
             FROM order_status
             WHERE ouid = :ouid
+        ),
+        status_totals AS (
+            SELECT
+                ouid,
+                COALESCE(
+                    MAX(CASE WHEN appearance > 1 THEN executed_quantity END),
+                    MAX(executed_quantity)
+                ) AS executed_quantity,
+                COALESCE(
+                    MAX(CASE WHEN appearance > 1 THEN accumulative_quote_qty END),
+                    MAX(accumulative_quote_qty)
+                ) AS accumulative_quote_qty
+            FROM order_status
+            WHERE ouid = :ouid
+            GROUP BY ouid
         )
-        SELECT *
+        SELECT
+            ranked_order_status.ouid,
+            status_totals.executed_quantity,
+            status_totals.accumulative_quote_qty,
+            ranked_order_status.status,
+            ranked_order_status.appearance,
+            ranked_order_status.date,
+            ranked_order_status.id
         FROM ranked_order_status
-        WHERE rnk = 1;
+        JOIN status_totals ON status_totals.ouid = ranked_order_status.ouid
+        WHERE ranked_order_status.rnk = 1;
         """
     )
     fun findMostRecentByOUID(ouid: String): Mono<OrderStatusModel>
