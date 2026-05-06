@@ -1513,8 +1513,8 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "111" "0.5"
   expect_2xx_retry "engine-restart crossing bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$engine_restart_bid' '$engine_restart_buyer'" >/tmp/opex-e2e-engine-restart-bid.json
   wait_no_user_open_orders "$engine_restart_seller" "ETH_USDT"
-  wait_user_trade_price "$engine_restart_seller" "ETH_USDT" "111" "0.5"
-  wait_user_trade_price "$engine_restart_buyer" "ETH_USDT" "111" "0.5"
+  wait_user_trade_projection "$engine_restart_seller" "ETH_USDT" "111" "0.5" "55.5" "0.555" "USDT" false true false /tmp/opex-e2e-engine-restart-seller-trades.json
+  wait_user_trade_projection "$engine_restart_buyer" "ETH_USDT" "111" "0.5" "55.5" "0.005" "ETH" true false false /tmp/opex-e2e-engine-restart-buyer-trades.json
   wait_user_order_projection_by_price "$engine_restart_seller" "ETH_USDT" "111" "0.5" "FILLED" "0.5" "55.5" /tmp/opex-e2e-engine-restart-seller-orders.json
   wait_user_order_projection_by_price "$engine_restart_buyer" "ETH_USDT" "111" "0.5" "FILLED" "0.5" "55.5" /tmp/opex-e2e-engine-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -1560,8 +1560,8 @@ main() {
   assert_wallet_balance "wallet-restart seller reservation after wallet restart" "$wallet_restart_seller" "ETH" "0.6"
   expect_2xx_retry "wallet-restart crossing bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$wallet_restart_bid' '$wallet_restart_buyer'" >/tmp/opex-e2e-wallet-restart-bid.json
   wait_no_user_open_orders "$wallet_restart_seller" "ETH_USDT"
-  wait_user_trade_price "$wallet_restart_seller" "ETH_USDT" "112" "0.4"
-  wait_user_trade_price "$wallet_restart_buyer" "ETH_USDT" "112" "0.4"
+  wait_user_trade_projection "$wallet_restart_seller" "ETH_USDT" "112" "0.4" "44.8" "0.448" "USDT" false true false /tmp/opex-e2e-wallet-restart-seller-trades.json
+  wait_user_trade_projection "$wallet_restart_buyer" "ETH_USDT" "112" "0.4" "44.8" "0.004" "ETH" true false false /tmp/opex-e2e-wallet-restart-buyer-trades.json
   wait_user_order_projection_by_price "$wallet_restart_seller" "ETH_USDT" "112" "0.4" "FILLED" "0.4" "44.8" /tmp/opex-e2e-wallet-restart-seller-orders.json
   wait_user_order_projection_by_price "$wallet_restart_buyer" "ETH_USDT" "112" "0.4" "FILLED" "0.4" "44.8" /tmp/opex-e2e-wallet-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -1606,8 +1606,8 @@ main() {
   restart_accountant_and_wait
   expect_2xx_retry "accountant-restart crossing bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$accountant_restart_bid' '$accountant_restart_buyer'" >/tmp/opex-e2e-accountant-restart-bid.json
   wait_no_user_open_orders "$accountant_restart_seller" "ETH_USDT"
-  wait_user_trade_price "$accountant_restart_seller" "ETH_USDT" "113" "0.3"
-  wait_user_trade_price "$accountant_restart_buyer" "ETH_USDT" "113" "0.3"
+  wait_user_trade_projection "$accountant_restart_seller" "ETH_USDT" "113" "0.3" "33.9" "0.339" "USDT" false true false /tmp/opex-e2e-accountant-restart-seller-trades.json
+  wait_user_trade_projection "$accountant_restart_buyer" "ETH_USDT" "113" "0.3" "33.9" "0.003" "ETH" true false false /tmp/opex-e2e-accountant-restart-buyer-trades.json
   wait_user_order_projection_by_price "$accountant_restart_seller" "ETH_USDT" "113" "0.3" "FILLED" "0.3" "33.9" /tmp/opex-e2e-accountant-restart-seller-orders.json
   wait_user_order_projection_by_price "$accountant_restart_buyer" "ETH_USDT" "113" "0.3" "FILLED" "0.3" "33.9" /tmp/opex-e2e-accountant-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -1641,8 +1641,8 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "114" "0.2"
   expect_2xx_retry "gateway-restart bid order after restart" "curl_json POST 'http://127.0.0.1:8093/order' '$gateway_restart_bid' '$gateway_restart_buyer'" >/tmp/opex-e2e-gateway-restart-bid.json
   wait_no_user_open_orders "$gateway_restart_seller" "ETH_USDT"
-  wait_user_trade_price "$gateway_restart_seller" "ETH_USDT" "114" "0.2"
-  wait_user_trade_price "$gateway_restart_buyer" "ETH_USDT" "114" "0.2"
+  wait_user_trade_projection "$gateway_restart_seller" "ETH_USDT" "114" "0.2" "22.8" "0.228" "USDT" false true false /tmp/opex-e2e-gateway-restart-seller-trades.json
+  wait_user_trade_projection "$gateway_restart_buyer" "ETH_USDT" "114" "0.2" "22.8" "0.002" "ETH" true false false /tmp/opex-e2e-gateway-restart-buyer-trades.json
   wait_user_order_projection_by_price "$gateway_restart_seller" "ETH_USDT" "114" "0.2" "FILLED" "0.2" "22.8" /tmp/opex-e2e-gateway-restart-seller-orders.json
   wait_user_order_projection_by_price "$gateway_restart_buyer" "ETH_USDT" "114" "0.2" "FILLED" "0.2" "22.8" /tmp/opex-e2e-gateway-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -1676,8 +1676,8 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "115" "0.2"
   expect_2xx_retry "core-restart bid order after core restart" "curl_json POST 'http://127.0.0.1:8093/order' '$core_restart_bid' '$core_restart_buyer'" >/tmp/opex-e2e-core-restart-bid.json
   wait_no_user_open_orders "$core_restart_seller" "ETH_USDT"
-  wait_user_trade_price "$core_restart_seller" "ETH_USDT" "115" "0.2"
-  wait_user_trade_price "$core_restart_buyer" "ETH_USDT" "115" "0.2"
+  wait_user_trade_projection "$core_restart_seller" "ETH_USDT" "115" "0.2" "23" "0.23" "USDT" false true false /tmp/opex-e2e-core-restart-seller-trades.json
+  wait_user_trade_projection "$core_restart_buyer" "ETH_USDT" "115" "0.2" "23" "0.002" "ETH" true false false /tmp/opex-e2e-core-restart-buyer-trades.json
   wait_user_order_projection_by_price "$core_restart_seller" "ETH_USDT" "115" "0.2" "FILLED" "0.2" "23" /tmp/opex-e2e-core-restart-seller-orders.json
   wait_user_order_projection_by_price "$core_restart_buyer" "ETH_USDT" "115" "0.2" "FILLED" "0.2" "23" /tmp/opex-e2e-core-restart-buyer-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -1712,8 +1712,8 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "116" "0.2"
   expect_2xx_retry "kafka-restart bid order after broker restart" "curl_json POST 'http://127.0.0.1:8093/order' '$kafka_restart_bid' '$kafka_restart_buyer'" >/tmp/opex-e2e-kafka-restart-bid.json
   wait_no_user_open_orders "$kafka_restart_seller" "ETH_USDT"
-  wait_user_trade_price "$kafka_restart_seller" "ETH_USDT" "116" "0.2"
-  wait_user_trade_price "$kafka_restart_buyer" "ETH_USDT" "116" "0.2"
+  wait_user_trade_projection "$kafka_restart_seller" "ETH_USDT" "116" "0.2" "23.2" "0.232" "USDT" false true false /tmp/opex-e2e-kafka-restart-seller-trades.json
+  wait_user_trade_projection "$kafka_restart_buyer" "ETH_USDT" "116" "0.2" "23.2" "0.002" "ETH" true false false /tmp/opex-e2e-kafka-restart-buyer-trades.json
   wait_user_order_projection_by_price "$kafka_restart_seller" "ETH_USDT" "116" "0.2" "FILLED" "0.2" "23.2" /tmp/opex-e2e-kafka-restart-seller-orders.json
   wait_user_order_projection_by_price "$kafka_restart_buyer" "ETH_USDT" "116" "0.2" "FILLED" "0.2" "23.2" /tmp/opex-e2e-kafka-restart-buyer-orders.json
   deadline=$((SECONDS + 120))
@@ -1747,8 +1747,8 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "117" "0.2"
   expect_2xx_retry "postgres-restart bid order after datastore restart" "curl_json POST 'http://127.0.0.1:8093/order' '$postgres_restart_bid' '$postgres_restart_buyer'" >/tmp/opex-e2e-postgres-restart-bid.json
   wait_no_user_open_orders "$postgres_restart_seller" "ETH_USDT"
-  wait_user_trade_price "$postgres_restart_seller" "ETH_USDT" "117" "0.2"
-  wait_user_trade_price "$postgres_restart_buyer" "ETH_USDT" "117" "0.2"
+  wait_user_trade_projection "$postgres_restart_seller" "ETH_USDT" "117" "0.2" "23.4" "0.234" "USDT" false true false /tmp/opex-e2e-postgres-restart-seller-trades.json
+  wait_user_trade_projection "$postgres_restart_buyer" "ETH_USDT" "117" "0.2" "23.4" "0.002" "ETH" true false false /tmp/opex-e2e-postgres-restart-buyer-trades.json
   wait_user_order_projection_by_price "$postgres_restart_seller" "ETH_USDT" "117" "0.2" "FILLED" "0.2" "23.4" /tmp/opex-e2e-postgres-restart-seller-orders.json
   wait_user_order_projection_by_price "$postgres_restart_buyer" "ETH_USDT" "117" "0.2" "FILLED" "0.2" "23.4" /tmp/opex-e2e-postgres-restart-buyer-orders.json
   deadline=$((SECONDS + 120))
