@@ -91,6 +91,7 @@ Runs a real Docker-backed exchange E2E flow:
   36g. Verify Binance-compatible order lookup by orderId rejects another user's order.
   36h. Verify Binance-compatible origClientOrderId lookup/cancel cannot affect another user's order.
   36i. Verify Binance-compatible orderId cancel cannot affect another user's order.
+  36j. Verify Binance-compatible duplicate orderId cancel keeps balances unchanged.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -3325,6 +3326,15 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_cancel_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-cancel-released-account.json
   wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-canceled.json
+  expect_2xx_retry "Binance API duplicate order-id cancel remains canceled" "binance_private_delete '$api_cancel_owner' '/v3/order' 'symbol=ETHUSDT&orderId=${api_cancel_order_id}'" >/tmp/opex-e2e-binance-api-cancel-duplicate-response.json
+  jq -e \
+    --argjson orderId "$api_cancel_order_id" \
+    '.symbol == "ETHUSDT" and .orderId == $orderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
+    /tmp/opex-e2e-binance-api-cancel-duplicate-response.json >/dev/null
+  wait_no_user_open_orders "$api_cancel_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_account_balance "$api_cancel_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-cancel-duplicate-account.json
+  wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-still-canceled-after-duplicate.json
   wait_binance_private_order_projection "$api_cancel_owner" "ETHUSDT" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-orders.json
 
   local api_client_cancel_owner="e2e-api-client-cancel-$(date +%s)"
@@ -5992,6 +6002,15 @@ main() {
     "cancelStatus": "HTTP_403",
     "ownerOrderStatusAfterIntruderCancel": "NEW",
     "ownerLockedBalanceAfterIntruderCancel": 0.3
+  },
+  "binanceDuplicateOrderIdCancel": {
+    "symbol": "ETHUSDT",
+    "owner": "$api_cancel_owner",
+    "orderId": $api_cancel_order_id,
+    "duplicateCancelStatus": "CANCELED",
+    "ownerOrderStatusAfterDuplicateCancel": "CANCELED",
+    "ownerAvailableBalanceAfterDuplicateCancel": 1,
+    "ownerLockedBalanceAfterDuplicateCancel": 0
   },
   "cancelScenario": {
     "price": 150,
