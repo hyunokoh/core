@@ -72,26 +72,27 @@ Runs a real Docker-backed exchange E2E flow:
   25. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
   26. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   27. Verify wallet/accountant/market database invariants after settlement.
-  28. Verify accountant trade settlement transfers match market trade executions.
-  29. Verify accountant and wallet fee ledgers match market trade commissions.
-  30. Verify every processed accountant financial action for E2E users has a matching wallet transaction.
-  31. Verify eventlog trade audit rows match market trade projections before replay.
-  32. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  33. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  34. Restart Market and verify public market state is still available from persisted data.
-  35. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  36. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  37. Restart Matching Engine with an open order and verify it can still be matched.
-  38. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  39. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  40. Restart Matching Gateway and verify new order submission still works.
-  41. Restart all core exchange services and verify a fresh trade still settles.
-  42. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  43. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  44. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  45. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  46. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  47. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  28. Verify normalized accountant order definitions match market order definitions.
+  29. Verify accountant trade settlement transfers match market trade executions.
+  30. Verify accountant and wallet fee ledgers match market trade commissions.
+  31. Verify every processed accountant financial action for E2E users has a matching wallet transaction.
+  32. Verify eventlog trade audit rows match market trade projections before replay.
+  33. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  34. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  35. Restart Market and verify public market state is still available from persisted data.
+  36. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  37. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  38. Restart Matching Engine with an open order and verify it can still be matched.
+  39. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  40. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  41. Restart Matching Gateway and verify new order submission still works.
+  42. Restart all core exchange services and verify a fresh trade still settles.
+  43. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  44. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  45. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  46. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  47. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  48. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -1492,6 +1493,88 @@ wait_market_order_status_matches_trade_totals() {
         or abs(coalesce(os.accumulative_quote_qty, 0) - coalesce(tt.accumulative_quote_qty, 0)) > 0.000001
       );
   "
+}
+
+wait_accountant_market_order_definitions_match() {
+  local label="$1"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local accountant_file market_file diff_file
+  accountant_file="$(mktemp)"
+  market_file="$(mktemp)"
+  diff_file="$(mktemp)"
+
+  while true; do
+    psql_query "postgres-accountant" "
+      select
+        ouid,
+        uuid,
+        pair,
+        direction,
+        match_constraint,
+        order_type,
+        user_level,
+        to_char(maker_fee, 'FM9999999990.00000000'),
+        to_char(taker_fee, 'FM9999999990.00000000'),
+        to_char(left_side_fraction, 'FM9999999990.00000000'),
+        to_char(right_side_fraction, 'FM9999999990.00000000'),
+        to_char(price * right_side_fraction, 'FM9999999990.00000000'),
+        to_char(quantity * left_side_fraction, 'FM9999999990.00000000')
+      from orders
+      where uuid like 'e2e-%'
+        and status <> 3
+      order by ouid;
+    " > "$accountant_file"
+
+    psql_query "postgres-market" "
+      with ranked_order_status as (
+        select
+          os.*,
+          row_number() over (partition by ouid order by appearance desc, executed_quantity desc) as rank
+        from order_status os
+      ),
+      latest_order_status as (
+        select
+          ouid,
+          status
+        from ranked_order_status
+        where rank = 1
+      )
+      select
+        o.ouid,
+        o.uuid,
+        o.symbol,
+        o.side,
+        o.match_constraint,
+        o.order_type,
+        o.user_level,
+        to_char(o.maker_fee, 'FM9999999990.00000000'),
+        to_char(o.taker_fee, 'FM9999999990.00000000'),
+        to_char(o.left_side_fraction, 'FM9999999990.00000000'),
+        to_char(o.right_side_fraction, 'FM9999999990.00000000'),
+        to_char(o.price, 'FM9999999990.00000000'),
+        to_char(o.quantity, 'FM9999999990.00000000')
+      from orders o
+      join latest_order_status os on os.ouid = o.ouid
+      where o.uuid like 'e2e-%'
+        and os.status <> 3
+      order by o.ouid;
+    " > "$market_file"
+
+    if diff -u "$accountant_file" "$market_file" > "$diff_file"; then
+      rm -f "$accountant_file" "$market_file" "$diff_file"
+      return 0
+    fi
+
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for $label" >&2
+      cat "$diff_file" >&2
+      rm -f "$accountant_file" "$market_file" "$diff_file"
+      "${COMPOSE[@]}" logs --tail=200 accountant market >&2 || true
+      exit 1
+    fi
+
+    sleep 2
+  done
 }
 
 wait_accountant_market_order_projections_match() {
@@ -3709,6 +3792,7 @@ main() {
       );
   "
   wait_market_order_status_matches_trade_totals "market e2e order status matches trade totals"
+  wait_accountant_market_order_definitions_match "accountant and market e2e order definitions match"
   wait_accountant_market_order_projections_match "accountant and market e2e order projections match"
   wait_accountant_trade_transfers_match_market_executions "accountant e2e trade transfers match market executions"
   wait_accountant_trade_fees_match_market_commissions "accountant e2e trade fee actions match market commissions"
@@ -4363,6 +4447,7 @@ main() {
       );
   "
   wait_market_order_status_matches_trade_totals "all e2e market order status matches trade totals after BTC"
+  wait_accountant_market_order_definitions_match "all e2e accountant and market order definitions match after BTC"
   wait_accountant_market_order_projections_match "all e2e accountant and market order projections match after BTC"
   wait_accountant_trade_transfers_match_market_executions "all e2e accountant trade transfers match market executions after BTC"
   wait_accountant_trade_fees_match_market_commissions "all e2e accountant trade fee actions match market commissions after BTC"
