@@ -38,6 +38,7 @@ object Valid {
         1.0.toBigDecimal(),
         BigDecimal.ZERO,
         BigDecimal.ZERO,
+        BigDecimal.ZERO,
         OrderStatus.FILLED.code,
         "",
         "",
@@ -66,7 +67,8 @@ object Valid {
         BigDecimal.ZERO,
         BigDecimal.ZERO,
         OrderStatus.FILLED.code,
-        1
+        1,
+        BigDecimal.ZERO
     )
 
     val pairConfigModel = PairConfigModel(

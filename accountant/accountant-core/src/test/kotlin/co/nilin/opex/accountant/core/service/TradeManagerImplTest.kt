@@ -1,6 +1,7 @@
 package co.nilin.opex.accountant.core.service
 
 import co.nilin.opex.accountant.core.inout.OrderStatus
+import co.nilin.opex.accountant.core.inout.RichOrderUpdate
 import co.nilin.opex.accountant.core.model.*
 import co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.SubmitOrderEvent
@@ -438,15 +439,30 @@ internal class TradeManagerImplTest {
             assertThat(orderManager.handleCancelOrder(cancelEvent)).isEmpty()
             assertThat(tempEventPersister.loadTempEvents(takerBid.ouid)).containsExactly(cancelEvent)
 
-            tradeManager.handleTrade(makeTradeEvent(pair, takerBid, lowAsk, 100000))
+            val partialFill = makeTradeEvent(pair, takerBid, lowAsk, 100000).apply {
+                takerRemainedQuantity = 100000
+                makerRemainedQuantity = 0
+            }
+            tradeManager.handleTrade(partialFill)
 
             assertThat(tempEventPersister.loadTempEvents(takerBid.ouid)).containsExactly(cancelEvent)
+            val tradeUpdate = richOrderPublisher.published
+                .filterIsInstance<RichOrderUpdate>()
+                .last { it.ouid == takerBid.ouid }
+            assertThat(tradeUpdate.executedQuantity()).isEqualByComparingTo(BigDecimal.valueOf(100000))
+            assertThat(tradeUpdate.accumulativeQuoteQuantity()).isEqualByComparingTo(BigDecimal.valueOf(9_000_000))
 
             orderManager.handleCancelOrder(cancelEvent)
 
             val takerOrder = orderPersister.orders.getValue(takerBid.ouid)
             assertThat(takerOrder.status).isEqualTo(OrderStatus.CANCELED.code)
+            assertThat(takerOrder.accumulativeQuoteQty).isEqualByComparingTo(BigDecimal.valueOf(9_000_000))
             assertThat(tempEventPersister.loadTempEvents(takerBid.ouid)).isEmpty()
+            val cancelUpdate = richOrderPublisher.published
+                .filterIsInstance<RichOrderUpdate>()
+                .last { it.ouid == takerBid.ouid }
+            assertThat(cancelUpdate.executedQuantity()).isEqualByComparingTo(BigDecimal.valueOf(100000))
+            assertThat(cancelUpdate.accumulativeQuoteQuantity()).isEqualByComparingTo(BigDecimal.valueOf(9_000_000))
             val releaseAction = financialActionStore.persisted.single {
                 it.pointer == takerBid.ouid && it.category == FinancialActionCategory.ORDER_CANCEL
             }

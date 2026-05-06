@@ -112,6 +112,10 @@ open class TradeManagerImpl(
         takerOrder.remainedTransferAmount -= takerMatchedAmount
         takerOrder.filledQuantity = takerOrder.filledQuantity + trade.matchedQuantity
         takerOrder.filledOrigQuantity = BigDecimal(takerOrder.filledQuantity).multiply(takerOrder.leftSideFraction)
+        val matchedQuoteQuantity = trade.makerPrice.toBigDecimal()
+            .multiply(takerOrder.rightSideFraction)
+            .multiply(trade.matchedQuantity.toBigDecimal().multiply(takerOrder.leftSideFraction))
+        takerOrder.accumulativeQuoteQty = takerOrder.accumulativeQuoteQty.add(matchedQuoteQuantity)
 
         if (takerOrder.filledQuantity == takerOrder.quantity) {
             takerOrder.status = OrderStatus.FILLED.code
@@ -149,6 +153,7 @@ open class TradeManagerImpl(
         makerOrder.remainedTransferAmount -= makerMatchedAmount
         makerOrder.filledQuantity = makerOrder.filledQuantity + trade.matchedQuantity
         makerOrder.filledOrigQuantity = BigDecimal(makerOrder.filledQuantity).multiply(makerOrder.leftSideFraction)
+        makerOrder.accumulativeQuoteQty = makerOrder.accumulativeQuoteQty.add(matchedQuoteQuantity)
         if (makerOrder.filledQuantity == makerOrder.quantity) {
             makerOrder.status = OrderStatus.FILLED.code
             if (makerOrder.remainedTransferAmount > BigDecimal.ZERO) {
@@ -291,7 +296,7 @@ open class TradeManagerImpl(
         else
             OrderStatus.PARTIALLY_FILLED
 
-        return RichOrderUpdate(order.ouid, price, order.origQuantity, remainedQty, status)
+        return RichOrderUpdate(order.ouid, price, order.origQuantity, remainedQty, status, order.accumulativeQuoteQty)
     }
 
     private suspend fun publishFinancialActions(financialActions: List<FinancialAction>) {

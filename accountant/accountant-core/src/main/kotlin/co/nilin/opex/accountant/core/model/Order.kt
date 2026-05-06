@@ -27,7 +27,8 @@ data class Order(
     val firstTransferAmount: BigDecimal,
     var remainedTransferAmount: BigDecimal,
     var status: Int,
-    val id: Long? = null
+    val id: Long? = null,
+    var accumulativeQuoteQty: BigDecimal = BigDecimal.ZERO
 ) {
 
     fun isAsk() = direction == OrderDirection.ASK

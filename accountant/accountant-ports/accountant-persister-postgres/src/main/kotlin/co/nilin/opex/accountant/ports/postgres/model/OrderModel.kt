@@ -32,6 +32,7 @@ data class OrderModel(
     @Column("filled_orig_quantity") val filledOrigQuantity: BigDecimal,
     @Column("first_transfer_amount") val firstTransferAmount: BigDecimal,
     @Column("remained_transfer_amount") val remainedTransferAmount: BigDecimal,
+    @Column("accumulative_quote_qty") val accumulativeQuoteQty: BigDecimal,
     @Column("status") val status: Int,
     val agent: String,
     val ip: String,

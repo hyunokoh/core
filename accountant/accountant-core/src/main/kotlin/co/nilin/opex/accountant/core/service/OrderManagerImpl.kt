@@ -270,7 +270,8 @@ open class OrderManagerImpl(
             updatedOrder.origPrice,
             updatedOrder.origQuantity,
             newRemainedQuantity.toBigDecimal().multiply(updatedOrder.leftSideFraction),
-            updatedStatus
+            updatedStatus,
+            updatedOrder.accumulativeQuoteQty
         )
 
         return financialActionPersister.persist(financialActions).also {
@@ -361,7 +362,8 @@ open class OrderManagerImpl(
             order.origPrice,
             order.origQuantity,
             order.origQuantity.subtract(order.filledOrigQuantity),
-            OrderStatus.REJECTED
+            OrderStatus.REJECTED,
+            order.accumulativeQuoteQty
         )
         return financialActionPersister.persist(listOf(financialAction)).also {
             richOrderPublisher.publish(richOrderUpdate)
@@ -442,7 +444,8 @@ open class OrderManagerImpl(
             order.origPrice,
             order.origQuantity,
             cancelOrderEvent.remainedQuantity.toBigDecimal().multiply(order.leftSideFraction),
-            OrderStatus.CANCELED
+            OrderStatus.CANCELED,
+            order.accumulativeQuoteQty
         )
         return financialActionPersister.persist(listOf(financialAction)).also {
             richOrderPublisher.publish(richOrderUpdate)

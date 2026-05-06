@@ -21,11 +21,15 @@ CREATE TABLE IF NOT EXISTS orders
     filled_orig_quantity     DECIMAL     NOT NULL,
     first_transfer_amount    DECIMAL     NOT NULL,
     remained_transfer_amount DECIMAL     NOT NULL,
+    accumulative_quote_qty   DECIMAL     NOT NULL DEFAULT 0,
     status                   INTEGER     NOT NULL,
     agent                    VARCHAR(20),
     ip                       VARCHAR(11),
     create_date              TIMESTAMP   NOT NULL
 );
+
+ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS accumulative_quote_qty DECIMAL NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS fi_actions
 (

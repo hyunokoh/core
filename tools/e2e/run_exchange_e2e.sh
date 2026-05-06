@@ -1269,6 +1269,39 @@ wait_order_projection() {
   done
 }
 
+wait_order_projection_by_order_id() {
+  local owner="$1"
+  local symbol="$2"
+  local order_id="$3"
+  local expected_status="$4"
+  local expected_executed_quantity="$5"
+  local expected_accumulative_quote_qty="$6"
+  local output_file="$7"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body request
+  request="$(jq -nc --arg symbol "$symbol" --argjson orderId "$order_id" '{symbol:$symbol, orderId:$orderId, origClientOrderId:null}')"
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$request" "http://127.0.0.1:8096/v1/user/${owner}/order/query")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg expected_status "$expected_status" \
+      --argjson expected_executed_quantity "$expected_executed_quantity" \
+      --argjson expected_accumulative_quote_qty "$expected_accumulative_quote_qty" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        .status == $expected_status and
+        nearly_equal(.executedQuantity; $expected_executed_quantity) and
+        nearly_equal(.accumulativeQuoteQty; $expected_accumulative_quote_qty)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for orderId=$order_id status=$expected_status executedQuantity=$expected_executed_quantity accumulativeQuoteQty=$expected_accumulative_quote_qty" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine accountant market wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_vault_e2e_secret() {
   local deadline=$((SECONDS + 900))
   until "${COMPOSE[@]}" exec -T vault sh -c 'VAULT_TOKEN="$(cat /vault/file/tokens.txt 2>/dev/null)" vault kv get secret/opex-wallet >/dev/null 2>&1'; do
@@ -3283,21 +3316,33 @@ main() {
   expect_2xx_retry "market-bid-cap high ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_high_ask' '$market_bid_cap_high_seller'" >/tmp/opex-e2e-market-bid-cap-high-ask.json
   wait_user_open_order "$market_bid_cap_high_seller" "ETH_USDT" "100" "0.1" /tmp/opex-e2e-market-bid-cap-high-open-orders.json
 
-  local market_bid_cap_high_ouid market_bid_cap_high_order_id market_bid_cap_high_cancel_request
+  local market_bid_cap_low_ouid market_bid_cap_high_ouid market_bid_cap_high_order_id market_bid_cap_high_cancel_request
+  market_bid_cap_low_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-market-bid-cap-low-open-orders.json)"
   market_bid_cap_high_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-market-bid-cap-high-open-orders.json)"
   market_bid_cap_high_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-market-bid-cap-high-open-orders.json)"
-  if [[ -z "$market_bid_cap_high_ouid" || "$market_bid_cap_high_ouid" == "null" || -z "$market_bid_cap_high_order_id" || "$market_bid_cap_high_order_id" == "null" ]]; then
-    echo "Market-bid-cap high ask did not include ouid/orderId required for cancel" >&2
+  if [[ -z "$market_bid_cap_low_ouid" || "$market_bid_cap_low_ouid" == "null" ||
+    -z "$market_bid_cap_high_ouid" || "$market_bid_cap_high_ouid" == "null" ||
+    -z "$market_bid_cap_high_order_id" || "$market_bid_cap_high_order_id" == "null" ]]; then
+    echo "Market-bid-cap open orders did not include ouid/orderId required for status checks" >&2
+    cat /tmp/opex-e2e-market-bid-cap-low-open-orders.json >&2
     cat /tmp/opex-e2e-market-bid-cap-high-open-orders.json >&2
     exit 1
   fi
 
   expect_2xx_retry "market-bid-cap market bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_bid' '$market_bid_cap_buyer'" >/tmp/opex-e2e-market-bid-cap-bid.json
   wait_no_user_open_orders "$market_bid_cap_low_seller" "ETH_USDT"
+  wait_order_projection "$market_bid_cap_low_seller" "$market_bid_cap_low_ouid" "FILLED" "0.1" "9"
   wait_order_projection "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "NEW" "0" "0"
   wait_order_book_level "ETH_USDT" "ASK" "100" "0.1"
   wait_user_trade_projection "$market_bid_cap_low_seller" "ETH_USDT" "90" "0.1" "9" "0.09" "USDT" false true false /tmp/opex-e2e-market-bid-cap-low-seller-trades.json
   wait_user_trade_projection "$market_bid_cap_buyer" "ETH_USDT" "90" "0.1" "9" "0.001" "ETH" true false false /tmp/opex-e2e-market-bid-cap-buyer-trades.json
+  market_bid_cap_buyer_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-market-bid-cap-buyer-trades.json)"
+  if [[ -z "$market_bid_cap_buyer_order_id" || "$market_bid_cap_buyer_order_id" == "null" ]]; then
+    echo "Market-bid-cap buyer trade did not include orderId required for order query" >&2
+    cat /tmp/opex-e2e-market-bid-cap-buyer-trades.json >&2
+    exit 1
+  fi
+  wait_order_projection_by_order_id "$market_bid_cap_buyer" "ETH_USDT" "$market_bid_cap_buyer_order_id" "CANCELED" "0.1" "9" /tmp/opex-e2e-market-bid-cap-buyer-order.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$market_bid_cap_buyer" "ETH" "0.099" &&
     try_wallet_balance "$market_bid_cap_buyer" "USDT" "10" &&

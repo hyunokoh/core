@@ -44,7 +44,8 @@ class OrderPersisterImpl(private val orderRepository: OrderRepository) : OrderPe
             firstTransferAmount,
             remainedTransferAmount,
             status,
-            id
+            id,
+            accumulativeQuoteQty
         )
     }
 
@@ -72,6 +73,7 @@ class OrderPersisterImpl(private val orderRepository: OrderRepository) : OrderPe
                 order.filledOrigQuantity,
                 order.firstTransferAmount,
                 order.remainedTransferAmount,
+                order.accumulativeQuoteQty,
                 order.status,
                 "",
                 "",
