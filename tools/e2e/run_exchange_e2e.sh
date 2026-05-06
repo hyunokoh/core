@@ -80,7 +80,7 @@ Runs a real Docker-backed exchange E2E flow:
   33. Verify wallet user-transaction ledger rows match wallet transaction movements.
   34. Verify eventlog trade audit rows match market trade projections before replay.
   35. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  36. Verify Binance-compatible private order submission/account/order/trade APIs reflect settled balances and executions.
+  36. Verify Binance-compatible private order submission/cancel/account/order/trade APIs reflect settled balances and executions.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -1262,6 +1262,34 @@ binance_private_post() {
   response_file="$(mktemp)"
   local status
   status="$(curl -sS -X POST \
+    -H "X-Opex-User: $owner" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -w "%{http_code}" \
+    -o "$response_file" \
+    -d "$form" \
+    "http://127.0.0.1:8094${path}")"
+  printf '%s\n' "$status"
+  cat "$response_file"
+  rm -f "$response_file"
+}
+
+binance_private_delete() {
+  local owner="$1"
+  local path="$2"
+  local form="${3:-}"
+  local timestamp
+  timestamp=$(( $(date +%s) * 1000 ))
+
+  if [[ -n "$form" ]]; then
+    form="${form}&timestamp=${timestamp}&recvWindow=60000"
+  else
+    form="timestamp=${timestamp}&recvWindow=60000"
+  fi
+
+  local response_file
+  response_file="$(mktemp)"
+  local status
+  status="$(curl -sS -X DELETE \
     -H "X-Opex-User: $owner" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     -w "%{http_code}" \
@@ -2698,6 +2726,31 @@ main() {
   wait_binance_private_order_projection "$api_order_buyer" "ETHUSDT" "101" "0.2" "FILLED" "0.2" "20.2" "BUY" /tmp/opex-e2e-binance-api-buyer-orders.json
   wait_binance_private_trade_projection "$api_order_seller" "ETHUSDT" "101" "0.2" "20.2" "0.202" "USDT" false true /tmp/opex-e2e-binance-api-seller-my-trades.json
   wait_binance_private_trade_projection "$api_order_buyer" "ETHUSDT" "101" "0.2" "20.2" "0.002" "ETH" true false /tmp/opex-e2e-binance-api-buyer-my-trades.json
+
+  local api_cancel_owner="e2e-api-cancel-$(date +%s)"
+  local api_cancel_ref="e2e-api-cancel-$(date +%s)"
+  expect_2xx "Binance API cancel ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_cancel_owner}_MAIN?description=e2e-api-cancel&transferRef=${api_cancel_ref}-eth")" >/dev/null
+  expect_2xx_retry "Binance API cancel owner limit ask" "binance_private_post '$api_cancel_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.3&price=160'" >/tmp/opex-e2e-binance-api-cancel-ask.json
+  wait_user_open_order "$api_cancel_owner" "ETH_USDT" "160" "0.3" /tmp/opex-e2e-binance-api-cancel-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "160" "0.3"
+  wait_binance_account_balance "$api_cancel_owner" "ETH" "0.7" "0.3" /tmp/opex-e2e-binance-api-cancel-reserved-account.json
+
+  local api_cancel_order_id
+  api_cancel_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-binance-api-cancel-open-orders.json)"
+  if [[ -z "$api_cancel_order_id" || "$api_cancel_order_id" == "null" ]]; then
+    echo "Binance API cancel open order did not include orderId" >&2
+    cat /tmp/opex-e2e-binance-api-cancel-open-orders.json >&2
+    exit 1
+  fi
+  expect_2xx_retry "Binance API cancel owner limit ask" "binance_private_delete '$api_cancel_owner' '/v3/order' 'symbol=ETHUSDT&orderId=${api_cancel_order_id}'" >/tmp/opex-e2e-binance-api-cancel-response.json
+  jq -e \
+    --argjson orderId "$api_cancel_order_id" \
+    '.symbol == "ETHUSDT" and .orderId == $orderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
+    /tmp/opex-e2e-binance-api-cancel-response.json >/dev/null
+  wait_no_user_open_orders "$api_cancel_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_account_balance "$api_cancel_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-cancel-released-account.json
+  wait_binance_private_order_projection "$api_cancel_owner" "ETHUSDT" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-orders.json
 
   local engine_restart_seller="e2e-engine-restart-seller-$(date +%s)"
   local engine_restart_buyer="e2e-engine-restart-buyer-$(date +%s)"
@@ -4245,7 +4298,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,55\nFEE,36\nORDER_CANCEL,23\nORDER_CREATE,50\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,56\nFEE,36\nORDER_CANCEL,24\nORDER_CREATE,51\nORDER_FINALIZED,1\nTRADE,36\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -4256,7 +4309,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,30.05000000\nUSDT,2765.34200000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'ETH,31.05000000\nUSDT,2765.34200000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -4320,7 +4373,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,18\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,50\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,19\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,51\nTradeEvent,PROCESSED,73\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
