@@ -86,6 +86,7 @@ Runs a real Docker-backed exchange E2E flow:
   36b. Verify Binance-compatible openOrders/allOrders without a symbol returns the user's orders across markets.
   36c. Verify Binance-compatible myTrades fromId returns trades by inclusive exchange trade id.
   36d. Verify Binance-compatible myTrades orderId returns trades for that user order.
+  36e. Verify Binance-compatible myTrades orderId is not confused with exchange trade id.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -3212,6 +3213,36 @@ main() {
   wait_binance_private_order_projection "$api_order_buyer" "ETHUSDT" "101" "0.2" "FILLED" "0.2" "20.2" "BUY" /tmp/opex-e2e-binance-api-buyer-orders.json
   wait_binance_private_trade_projection "$api_order_seller" "ETHUSDT" "101" "0.2" "20.2" "0.202" "USDT" false true /tmp/opex-e2e-binance-api-seller-my-trades.json
   wait_binance_private_trade_projection "$api_order_buyer" "ETHUSDT" "101" "0.2" "20.2" "0.002" "ETH" true false /tmp/opex-e2e-binance-api-buyer-my-trades.json
+  local api_order_seller_binance_order_id api_order_seller_binance_trade_id
+  api_order_seller_binance_order_id="$(
+    jq -r '
+      [
+        .[] |
+        select(
+          .symbol == "ETHUSDT" and
+          .price == 101 and
+          .origQty == 0.2 and
+          .status == "FILLED" and
+          .side == "SELL"
+        )
+      ][0].orderId
+    ' /tmp/opex-e2e-binance-api-seller-orders.json
+  )"
+  api_order_seller_binance_trade_id="$(jq -r '.[0].id' /tmp/opex-e2e-binance-api-seller-my-trades.json)"
+  if [[ -z "$api_order_seller_binance_order_id" || "$api_order_seller_binance_order_id" == "null" ||
+        -z "$api_order_seller_binance_trade_id" || "$api_order_seller_binance_trade_id" == "null" ]]; then
+    echo "Binance API seller order/trade response did not include ids required for distinct orderId verification" >&2
+    cat /tmp/opex-e2e-binance-api-seller-orders.json >&2
+    cat /tmp/opex-e2e-binance-api-seller-my-trades.json >&2
+    exit 1
+  fi
+  if [[ "$api_order_seller_binance_order_id" == "$api_order_seller_binance_trade_id" ]]; then
+    echo "Binance API orderId and trade id unexpectedly matched; e2e cannot prove orderId filter is distinct from trade id" >&2
+    cat /tmp/opex-e2e-binance-api-seller-orders.json >&2
+    cat /tmp/opex-e2e-binance-api-seller-my-trades.json >&2
+    exit 1
+  fi
+  wait_binance_private_trade_projection_for_order_id "$api_order_seller" "ETHUSDT" "$api_order_seller_binance_order_id" "$api_order_seller_binance_trade_id" "101" "0.2" "20.2" "0.202" "USDT" false true /tmp/opex-e2e-binance-api-seller-my-trades-order-id.json
 
   local api_cancel_owner="e2e-api-cancel-$(date +%s)"
   local api_cancel_ref="e2e-api-cancel-$(date +%s)"
@@ -5871,6 +5902,13 @@ main() {
     "symbol": "ETHUSDT",
     "orderId": $seller_binance_order_id,
     "tradeId": $seller_binance_trade_id,
+    "orderTradeFilterVerified": true
+  },
+  "binanceMyTradesDistinctOrderId": {
+    "symbol": "ETHUSDT",
+    "orderId": $api_order_seller_binance_order_id,
+    "tradeId": $api_order_seller_binance_trade_id,
+    "orderIdDiffersFromTradeId": true,
     "orderTradeFilterVerified": true
   },
   "cancelScenario": {
