@@ -73,26 +73,27 @@ Runs a real Docker-backed exchange E2E flow:
   26. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   27. Verify wallet/accountant/market database invariants after settlement.
   28. Verify normalized accountant order definitions match market order definitions.
-  29. Verify accountant trade settlement transfers match market trade executions.
-  30. Verify accountant and wallet fee ledgers match market trade commissions.
-  31. Verify every processed accountant financial action for E2E users has a matching wallet transaction.
-  32. Verify eventlog trade audit rows match market trade projections before replay.
-  33. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  34. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  35. Restart Market and verify public market state is still available from persisted data.
-  36. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  37. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  38. Restart Matching Engine with an open order and verify it can still be matched.
-  39. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  40. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  41. Restart Matching Gateway and verify new order submission still works.
-  42. Restart all core exchange services and verify a fresh trade still settles.
-  43. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  44. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  45. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  46. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  47. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  48. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  29. Verify accountant order reservation/release actions match eventlog order lifecycle events.
+  30. Verify accountant trade settlement transfers match market trade executions.
+  31. Verify accountant and wallet fee ledgers match market trade commissions.
+  32. Verify every processed accountant financial action for E2E users has a matching wallet transaction.
+  33. Verify eventlog trade audit rows match market trade projections before replay.
+  34. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  35. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  36. Restart Market and verify public market state is still available from persisted data.
+  37. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  38. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  39. Restart Matching Engine with an open order and verify it can still be matched.
+  40. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  41. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  42. Restart Matching Gateway and verify new order submission still works.
+  43. Restart all core exchange services and verify a fresh trade still settles.
+  44. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  45. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  46. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  47. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  48. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  49. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -1570,6 +1571,256 @@ wait_accountant_market_order_definitions_match() {
       cat "$diff_file" >&2
       rm -f "$accountant_file" "$market_file" "$diff_file"
       "${COMPOSE[@]}" logs --tail=200 accountant market >&2 || true
+      exit 1
+    fi
+
+    sleep 2
+  done
+}
+
+wait_accountant_order_actions_match_eventlog_lifecycle() {
+  local label="$1"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local expected_file actual_file diff_file
+  expected_file="$(mktemp)"
+  actual_file="$(mktemp)"
+  diff_file="$(mktemp)"
+
+  while true; do
+    psql_query "postgres-eventlog" "
+      with pair_config(pair, left_fraction, right_fraction) as (
+        values
+          ('ETH_USDT', 0.000001::decimal, 0.01::decimal),
+          ('BTC_USDT', 0.000001::decimal, 0.01::decimal),
+          ('SOL_USDT', 0.00001::decimal, 0.01::decimal),
+          ('DOGE_USDT', 0.001::decimal, 0.01::decimal),
+          ('TON_USDT', 0.0001::decimal, 0.01::decimal)
+      ),
+      parsed_events as (
+        select
+          event,
+          ouid,
+          uuid,
+          event_json::jsonb as event_body,
+          ((event_json::jsonb -> 'pair' ->> 'leftSideName') || '_' || (event_json::jsonb -> 'pair' ->> 'rightSideName')) as pair,
+          event_json::jsonb -> 'pair' ->> 'leftSideName' as base_symbol,
+          event_json::jsonb -> 'pair' ->> 'rightSideName' as quote_symbol,
+          event_json::jsonb ->> 'direction' as direction,
+          nullif(event_json::jsonb ->> 'price', '')::decimal as price,
+          nullif(event_json::jsonb ->> 'quantity', '')::decimal as quantity,
+          nullif(event_json::jsonb ->> 'oldPrice', '')::decimal as old_price,
+          nullif(event_json::jsonb ->> 'oldQuantity', '')::decimal as old_quantity,
+          nullif(event_json::jsonb ->> 'remainedQuantity', '')::decimal as remained_quantity,
+          event_json::jsonb ->> 'requestedOperation' as requested_operation
+        from opex_events
+        where uuid like 'e2e-%'
+          and event in ('CreateOrderEvent', 'RejectOrderEvent', 'CancelOrderEvent', 'UpdatedOrderEvent')
+      ),
+      trade_events as (
+        select distinct
+          ((event_json::jsonb -> 'pair' ->> 'leftSideName') || '_' || (event_json::jsonb -> 'pair' ->> 'rightSideName')) as pair,
+          event_json::jsonb ->> 'makerOuid' as maker_ouid,
+          event_json::jsonb ->> 'takerOuid' as taker_ouid,
+          event_json::jsonb ->> 'makerDirection' as maker_direction,
+          event_json::jsonb ->> 'takerDirection' as taker_direction,
+          nullif(event_json::jsonb ->> 'makerPrice', '')::decimal as maker_price,
+          nullif(event_json::jsonb ->> 'matchedQuantity', '')::decimal as matched_quantity
+        from opex_events
+        where event = 'TradeEvent'
+          and (event_json::jsonb ->> 'makerUuid' like 'e2e-%' or event_json::jsonb ->> 'takerUuid' like 'e2e-%')
+      ),
+      reservation_changes as (
+        select
+          pe.ouid,
+          case when pe.direction = 'ASK'
+            then pe.quantity * pc.left_fraction
+            else pe.price * pc.right_fraction * pe.quantity * pc.left_fraction
+          end as amount
+        from parsed_events pe
+        join pair_config pc on pc.pair = pe.pair
+        where pe.event in ('CreateOrderEvent', 'RejectOrderEvent')
+          and pe.direction is not null
+          and (pe.event <> 'RejectOrderEvent' or pe.requested_operation = 'PLACE_ORDER')
+        union all
+        select
+          delta.ouid,
+          delta.delta_amount as amount
+        from (
+          select
+            pe.ouid,
+            case when pe.direction = 'ASK'
+              then (pe.quantity - (pe.old_quantity - pe.remained_quantity)) * pc.left_fraction
+              else pe.price * pc.right_fraction * (pe.quantity - (pe.old_quantity - pe.remained_quantity)) * pc.left_fraction
+            end -
+            case when pe.direction = 'ASK'
+              then pe.remained_quantity * pc.left_fraction
+              else pe.old_price * pc.right_fraction * pe.remained_quantity * pc.left_fraction
+            end as delta_amount
+          from parsed_events pe
+          join pair_config pc on pc.pair = pe.pair
+          where pe.event = 'UpdatedOrderEvent'
+            and pe.direction is not null
+        ) delta
+        where abs(delta.delta_amount) > 0.000001
+      ),
+      trade_quote_debits as (
+        select ouid, sum(amount) as amount
+        from (
+          select
+            te.maker_ouid as ouid,
+            te.maker_price * pc.right_fraction * te.matched_quantity * pc.left_fraction as amount
+          from trade_events te
+          join pair_config pc on pc.pair = te.pair
+          where te.maker_direction = 'BID'
+          union all
+          select
+            te.taker_ouid as ouid,
+            te.maker_price * pc.right_fraction * te.matched_quantity * pc.left_fraction as amount
+          from trade_events te
+          join pair_config pc on pc.pair = te.pair
+          where te.taker_direction = 'BID'
+        ) quote_debits
+        group by ouid
+      ),
+      bid_reserve_remaining as (
+        select
+          rc.ouid,
+          sum(rc.amount) - coalesce(tqd.amount, 0) as remaining_amount
+        from reservation_changes rc
+        left join trade_quote_debits tqd on tqd.ouid = rc.ouid
+        group by rc.ouid, tqd.amount
+      ),
+      lifecycle_actions as (
+        select
+          'SubmitOrderEvent' as event_type,
+          'ORDER_CREATE' as category_name,
+          pe.ouid as pointer,
+          case when pe.direction = 'ASK' then pe.base_symbol else pe.quote_symbol end as symbol,
+          case when pe.direction = 'ASK'
+            then pe.quantity * pc.left_fraction
+            else pe.price * pc.right_fraction * pe.quantity * pc.left_fraction
+          end as amount,
+          pe.uuid as sender,
+          'MAIN' as sender_wallet_type,
+          pe.uuid as receiver,
+          'EXCHANGE' as receiver_wallet_type
+        from parsed_events pe
+        join pair_config pc on pc.pair = pe.pair
+        where pe.event in ('CreateOrderEvent', 'RejectOrderEvent')
+          and pe.direction is not null
+          and (pe.event <> 'RejectOrderEvent' or pe.requested_operation = 'PLACE_ORDER')
+        union all
+        select
+          pe.event as event_type,
+          'ORDER_CANCEL' as category_name,
+          pe.ouid as pointer,
+          case when pe.direction = 'ASK' then pe.base_symbol else pe.quote_symbol end as symbol,
+          case when pe.direction = 'ASK'
+            then pe.remained_quantity * pc.left_fraction
+            else coalesce(brr.remaining_amount, 0)
+          end as amount,
+          pe.uuid as sender,
+          'EXCHANGE' as sender_wallet_type,
+          pe.uuid as receiver,
+          'MAIN' as receiver_wallet_type
+        from parsed_events pe
+        join pair_config pc on pc.pair = pe.pair
+        left join bid_reserve_remaining brr on brr.ouid = pe.ouid
+        where pe.event = 'CancelOrderEvent'
+          and pe.direction is not null
+        union all
+        select
+          'RejectOrderEvent' as event_type,
+          'ORDER_CANCEL' as category_name,
+          pe.ouid as pointer,
+          case when pe.direction = 'ASK' then pe.base_symbol else pe.quote_symbol end as symbol,
+          case when pe.direction = 'ASK'
+            then pe.quantity * pc.left_fraction
+            else pe.price * pc.right_fraction * pe.quantity * pc.left_fraction
+          end as amount,
+          pe.uuid as sender,
+          'EXCHANGE' as sender_wallet_type,
+          pe.uuid as receiver,
+          'MAIN' as receiver_wallet_type
+        from parsed_events pe
+        join pair_config pc on pc.pair = pe.pair
+        where pe.event = 'RejectOrderEvent'
+          and pe.direction is not null
+          and pe.requested_operation = 'PLACE_ORDER'
+        union all
+        select
+          'UpdatedOrderEvent' as event_type,
+          case when delta.delta_amount > 0 then 'ORDER_CREATE' else 'ORDER_CANCEL' end as category_name,
+          delta.ouid as pointer,
+          delta.symbol,
+          abs(delta.delta_amount) as amount,
+          delta.uuid as sender,
+          case when delta.delta_amount > 0 then 'MAIN' else 'EXCHANGE' end as sender_wallet_type,
+          delta.uuid as receiver,
+          case when delta.delta_amount > 0 then 'EXCHANGE' else 'MAIN' end as receiver_wallet_type
+        from (
+          select
+            pe.ouid,
+            pe.uuid,
+            case when pe.direction = 'ASK' then pe.base_symbol else pe.quote_symbol end as symbol,
+            case when pe.direction = 'ASK'
+              then (pe.quantity - (pe.old_quantity - pe.remained_quantity)) * pc.left_fraction
+              else pe.price * pc.right_fraction * (pe.quantity - (pe.old_quantity - pe.remained_quantity)) * pc.left_fraction
+            end -
+            case when pe.direction = 'ASK'
+              then pe.remained_quantity * pc.left_fraction
+              else pe.old_price * pc.right_fraction * pe.remained_quantity * pc.left_fraction
+            end as delta_amount
+          from parsed_events pe
+          join pair_config pc on pc.pair = pe.pair
+          where pe.event = 'UpdatedOrderEvent'
+            and pe.direction is not null
+        ) delta
+        where abs(delta.delta_amount) > 0.000001
+      )
+      select distinct
+        event_type,
+        category_name,
+        pointer,
+        symbol,
+        to_char(amount, 'FM9999999990.00000000'),
+        sender,
+        sender_wallet_type,
+        receiver,
+        receiver_wallet_type
+      from lifecycle_actions
+      order by pointer, event_type, category_name, symbol, sender, receiver, to_char(amount, 'FM9999999990.00000000');
+    " > "$expected_file"
+
+    psql_query "postgres-accountant" "
+      select
+        event_type,
+        category_name,
+        pointer,
+        symbol,
+        to_char(amount, 'FM9999999990.00000000'),
+        sender,
+        sender_wallet_type,
+        receiver,
+        receiver_wallet_type
+      from fi_actions
+      where (sender like 'e2e-%' or receiver like 'e2e-%')
+        and event_type in ('SubmitOrderEvent', 'UpdatedOrderEvent', 'CancelOrderEvent', 'RejectOrderEvent')
+        and category_name in ('ORDER_CREATE', 'ORDER_CANCEL')
+        and status = 'PROCESSED'
+      order by pointer, event_type, category_name, symbol, sender, receiver, to_char(amount, 'FM9999999990.00000000');
+    " > "$actual_file"
+
+    if diff -u "$expected_file" "$actual_file" > "$diff_file"; then
+      rm -f "$expected_file" "$actual_file" "$diff_file"
+      return 0
+    fi
+
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for $label" >&2
+      cat "$diff_file" >&2
+      rm -f "$expected_file" "$actual_file" "$diff_file"
+      "${COMPOSE[@]}" logs --tail=200 accountant eventlog wallet matching-engine >&2 || true
       exit 1
     fi
 
@@ -3793,6 +4044,7 @@ main() {
   "
   wait_market_order_status_matches_trade_totals "market e2e order status matches trade totals"
   wait_accountant_market_order_definitions_match "accountant and market e2e order definitions match"
+  wait_accountant_order_actions_match_eventlog_lifecycle "accountant order actions match eventlog lifecycle"
   wait_accountant_market_order_projections_match "accountant and market e2e order projections match"
   wait_accountant_trade_transfers_match_market_executions "accountant e2e trade transfers match market executions"
   wait_accountant_trade_fees_match_market_commissions "accountant e2e trade fee actions match market commissions"
@@ -4448,6 +4700,7 @@ main() {
   "
   wait_market_order_status_matches_trade_totals "all e2e market order status matches trade totals after BTC"
   wait_accountant_market_order_definitions_match "all e2e accountant and market order definitions match after BTC"
+  wait_accountant_order_actions_match_eventlog_lifecycle "all e2e accountant order actions match eventlog lifecycle after BTC"
   wait_accountant_market_order_projections_match "all e2e accountant and market order projections match after BTC"
   wait_accountant_trade_transfers_match_market_executions "all e2e accountant trade transfers match market executions after BTC"
   wait_accountant_trade_fees_match_market_commissions "all e2e accountant trade fee actions match market commissions after BTC"
