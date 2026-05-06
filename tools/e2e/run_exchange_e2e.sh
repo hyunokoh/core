@@ -89,6 +89,7 @@ Runs a real Docker-backed exchange E2E flow:
   36e. Verify Binance-compatible myTrades orderId is not confused with exchange trade id.
   36f. Verify Binance-compatible myTrades orderId does not leak another user's trades.
   36g. Verify Binance-compatible order lookup by orderId rejects another user's order.
+  36h. Verify Binance-compatible origClientOrderId lookup/cancel cannot affect another user's order.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -3330,6 +3331,10 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "161" "0.2"
   wait_binance_account_balance "$api_client_cancel_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-client-cancel-reserved-account.json
   wait_binance_private_order_status_by_client_order_id "$api_client_cancel_owner" "ETHUSDT" "$api_client_cancel_id" "161" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-client-cancel-query-new.json
+  expect_http_status "Binance API intruder client-id order lookup not found" "404" "$(binance_private_get_status "${api_client_cancel_owner}-intruder" "/v3/order" "symbol=ETHUSDT&origClientOrderId=${api_client_cancel_id}")" >/tmp/opex-e2e-binance-api-client-cancel-intruder-query.json
+  expect_http_status "Binance API intruder client-id cancel not found" "404" "$(binance_private_delete "${api_client_cancel_owner}-intruder" "/v3/order" "symbol=ETHUSDT&origClientOrderId=${api_client_cancel_id}")" >/tmp/opex-e2e-binance-api-client-cancel-intruder-cancel.json
+  wait_binance_private_order_status_by_client_order_id "$api_client_cancel_owner" "ETHUSDT" "$api_client_cancel_id" "161" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-client-cancel-query-still-new-after-intruder.json
+  wait_binance_account_balance "$api_client_cancel_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-client-cancel-still-reserved-account.json
   expect_2xx_retry "Binance API client-id cancel owner limit ask" "binance_private_delete '$api_client_cancel_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_client_cancel_id}'" >/tmp/opex-e2e-binance-api-client-cancel-response.json
   jq -e \
     --arg clientOrderId "$api_client_cancel_id" \
@@ -5982,6 +5987,16 @@ main() {
     "missingLookupStatus": "HTTP_400",
     "zeroOrderIdStatus": "HTTP_400",
     "wrongOwnerStatus": "HTTP_403"
+  },
+  "binanceClientOrderIdIsolation": {
+    "symbol": "ETHUSDT",
+    "owner": "$api_client_cancel_owner",
+    "intruder": "${api_client_cancel_owner}-intruder",
+    "clientOrderId": "$api_client_cancel_id",
+    "lookupStatus": "HTTP_404",
+    "cancelStatus": "HTTP_404",
+    "ownerOrderStatusAfterIntruderCancel": "NEW",
+    "ownerLockedBalanceAfterIntruderCancel": 0.2
   },
   "binanceDuplicateClientOrderIdScenario": {
     "price": 164,
