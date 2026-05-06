@@ -4,6 +4,7 @@ import co.nilin.opex.api.core.spi.APIKeyFilter
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Profile
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity
 import org.springframework.security.config.web.server.SecurityWebFiltersOrder
 import org.springframework.security.config.web.server.ServerHttpSecurity
@@ -14,6 +15,7 @@ import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.server.WebFilter
 
 @EnableWebFluxSecurity
+@Profile("!e2e")
 class SecurityConfig(private val webClient: WebClient) {
 
     @Value("\${app.auth.cert-url}")

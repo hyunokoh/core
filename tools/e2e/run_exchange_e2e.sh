@@ -80,21 +80,22 @@ Runs a real Docker-backed exchange E2E flow:
   33. Verify wallet user-transaction ledger rows match wallet transaction movements.
   34. Verify eventlog trade audit rows match market trade projections before replay.
   35. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  36. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  37. Restart Market and verify public market state is still available from persisted data.
-  38. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  39. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  40. Restart Matching Engine with an open order and verify it can still be matched.
-  41. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  42. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  43. Restart Matching Gateway and verify new order submission still works.
-  44. Restart all core exchange services and verify a fresh trade still settles.
-  45. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  46. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  47. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  48. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  49. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  50. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  36. Verify Binance-compatible private account/order/trade APIs reflect settled balances and executions.
+  37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  38. Restart Market and verify public market state is still available from persisted data.
+  39. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  40. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  41. Restart Matching Engine with an open order and verify it can still be matched.
+  42. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  43. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  44. Restart Matching Gateway and verify new order submission still works.
+  45. Restart all core exchange services and verify a fresh trade still settles.
+  46. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  47. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  49. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  50. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  51. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -1220,6 +1221,157 @@ wait_binance_recent_trade_level() {
     ' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for Binance recent trade symbol=$symbol price=$price quantity=$quantity quote=$quote_quantity" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+binance_private_get() {
+  local owner="$1"
+  local path="$2"
+  local query="${3:-}"
+  local timestamp
+  timestamp=$(( $(date +%s) * 1000 ))
+
+  if [[ -n "$query" ]]; then
+    curl -fsS -H "X-Opex-User: $owner" "http://127.0.0.1:8094${path}?${query}&timestamp=${timestamp}&recvWindow=60000"
+  else
+    curl -fsS -H "X-Opex-User: $owner" "http://127.0.0.1:8094${path}?timestamp=${timestamp}&recvWindow=60000"
+  fi
+}
+
+wait_binance_account_balance() {
+  local owner="$1"
+  local asset="$2"
+  local expected_free="$3"
+  local expected_locked="$4"
+  local output_file="$5"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/account")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg asset "$asset" \
+      --argjson expected_free "$expected_free" \
+      --argjson expected_locked "$expected_locked" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        .accountType == "SPOT" and
+        .canTrade == true and
+        .canWithdraw == true and
+        .canDeposit == true and
+        ([.balances[] | select(.asset == $asset and nearly_equal(.free; $expected_free) and nearly_equal(.locked; $expected_locked))] | length == 1)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance account balance owner=$owner asset=$asset free=$expected_free locked=$expected_locked" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api wallet accountant >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_private_order_projection() {
+  local owner="$1"
+  local symbol="$2"
+  local price="$3"
+  local quantity="$4"
+  local expected_status="$5"
+  local expected_executed_quantity="$6"
+  local expected_quote_quantity="$7"
+  local side="$8"
+  local output_file="$9"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/allOrders" "symbol=${symbol}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol "$symbol" \
+      --argjson price "$price" \
+      --argjson quantity "$quantity" \
+      --arg expected_status "$expected_status" \
+      --argjson expected_executed_quantity "$expected_executed_quantity" \
+      --argjson expected_quote_quantity "$expected_quote_quantity" \
+      --arg side "$side" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        [
+          .[] |
+          select(
+            .symbol == $symbol and
+            .price == $price and
+            .origQty == $quantity and
+            .status == $expected_status and
+            .side == $side and
+            .type == "LIMIT" and
+            nearly_equal(.executedQty; $expected_executed_quantity) and
+            nearly_equal(.cummulativeQuoteQty; $expected_quote_quantity) and
+            (.orderId | type == "number") and
+            (.orderId > 0)
+          )
+        ] | length >= 1
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance private order owner=$owner symbol=$symbol price=$price quantity=$quantity status=$expected_status executed=$expected_executed_quantity quote=$expected_quote_quantity side=$side" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_private_trade_projection() {
+  local owner="$1"
+  local symbol="$2"
+  local price="$3"
+  local quantity="$4"
+  local quote_quantity="$5"
+  local commission="$6"
+  local commission_asset="$7"
+  local is_buyer="$8"
+  local is_maker="$9"
+  local output_file="${10}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/myTrades" "symbol=${symbol}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol "$symbol" \
+      --argjson price "$price" \
+      --argjson quantity "$quantity" \
+      --argjson quote_quantity "$quote_quantity" \
+      --argjson commission "$commission" \
+      --arg commission_asset "$commission_asset" \
+      --argjson is_buyer "$is_buyer" \
+      --argjson is_maker "$is_maker" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        [
+          .[] |
+          select(
+            .symbol == $symbol and
+            .price == $price and
+            .qty == $quantity and
+            .quoteQty == $quote_quantity and
+            nearly_equal(.commission; $commission) and
+            .commissionAsset == $commission_asset and
+            .isBuyer == $is_buyer and
+            .isMaker == $is_maker and
+            .isBestMatch == true and
+            (.id | type == "number") and
+            (.id > 0) and
+            (.orderId | type == "number") and
+            (.orderId > 0)
+          )
+        ] | length >= 1
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance private trade owner=$owner symbol=$symbol price=$price quantity=$quantity quote=$quote_quantity commission=$commission commissionAsset=$commission_asset isBuyer=$is_buyer isMaker=$is_maker" >&2
       echo "$body" >&2
       "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
       exit 1
@@ -2401,7 +2553,7 @@ main() {
   fi
 
   if (( BUILD == 1 )); then
-    "${COMPOSE[@]}" build
+    "${COMPOSE_FULL_STACK[@]}" build
   fi
 
   if (( RESET == 1 )); then
@@ -2490,6 +2642,12 @@ main() {
     fi
     sleep 2
   done
+  wait_binance_account_balance "$seller" "USDT" "99" "0" /tmp/opex-e2e-binance-seller-account.json
+  wait_binance_account_balance "$buyer" "ETH" "0.99" "0" /tmp/opex-e2e-binance-buyer-account.json
+  wait_binance_private_order_projection "$seller" "ETHUSDT" "100" "1" "FILLED" "1" "100" "SELL" /tmp/opex-e2e-binance-seller-orders.json
+  wait_binance_private_order_projection "$buyer" "ETHUSDT" "100" "1" "FILLED" "1" "100" "BUY" /tmp/opex-e2e-binance-buyer-orders.json
+  wait_binance_private_trade_projection "$seller" "ETHUSDT" "100" "1" "100" "1" "USDT" false true /tmp/opex-e2e-binance-seller-my-trades.json
+  wait_binance_private_trade_projection "$buyer" "ETHUSDT" "100" "1" "100" "0.01" "ETH" true false /tmp/opex-e2e-binance-buyer-my-trades.json
 
   local engine_restart_seller="e2e-engine-restart-seller-$(date +%s)"
   local engine_restart_buyer="e2e-engine-restart-buyer-$(date +%s)"

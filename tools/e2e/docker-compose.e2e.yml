@@ -58,6 +58,8 @@ services:
   api:
     profiles:
       - full-stack
+    environment:
+      - SPRING_PROFILES_ACTIVE=e2e
   bc-gateway:
     profiles:
       - full-stack
