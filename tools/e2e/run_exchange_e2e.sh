@@ -1383,6 +1383,52 @@ wait_binance_private_order_projection() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_private_order_status_by_order_id() {
+  local owner="$1"
+  local symbol="$2"
+  local order_id="$3"
+  local price="$4"
+  local quantity="$5"
+  local expected_status="$6"
+  local expected_executed_quantity="$7"
+  local expected_quote_quantity="$8"
+  local side="$9"
+  local output_file="${10}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/order" "symbol=${symbol}&orderId=${order_id}")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol "$symbol" \
+      --argjson order_id "$order_id" \
+      --argjson price "$price" \
+      --argjson quantity "$quantity" \
+      --arg expected_status "$expected_status" \
+      --argjson expected_executed_quantity "$expected_executed_quantity" \
+      --argjson expected_quote_quantity "$expected_quote_quantity" \
+      --arg side "$side" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        .symbol == $symbol and
+        .orderId == $order_id and
+        .price == $price and
+        .origQty == $quantity and
+        .status == $expected_status and
+        .side == $side and
+        .type == "LIMIT" and
+        nearly_equal(.executedQty; $expected_executed_quantity) and
+        nearly_equal(.cummulativeQuoteQty; $expected_quote_quantity)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance private order query owner=$owner symbol=$symbol orderId=$order_id status=$expected_status executed=$expected_executed_quantity quote=$expected_quote_quantity" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_binance_private_trade_projection() {
   local owner="$1"
   local symbol="$2"
@@ -2742,6 +2788,7 @@ main() {
     cat /tmp/opex-e2e-binance-api-cancel-open-orders.json >&2
     exit 1
   fi
+  wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-new.json
   expect_2xx_retry "Binance API cancel owner limit ask" "binance_private_delete '$api_cancel_owner' '/v3/order' 'symbol=ETHUSDT&orderId=${api_cancel_order_id}'" >/tmp/opex-e2e-binance-api-cancel-response.json
   jq -e \
     --argjson orderId "$api_cancel_order_id" \
@@ -2750,6 +2797,7 @@ main() {
   wait_no_user_open_orders "$api_cancel_owner" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_cancel_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-cancel-released-account.json
+  wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-canceled.json
   wait_binance_private_order_projection "$api_cancel_owner" "ETHUSDT" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-orders.json
 
   local engine_restart_seller="e2e-engine-restart-seller-$(date +%s)"
