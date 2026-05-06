@@ -77,23 +77,24 @@ Runs a real Docker-backed exchange E2E flow:
   30. Verify accountant trade settlement transfers match market trade executions.
   31. Verify accountant and wallet fee ledgers match market trade commissions.
   32. Verify every processed accountant financial action for E2E users has a matching wallet transaction.
-  33. Verify eventlog trade audit rows match market trade projections before replay.
-  34. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
-  35. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
-  36. Restart Market and verify public market state is still available from persisted data.
-  37. Verify BTC_USDT can trade independently from the ETH_USDT market.
-  38. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  39. Restart Matching Engine with an open order and verify it can still be matched.
-  40. Restart Wallet before a trade settlement and verify balances still settle correctly.
-  41. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
-  42. Restart Matching Gateway and verify new order submission still works.
-  43. Restart all core exchange services and verify a fresh trade still settles.
-  44. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
-  45. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  46. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  47. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  48. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  49. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  33. Verify wallet user-transaction ledger rows match wallet transaction movements.
+  34. Verify eventlog trade audit rows match market trade projections before replay.
+  35. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  36. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
+  37. Restart Market and verify public market state is still available from persisted data.
+  38. Verify BTC_USDT can trade independently from the ETH_USDT market.
+  39. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
+  40. Restart Matching Engine with an open order and verify it can still be matched.
+  41. Restart Wallet before a trade settlement and verify balances still settle correctly.
+  42. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
+  43. Restart Matching Gateway and verify new order submission still works.
+  44. Restart all core exchange services and verify a fresh trade still settles.
+  45. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
+  46. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
+  47. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
+  48. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  49. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  50. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -2183,6 +2184,154 @@ wait_wallet_transactions_match_accountant_actions() {
   done
 }
 
+wait_wallet_user_transactions_match_wallet_transactions() {
+  local label="$1"
+
+  wait_query_eq "$label: ledger rows reference signed wallet movements" "postgres-wallet" "0" "
+    with invalid_user_transactions as (
+      select ut.id
+      from user_transaction ut
+      join transaction t on t.id = ut.tx_id
+      join wallet sw on sw.id = t.source_wallet
+      join wallet dw on dw.id = t.dest_wallet
+      join wallet_owner wo on wo.id = ut.owner_id
+      where wo.uuid like 'e2e-%'
+        and not (
+          (
+            ut.category = 'DEPOSIT'
+            and t.transfer_category in ('DEPOSIT', 'DEPOSIT_MANUALLY')
+            and ut.owner_id = dw.owner
+            and ut.currency = dw.currency
+            and abs(ut.balance_change - t.dest_amount) <= 0.000001
+          )
+          or (
+            ut.category = 'FEE'
+            and t.transfer_category = 'FEE'
+            and ut.owner_id = sw.owner
+            and ut.currency = sw.currency
+            and abs(ut.balance_change + t.source_amount) <= 0.000001
+          )
+          or (
+            ut.category = 'TRADE'
+            and t.transfer_category = 'TRADE'
+            and (
+              (
+                ut.owner_id = sw.owner
+                and ut.currency = sw.currency
+                and abs(ut.balance_change + t.source_amount) <= 0.000001
+              )
+              or (
+                ut.owner_id = dw.owner
+                and ut.currency = dw.currency
+                and abs(ut.balance_change - t.dest_amount) <= 0.000001
+              )
+            )
+          )
+          or (
+            ut.category = 'WITHDRAW'
+            and t.transfer_category = 'WITHDRAW_ACCEPT'
+            and ut.owner_id = sw.owner
+            and ut.currency = sw.currency
+            and abs(ut.balance_change + t.source_amount) <= 0.000001
+          )
+        )
+    )
+    select count(*) from invalid_user_transactions;
+  "
+
+  wait_query_eq "$label: required ledger rows exist" "postgres-wallet" "0" "
+    with expected_user_transactions as (
+      select
+        t.id as tx_id,
+        dw.owner as owner_id,
+        dw.currency,
+        t.dest_amount as balance_change,
+        'DEPOSIT' as category
+      from transaction t
+      join wallet dw on dw.id = t.dest_wallet
+      join wallet_owner dwo on dwo.id = dw.owner
+      where dwo.uuid like 'e2e-%'
+        and t.transfer_category in ('DEPOSIT', 'DEPOSIT_MANUALLY')
+
+      union all
+
+      select
+        t.id,
+        sw.owner,
+        sw.currency,
+        -t.source_amount,
+        'FEE'
+      from transaction t
+      join wallet sw on sw.id = t.source_wallet
+      join wallet_owner swo on swo.id = sw.owner
+      where swo.uuid like 'e2e-%'
+        and t.transfer_category = 'FEE'
+
+      union all
+
+      select
+        t.id,
+        sw.owner,
+        sw.currency,
+        -t.source_amount,
+        'WITHDRAW'
+      from transaction t
+      join wallet sw on sw.id = t.source_wallet
+      join wallet_owner swo on swo.id = sw.owner
+      where swo.uuid like 'e2e-%'
+        and t.transfer_category = 'WITHDRAW_ACCEPT'
+
+      union all
+
+      select
+        t.id,
+        sw.owner,
+        sw.currency,
+        -t.source_amount,
+        'TRADE'
+      from transaction t
+      join wallet sw on sw.id = t.source_wallet
+      join wallet_owner swo on swo.id = sw.owner
+      where swo.uuid like 'e2e-%'
+        and t.transfer_category = 'TRADE'
+
+      union all
+
+      select
+        t.id,
+        dw.owner,
+        dw.currency,
+        t.dest_amount,
+        'TRADE'
+      from transaction t
+      join wallet dw on dw.id = t.dest_wallet
+      join wallet_owner dwo on dwo.id = dw.owner
+      where dwo.uuid like 'e2e-%'
+        and t.transfer_category = 'TRADE'
+    )
+    select count(*)
+    from expected_user_transactions e
+    left join user_transaction ut on ut.tx_id = e.tx_id
+      and ut.owner_id = e.owner_id
+      and ut.currency = e.currency
+      and ut.category = e.category
+      and abs(ut.balance_change - e.balance_change) <= 0.000001
+    where ut.id is null;
+  "
+
+  wait_query_eq "$label: ledger rows are not duplicated" "postgres-wallet" "0" "
+    select count(*)
+    from (
+      select ut.tx_id, ut.owner_id, ut.currency, ut.category, ut.balance_change
+      from user_transaction ut
+      join wallet_owner wo on wo.id = ut.owner_id
+      where wo.uuid like 'e2e-%'
+      group by ut.tx_id, ut.owner_id, ut.currency, ut.category, ut.balance_change
+      having count(*) > 1
+    ) duplicate_user_transactions;
+  "
+}
+
 wait_eventlog_trades_match_market_projection() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -4050,6 +4199,7 @@ main() {
   wait_accountant_trade_fees_match_market_commissions "accountant e2e trade fee actions match market commissions"
   wait_wallet_fee_transactions_match_accountant_actions "wallet e2e fee transactions match accountant fee actions"
   wait_wallet_transactions_match_accountant_actions "wallet e2e transactions match accountant financial actions"
+  wait_wallet_user_transactions_match_wallet_transactions "wallet e2e user transactions match wallet movements"
   wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
@@ -4706,6 +4856,7 @@ main() {
   wait_accountant_trade_fees_match_market_commissions "all e2e accountant trade fee actions match market commissions after BTC"
   wait_wallet_fee_transactions_match_accountant_actions "all e2e wallet fee transactions match accountant fee actions after BTC"
   wait_wallet_transactions_match_accountant_actions "all e2e wallet transactions match accountant financial actions after BTC"
+  wait_wallet_user_transactions_match_wallet_transactions "all e2e wallet user transactions match wallet movements after BTC"
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
 
