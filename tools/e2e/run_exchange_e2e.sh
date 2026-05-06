@@ -1338,6 +1338,66 @@ wait_user_trade_projection() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_user_trade_aggregate() {
+  local owner="$1"
+  local symbol="$2"
+  local price="$3"
+  local expected_count="$4"
+  local expected_quantity="$5"
+  local expected_quote_quantity="$6"
+  local expected_commission="$7"
+  local commission_asset="$8"
+  local is_buyer="$9"
+  local is_maker="${10}"
+  local is_maker_buyer="${11}"
+  local output_file="${12}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  local trade_query
+  trade_query="{\"symbol\":\"${symbol}\",\"fromTrade\":null,\"startTime\":null,\"endTime\":null,\"limit\":20}"
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://127.0.0.1:8096/v1/user/${owner}/trades")" &&
+    printf '%s\n' "$body" | jq -e \
+      --argjson price "$price" \
+      --argjson expected_count "$expected_count" \
+      --argjson expected_quantity "$expected_quantity" \
+      --argjson expected_quote_quantity "$expected_quote_quantity" \
+      --argjson expected_commission "$expected_commission" \
+      --arg commission_asset "$commission_asset" \
+      --argjson is_buyer "$is_buyer" \
+      --argjson is_maker "$is_maker" \
+      --argjson is_maker_buyer "$is_maker_buyer" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        [
+          .[] |
+          select(
+            .price == $price and
+            .commissionAsset == $commission_asset and
+            .isBuyer == $is_buyer and
+            .isMaker == $is_maker and
+            .isMakerBuyer == $is_maker_buyer and
+            .isBestMatch == true and
+            (.orderId | type == "number") and
+            (.orderId > 0)
+          )
+        ] as $matches |
+        def sum_field($field): reduce $matches[] as $trade (0; . + ($trade[$field] // 0));
+        ($matches | length) == $expected_count and
+        nearly_equal(sum_field("quantity"); $expected_quantity) and
+        nearly_equal(sum_field("quoteQuantity"); $expected_quote_quantity) and
+        nearly_equal(sum_field("commission"); $expected_commission)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for user trade aggregate owner=$owner symbol=$symbol price=$price count=$expected_count quantity=$expected_quantity quoteQuantity=$expected_quote_quantity commission=$expected_commission commissionAsset=$commission_asset isBuyer=$is_buyer isMaker=$is_maker isMakerBuyer=$is_maker_buyer" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 matching-gateway matching-engine accountant market wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 main() {
   write_defaults
   cd "$ROOT_DIR"
@@ -3493,6 +3553,7 @@ main() {
   wait_user_trade_projection "$concurrent_buyer_one" "BTC_USDT" "21000" "0.001" "21" "0.00001" "BTC" true false false /tmp/opex-e2e-concurrent-buyer-one-trades.json
   wait_user_trade_projection "$concurrent_buyer_two" "BTC_USDT" "21000" "0.001" "21" "0.00001" "BTC" true false false /tmp/opex-e2e-concurrent-buyer-two-trades.json
   wait_user_trade_projection "$concurrent_buyer_three" "BTC_USDT" "21000" "0.001" "21" "0.00001" "BTC" true false false /tmp/opex-e2e-concurrent-buyer-three-trades.json
+  wait_user_trade_aggregate "$concurrent_seller" "BTC_USDT" "21000" "3" "0.003" "63" "0.63" "USDT" false true false /tmp/opex-e2e-concurrent-seller-aggregate-trades.json
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
   wait_wallet_type_balance "concurrent seller EXCHANGE BTC fully settled" "$concurrent_seller" "EXCHANGE" "BTC" "0.00000000"
@@ -3576,6 +3637,7 @@ main() {
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_level "BTC_USDT" "BID" "22000" "0.001"
   wait_user_trade_projection "$overfill_seller" "BTC_USDT" "22000" "0.001" "22" "0.22" "USDT" false true false /tmp/opex-e2e-overfill-seller-trades.json
+  wait_user_trade_aggregate "$overfill_seller" "BTC_USDT" "22000" "2" "0.002" "44" "0.44" "USDT" false true false /tmp/opex-e2e-overfill-seller-aggregate-trades.json
   wait_query_eq "overfill BTC_USDT persisted trade count" "postgres-market" "2" "
     select count(*) from trades
     where symbol = 'BTC_USDT'
