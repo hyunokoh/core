@@ -43,12 +43,15 @@ class MatchingGatewayProxyImpl(private val client: WebClient) : MatchingGatewayP
         logger.info("calling matching-gateway order create")
         val body = CreateOrderRequest(uuid, pair, price, quantity, direction, matchConstraint, orderType, userLevel)
         return withContext(ProxyDispatchers.general) {
-            client.post()
+            val request = client.post()
                 .uri(URI.create("$baseUrl/order"))
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer $token")
-                .body(Mono.just(body))
+            if (!uuid.isNullOrBlank()) {
+                request.header("X-Opex-User", uuid)
+            }
+            request.body(Mono.just(body))
                 .retrieve()
                 .onStatus({ t -> t.isError }, { it.createException() })
                 .bodyToMono<OrderSubmitResult>()
@@ -66,12 +69,15 @@ class MatchingGatewayProxyImpl(private val client: WebClient) : MatchingGatewayP
     ): OrderSubmitResult? {
         logger.info("calling matching-gateway order cancel")
         return withContext(ProxyDispatchers.general) {
-            client.post()
+            val request = client.post()
                 .uri(URI.create("$baseUrl/order/cancel"))
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer $token")
-                .body(Mono.just(CancelOrderRequest(ouid, uuid, orderId, symbol)))
+            if (uuid.isNotBlank()) {
+                request.header("X-Opex-User", uuid)
+            }
+            request.body(Mono.just(CancelOrderRequest(ouid, uuid, orderId, symbol)))
                 .retrieve()
                 .onStatus({ t -> t.isError }, { it.createException() })
                 .bodyToMono<OrderSubmitResult>()
