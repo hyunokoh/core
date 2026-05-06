@@ -169,6 +169,56 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
     }
 
     @Test
+    fun givenNewTrade_whenTradeTickerRequestedAgain_thenReturnFreshTickerStats(): Unit = runBlocking {
+        val now = LocalDateTime.now()
+        seedTrade(
+            tradeWith(
+                tradeId = 4001,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(100),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(3)
+            )
+        )
+
+        val tickerBeforeNewTrade = marketQueryHandler.getTradeTickerDateBySymbol(
+            VALID.ETH_USDT,
+            Interval.TwentyFourHours
+        )
+
+        seedTrade(
+            tradeWith(
+                tradeId = 4002,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(101),
+                matchedQuantity = BigDecimal.valueOf(2),
+                createDate = now.minusMinutes(1)
+            )
+        )
+
+        val tickerAfterNewTrade = marketQueryHandler.getTradeTickerDateBySymbol(
+            VALID.ETH_USDT,
+            Interval.TwentyFourHours
+        )
+        val allTickers = marketQueryHandler.getTradeTickerData(Interval.TwentyFourHours)
+
+        assertThat(tickerBeforeNewTrade).isNotNull
+        assertThat(tickerBeforeNewTrade!!.lastPrice).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(tickerBeforeNewTrade.count).isEqualTo(1)
+        assertThat(tickerAfterNewTrade).isNotNull
+        assertThat(tickerAfterNewTrade!!.lastPrice).isEqualByComparingTo(BigDecimal.valueOf(101))
+        assertThat(tickerAfterNewTrade.lastQty).isEqualByComparingTo(BigDecimal.valueOf(2))
+        assertThat(tickerAfterNewTrade.openPrice).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(tickerAfterNewTrade.highPrice).isEqualByComparingTo(BigDecimal.valueOf(101))
+        assertThat(tickerAfterNewTrade.lowPrice).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(tickerAfterNewTrade.volume).isEqualByComparingTo(BigDecimal.valueOf(3))
+        assertThat(tickerAfterNewTrade.count).isEqualTo(2)
+        assertThat(allTickers).hasSize(1)
+        assertThat(allTickers.first().lastPrice).isEqualByComparingTo(BigDecimal.valueOf(101))
+        assertThat(allTickers.first().count).isEqualTo(2)
+    }
+
+    @Test
     fun givenOpenOrdersAndTrades_whenTickerRequested_thenReturnBestPricesAndWeightedAverage(): Unit = runBlocking {
         val symbol = "BEST_USDT"
         val now = LocalDateTime.now()

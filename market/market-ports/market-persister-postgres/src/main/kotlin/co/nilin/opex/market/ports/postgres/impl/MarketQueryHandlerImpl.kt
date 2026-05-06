@@ -37,21 +37,16 @@ class MarketQueryHandlerImpl(
     //TODO merge order and status fetching in query
 
     override suspend fun getTradeTickerData(interval: Interval): List<PriceChange> {
-        return redisCacheHelper.getOrElse("tradeTickerData:${interval.label}", 2.minutes()) {
-            tradeRepository.tradeTicker(interval.getLocalDateTime())
-                .collectList()
-                .awaitFirstOrElse { emptyList() }
-                .map { it.asPriceChangeResponse(Date().time, interval.getTime()) }
-        }
+        return tradeRepository.tradeTicker(interval.getLocalDateTime())
+            .collectList()
+            .awaitFirstOrElse { emptyList() }
+            .map { it.asPriceChangeResponse(Date().time, interval.getTime()) }
     }
 
     override suspend fun getTradeTickerDateBySymbol(symbol: String, interval: Interval): PriceChange? {
-        val cacheId = "tradeTickerData:$symbol:${interval.label}"
-        return redisCacheHelper.getOrElse(cacheId, 2.minutes()) {
-            tradeRepository.tradeTickerBySymbol(symbol, interval.getLocalDateTime())
-                .awaitFirstOrNull()
-                ?.asPriceChangeResponse(Date().time, interval.getTime())
-        }
+        return tradeRepository.tradeTickerBySymbol(symbol, interval.getLocalDateTime())
+            .awaitFirstOrNull()
+            ?.asPriceChangeResponse(Date().time, interval.getTime())
     }
 
     override suspend fun openBidOrders(symbol: String, limit: Int): List<OrderBook> {

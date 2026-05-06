@@ -81,6 +81,7 @@ Runs a real Docker-backed exchange E2E flow:
   34. Verify eventlog trade audit rows match market trade projections before replay.
   35. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
   35b. Verify Binance-compatible price ticker reflects the latest executed trade.
+  35c. Verify Binance-compatible 24h ticker reflects the latest executed trade statistics.
   36. Verify Binance-compatible private order submission/cancel/account/order/trade APIs reflect settled balances and executions.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
@@ -1264,6 +1265,43 @@ wait_binance_price_ticker() {
     ' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for Binance price ticker symbol=$symbol price=$price" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_24h_ticker() {
+  local symbol="$1"
+  local price="$2"
+  local quantity="$3"
+  local output_file="$4"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(curl -fsS "http://127.0.0.1:8094/v3/ticker/24h?symbol=${symbol}")" &&
+    printf '%s\n' "$body" | jq -e --arg symbol "$symbol" --argjson price "$price" --argjson quantity "$quantity" '
+      length == 1 and
+      .[0].symbol == $symbol and
+      .[0].base == "ETH" and
+      .[0].quote == "USDT" and
+      (.[0].priceChange | tonumber) == 0 and
+      (.[0].priceChangePercent | tonumber) == 0 and
+      (.[0].weightedAvgPrice | tonumber) == $price and
+      (.[0].lastPrice | tonumber) == $price and
+      (.[0].lastQty | tonumber) == $quantity and
+      (.[0].openPrice | tonumber) == $price and
+      (.[0].highPrice | tonumber) == $price and
+      (.[0].lowPrice | tonumber) == $price and
+      (.[0].volume | tonumber) == $quantity and
+      .[0].count == 1 and
+      .[0].openTime > 0 and
+      .[0].closeTime > 0
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance 24h ticker symbol=$symbol price=$price quantity=$quantity" >&2
       echo "$body" >&2
       "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
       exit 1
@@ -2880,6 +2918,7 @@ main() {
   wait_user_order_projection_by_price "$buyer" "ETH_USDT" "100" "1" "FILLED" "1" "100" /tmp/opex-e2e-buyer-orders.json
   wait_binance_recent_trade_level "ETHUSDT" "100" "1" "100" /tmp/opex-e2e-binance-recent-trades.json
   wait_binance_price_ticker "ETHUSDT" "100" /tmp/opex-e2e-binance-price-ticker.json
+  wait_binance_24h_ticker "ETHUSDT" "100" "1" /tmp/opex-e2e-binance-24h-ticker.json
 
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$seller" "USDT" "99" &&
@@ -5531,6 +5570,12 @@ main() {
   "binancePriceTicker": {
     "symbol": "ETHUSDT",
     "price": 100
+  },
+  "binance24hTicker": {
+    "symbol": "ETHUSDT",
+    "lastPrice": 100,
+    "volume": 1,
+    "count": 1
   },
   "cancelScenario": {
     "price": 150,
