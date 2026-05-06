@@ -3275,8 +3275,8 @@ main() {
   wait_no_user_open_orders "$market_bid_cap_low_seller" "ETH_USDT"
   wait_order_projection "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "NEW" "0" "0"
   wait_order_book_level "ETH_USDT" "ASK" "100" "0.1"
-  wait_user_trade_price "$market_bid_cap_low_seller" "ETH_USDT" "90" "0.1"
-  wait_user_trade_price "$market_bid_cap_buyer" "ETH_USDT" "90" "0.1"
+  wait_user_trade_projection "$market_bid_cap_low_seller" "ETH_USDT" "90" "0.1" "9" "0.09" "USDT" false true false /tmp/opex-e2e-market-bid-cap-low-seller-trades.json
+  wait_user_trade_projection "$market_bid_cap_buyer" "ETH_USDT" "90" "0.1" "9" "0.001" "ETH" true false false /tmp/opex-e2e-market-bid-cap-buyer-trades.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$market_bid_cap_buyer" "ETH" "0.099" &&
     try_wallet_balance "$market_bid_cap_buyer" "USDT" "10" &&
@@ -3326,8 +3326,8 @@ main() {
   wait_order_book_level "BTC_USDT" "ASK" "20000" "0.001"
   expect_2xx_retry "btc-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$btc_bid' '$btc_buyer'" >/tmp/opex-e2e-btc-usdt-bid.json
   wait_no_user_open_orders "$btc_seller" "BTC_USDT"
-  wait_user_trade_price "$btc_seller" "BTC_USDT" "20000" "0.001"
-  wait_user_trade_price "$btc_buyer" "BTC_USDT" "20000" "0.001"
+  wait_user_trade_projection "$btc_seller" "BTC_USDT" "20000" "0.001" "20" "0.2" "USDT" false true false /tmp/opex-e2e-btc-usdt-seller-trades.json
+  wait_user_trade_projection "$btc_buyer" "BTC_USDT" "20000" "0.001" "20" "0.00001" "BTC" true false false /tmp/opex-e2e-btc-usdt-buyer-trades.json
   wait_recent_trade_level "BTC_USDT" "20000" "0.001" /tmp/opex-e2e-btc-usdt-recent-trades.json
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
@@ -3370,8 +3370,8 @@ main() {
   wait_order_book_level "SOL_USDT" "ASK" "10" "1"
   expect_2xx_retry "sol-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$sol_bid' '$sol_buyer'" >/tmp/opex-e2e-sol-usdt-bid.json
   wait_no_user_open_orders "$sol_seller" "SOL_USDT"
-  wait_user_trade_price "$sol_seller" "SOL_USDT" "10" "1"
-  wait_user_trade_price "$sol_buyer" "SOL_USDT" "10" "1"
+  wait_user_trade_projection "$sol_seller" "SOL_USDT" "10" "1" "10" "0.1" "USDT" false true false /tmp/opex-e2e-sol-usdt-seller-trades.json
+  wait_user_trade_projection "$sol_buyer" "SOL_USDT" "10" "1" "10" "0.01" "SOL" true false false /tmp/opex-e2e-sol-usdt-buyer-trades.json
   wait_recent_trade_level "SOL_USDT" "10" "1" /tmp/opex-e2e-sol-usdt-recent-trades.json
   wait_order_book_empty "SOL_USDT" "ASK"
   wait_order_book_empty "SOL_USDT" "BID"
@@ -3420,8 +3420,8 @@ main() {
   wait_order_book_level "DOGE_USDT" "ASK" "1" "10"
   expect_2xx_retry "doge-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$doge_bid' '$doge_buyer'" >/tmp/opex-e2e-doge-usdt-bid.json
   wait_no_user_open_orders "$doge_seller" "DOGE_USDT"
-  wait_user_trade_price "$doge_seller" "DOGE_USDT" "1" "10"
-  wait_user_trade_price "$doge_buyer" "DOGE_USDT" "1" "10"
+  wait_user_trade_projection "$doge_seller" "DOGE_USDT" "1" "10" "10" "0.1" "USDT" false true false /tmp/opex-e2e-doge-usdt-seller-trades.json
+  wait_user_trade_projection "$doge_buyer" "DOGE_USDT" "1" "10" "10" "0.1" "DOGE" true false false /tmp/opex-e2e-doge-usdt-buyer-trades.json
   wait_recent_trade_level "DOGE_USDT" "1" "10" /tmp/opex-e2e-doge-usdt-recent-trades.json
   wait_order_book_empty "DOGE_USDT" "ASK"
   wait_order_book_empty "DOGE_USDT" "BID"
@@ -3470,8 +3470,8 @@ main() {
   wait_order_book_level "TON_USDT" "ASK" "5" "2"
   expect_2xx_retry "ton-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$ton_bid' '$ton_buyer'" >/tmp/opex-e2e-ton-usdt-bid.json
   wait_no_user_open_orders "$ton_seller" "TON_USDT"
-  wait_user_trade_price "$ton_seller" "TON_USDT" "5" "2"
-  wait_user_trade_price "$ton_buyer" "TON_USDT" "5" "2"
+  wait_user_trade_projection "$ton_seller" "TON_USDT" "5" "2" "10" "0.1" "USDT" false true false /tmp/opex-e2e-ton-usdt-seller-trades.json
+  wait_user_trade_projection "$ton_buyer" "TON_USDT" "5" "2" "10" "0.02" "TON" true false false /tmp/opex-e2e-ton-usdt-buyer-trades.json
   wait_recent_trade_level "TON_USDT" "5" "2" /tmp/opex-e2e-ton-usdt-recent-trades.json
   wait_order_book_empty "TON_USDT" "ASK"
   wait_order_book_empty "TON_USDT" "BID"
