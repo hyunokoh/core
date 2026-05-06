@@ -80,6 +80,7 @@ Runs a real Docker-backed exchange E2E flow:
   33. Verify wallet user-transaction ledger rows match wallet transaction movements.
   34. Verify eventlog trade audit rows match market trade projections before replay.
   35. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
+  35b. Verify Binance-compatible price ticker reflects the latest executed trade.
   36. Verify Binance-compatible private order submission/cancel/account/order/trade APIs reflect settled balances and executions.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
@@ -1242,6 +1243,27 @@ wait_binance_recent_trade_level() {
     ' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for Binance recent trade symbol=$symbol price=$price quantity=$quantity quote=$quote_quantity" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_price_ticker() {
+  local symbol="$1"
+  local price="$2"
+  local output_file="$3"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(curl -fsS "http://127.0.0.1:8094/v3/ticker/price?symbol=${symbol}")" &&
+    printf '%s\n' "$body" | jq -e --arg symbol "$symbol" --argjson price "$price" '
+      length == 1 and .[0].symbol == $symbol and (.[0].price | tonumber) == $price
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance price ticker symbol=$symbol price=$price" >&2
       echo "$body" >&2
       "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
       exit 1
@@ -2857,6 +2879,7 @@ main() {
   wait_user_order_projection_by_price "$seller" "ETH_USDT" "100" "1" "FILLED" "1" "100" /tmp/opex-e2e-seller-orders.json
   wait_user_order_projection_by_price "$buyer" "ETH_USDT" "100" "1" "FILLED" "1" "100" /tmp/opex-e2e-buyer-orders.json
   wait_binance_recent_trade_level "ETHUSDT" "100" "1" "100" /tmp/opex-e2e-binance-recent-trades.json
+  wait_binance_price_ticker "ETHUSDT" "100" /tmp/opex-e2e-binance-price-ticker.json
 
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$seller" "USDT" "99" &&
@@ -5505,6 +5528,10 @@ main() {
   "pair": "ETH_USDT",
   "price": 100,
   "quantity": 1,
+  "binancePriceTicker": {
+    "symbol": "ETHUSDT",
+    "price": 100
+  },
   "cancelScenario": {
     "price": 150,
     "quantity": 0.25,

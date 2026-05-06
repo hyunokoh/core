@@ -116,12 +116,10 @@ class MarketQueryHandlerImpl(
     }
 
     override suspend fun lastPrice(symbol: String?): List<PriceTicker> {
-        val list = redisCacheHelper.getOrElse("lastPrice", 1.minutes()) {
-            if (symbol.isNullOrEmpty())
-                tradeRepository.findAllGroupBySymbol().collectList().awaitFirstOrElse { emptyList() }
-            else
-                tradeRepository.findBySymbolGroupBySymbol(symbol).collectList().awaitFirstOrElse { emptyList() }
-        }
+        val list = if (symbol.isNullOrEmpty())
+            tradeRepository.findAllGroupBySymbol().collectList().awaitFirstOrElse { emptyList() }
+        else
+            tradeRepository.findBySymbolGroupBySymbol(symbol).collectList().awaitFirstOrElse { emptyList() }
         return list.map { PriceTicker(it.symbol, it.matchedPrice.toString()) }
     }
 

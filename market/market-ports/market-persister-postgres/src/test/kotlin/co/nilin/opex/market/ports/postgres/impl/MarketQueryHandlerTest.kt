@@ -123,6 +123,52 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
     }
 
     @Test
+    fun givenMultipleSymbolsAndNewTrade_whenLastPriceRequested_thenReturnFreshSymbolScopedPrices(): Unit = runBlocking {
+        val now = LocalDateTime.now()
+        seedTrade(
+            tradeWith(
+                tradeId = 3001,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(100),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(3)
+            )
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 3002,
+                symbol = "BTC_USDT",
+                matchedPrice = BigDecimal.valueOf(200),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(2)
+            )
+        )
+
+        val ethBeforeNewTrade = marketQueryHandler.lastPrice(VALID.ETH_USDT)
+
+        seedTrade(
+            tradeWith(
+                tradeId = 3003,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(101),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(1)
+            )
+        )
+
+        val ethAfterNewTrade = marketQueryHandler.lastPrice(VALID.ETH_USDT)
+        val allPrices = marketQueryHandler.lastPrice(null)
+
+        assertThat(ethBeforeNewTrade).extracting<String> { it.symbol }.containsExactly(VALID.ETH_USDT)
+        assertThat(ethBeforeNewTrade.first().price).isEqualTo("100")
+        assertThat(ethAfterNewTrade).extracting<String> { it.symbol }.containsExactly(VALID.ETH_USDT)
+        assertThat(ethAfterNewTrade.first().price).isEqualTo("101")
+        assertThat(allPrices).extracting<String> { it.symbol }.containsExactlyInAnyOrder(VALID.ETH_USDT, "BTC_USDT")
+        assertThat(allPrices.associateBy { it.symbol }[VALID.ETH_USDT]?.price).isEqualTo("101")
+        assertThat(allPrices.associateBy { it.symbol }["BTC_USDT"]?.price).isEqualTo("200")
+    }
+
+    @Test
     fun givenOpenOrdersAndTrades_whenTickerRequested_thenReturnBestPricesAndWeightedAverage(): Unit = runBlocking {
         val symbol = "BEST_USDT"
         val now = LocalDateTime.now()
