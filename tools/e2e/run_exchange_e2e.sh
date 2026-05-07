@@ -98,6 +98,7 @@ Runs a real Docker-backed exchange E2E flow:
   36l. Verify Binance-compatible partial fill orderId cancel releases only the remaining locked balance.
   36m0. Verify Binance-compatible MARKET sell with no liquidity cancels immediately and releases funds.
   36m. Verify Binance-compatible MARKET sell maps to IOC and settles through the real exchange path.
+  36n0. Verify Binance-compatible price-capped MARKET buy with no liquidity cancels immediately and releases funds.
   36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
   36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
   36p. Verify Binance-compatible newOrderRespType=ACK/RESULT/FULL responses still submit through the real exchange path.
@@ -3602,6 +3603,7 @@ main() {
   local api_market_buy_buyer="e2e-api-market-buy-b-$(date +%s)"
   local api_market_buy_ref="e2e-api-mkt-buy-$(date +%s)"
   local api_market_buy_client_id="e2e-mkt-b-$(date +%s)"
+  local api_market_buy_no_liq_client_id="e2e-mkt-b-no-liq-$(date +%s)"
   expect_2xx "Binance API market-buy seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_market_buy_seller}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-eth")" >/dev/null
   expect_2xx "Binance API market-buy buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${api_market_buy_buyer}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-usdt")" >/dev/null
   expect_http_status "Binance API market-buy without price cap rejected" "400" "$(binance_private_post "$api_market_buy_buyer" "/v3/order" "symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&newClientOrderId=${api_market_buy_client_id}-no-cap")" >/tmp/opex-e2e-binance-api-market-buy-no-cap-reject.json
@@ -3609,6 +3611,33 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_binance_account_balance "$api_market_buy_buyer" "USDT" "40" "0" /tmp/opex-e2e-binance-api-market-buy-no-cap-buyer-usdt-account.json
+  expect_2xx_retry "Binance API market-buy bid no liquidity" "binance_private_post '$api_market_buy_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&price=103&newClientOrderId=${api_market_buy_no_liq_client_id}'" >/tmp/opex-e2e-binance-api-market-buy-no-liq-bid.json
+  jq -e \
+    --arg clientOrderId "$api_market_buy_no_liq_client_id" '
+      .symbol == "ETHUSDT" and
+      (.orderId | type == "number") and
+      .orderId > 0 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      .price == 103 and
+      .origQty == 0.2 and
+      .executedQty == 0 and
+      .cummulativeQuoteQty == 0 and
+      .status == "CANCELED" and
+      .type == "MARKET" and
+      .side == "BUY" and
+      (.transactTime | type == "number") and
+      (.fills | type == "array") and
+      (.fills | length == 0)
+    ' /tmp/opex-e2e-binance-api-market-buy-no-liq-bid.json >/dev/null
+  local api_market_buy_no_liq_order_id
+  api_market_buy_no_liq_order_id="$(jq -r '.orderId' /tmp/opex-e2e-binance-api-market-buy-no-liq-bid.json)"
+  wait_no_user_open_orders "$api_market_buy_buyer" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_order_book_empty "ETH_USDT" "BID"
+  wait_binance_private_order_status_by_client_order_id "$api_market_buy_buyer" "ETHUSDT" "$api_market_buy_no_liq_client_id" "103" "0.2" "CANCELED" "0" "0" "BUY" /tmp/opex-e2e-binance-api-market-buy-no-liq-query-canceled.json "MARKET"
+  wait_binance_private_trades_empty_for_order_id "$api_market_buy_buyer" "ETHUSDT" "$api_market_buy_no_liq_order_id" /tmp/opex-e2e-binance-api-market-buy-no-liq-my-trades.json
+  wait_binance_account_balance "$api_market_buy_buyer" "USDT" "40" "0" /tmp/opex-e2e-binance-api-market-buy-no-liq-buyer-usdt-account.json
   expect_2xx_retry "Binance API market-buy maker ask" "binance_private_post '$api_market_buy_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.3&price=103'" >/tmp/opex-e2e-binance-api-market-buy-ask.json
   wait_user_open_order "$api_market_buy_seller" "ETH_USDT" "103" "0.3" /tmp/opex-e2e-binance-api-market-buy-open-orders.json
   local api_market_buy_ask_order_id
@@ -5636,7 +5665,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,78\nFEE,46\nORDER_CANCEL,42\nORDER_CREATE,74\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,78\nFEE,46\nORDER_CANCEL,43\nORDER_CREATE,75\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -5711,7 +5740,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,37\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,74\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,38\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,75\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -6634,6 +6663,19 @@ main() {
     "buyerLockedUsdtAfterReject": 0,
     "bookUnchangedAfterReject": true
   },
+  "binanceMarketBuyNoLiquidityScenario": {
+    "symbol": "ETHUSDT",
+    "buyer": "$api_market_buy_buyer",
+    "orderId": $api_market_buy_no_liq_order_id,
+    "marketClientOrderId": "$api_market_buy_no_liq_client_id",
+    "marketBidPriceCap": 103,
+    "executedQty": 0,
+    "quoteQty": 0,
+    "finalStatus": "CANCELED",
+    "buyerUsdtAfterRelease": 40,
+    "buyerLockedUsdtAfterRelease": 0,
+    "tradesVisible": 0
+  },
   "binanceMarketSellNoLiquidityScenario": {
     "symbol": "ETHUSDT",
     "seller": "$api_market_no_liq_seller",
@@ -7066,10 +7108,10 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 75,
+      "DEPOSIT": 78,
       "FEE": 46,
-      "ORDER_CANCEL": 39,
-      "ORDER_CREATE": 71,
+      "ORDER_CANCEL": 43,
+      "ORDER_CREATE": 75,
       "ORDER_FINALIZED": 1,
       "TRADE": 46,
       "WITHDRAW_ACCEPT": 1,
@@ -7079,7 +7121,7 @@ main() {
     },
     "walletAggregateBalances": {
       "BTC": 0.002,
-      "ETH": 44.04,
+      "ETH": 47.04,
       "USDT": 3083.904
     },
     "walletWithdrawStatuses": {
@@ -7093,9 +7135,9 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 34,
+      "CancelOrderEvent": 38,
       "RejectOrderEvent": 2,
-      "SubmitOrderEvent": 71,
+      "SubmitOrderEvent": 75,
       "TradeEvent": 93,
       "UpdatedOrderEvent": 3
     },

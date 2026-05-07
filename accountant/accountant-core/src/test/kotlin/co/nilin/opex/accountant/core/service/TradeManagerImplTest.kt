@@ -6,6 +6,7 @@ import co.nilin.opex.accountant.core.model.*
 import co.nilin.opex.matching.engine.core.eventh.events.CancelOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.SubmitOrderEvent
 import co.nilin.opex.matching.engine.core.eventh.events.TradeEvent
+import co.nilin.opex.matching.engine.core.eventh.events.UpdatedOrderEvent
 import co.nilin.opex.matching.engine.core.model.MatchConstraint
 import co.nilin.opex.matching.engine.core.model.OrderDirection
 import co.nilin.opex.matching.engine.core.model.OrderType
@@ -681,6 +682,94 @@ internal class TradeManagerImplTest {
         assertThat(richTradePublisher.published).isEmpty()
         assertThat(orderPersister.orders.getValue(takerSubmitOrderEvent.ouid).filledQuantity).isZero()
         assertThat(orderPersister.orders.getValue(makerSubmitOrderEvent.ouid).filledQuantity).isZero()
+    }
+
+    @Test
+    fun givenTradeArrivesBeforeCrossingEditApplied_whenRetriedAfterEdit_thenProcessed(): Unit = runBlocking {
+        val pair = Pair("ETH", "USDT")
+        val pairConfig = PairConfig(
+            pair.toString(),
+            pair.leftSideName,
+            pair.rightSideName,
+            BigDecimal.ONE,
+            BigDecimal.valueOf(0.01)
+        )
+        val sellerAsk = SubmitOrderEvent(
+            "edit-cross-seller-ouid",
+            "edit-cross-seller-uuid",
+            null,
+            pair,
+            11000,
+            300000,
+            300000,
+            OrderDirection.ASK,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        val buyerBid = SubmitOrderEvent(
+            "edit-cross-buyer-ouid",
+            "edit-cross-buyer-uuid",
+            null,
+            pair,
+            10000,
+            200000,
+            200000,
+            OrderDirection.BID,
+            MatchConstraint.GTC,
+            OrderType.LIMIT_ORDER
+        )
+        prepareOrder(pairConfig, sellerAsk, BigDecimal.valueOf(0.01), BigDecimal.valueOf(0.01))
+        prepareOrder(pairConfig, buyerBid, BigDecimal.valueOf(0.01), BigDecimal.valueOf(0.01))
+
+        val tradeEvent = TradeEvent(
+            23,
+            pair,
+            sellerAsk.ouid,
+            sellerAsk.uuid,
+            72,
+            sellerAsk.direction,
+            10000,
+            0,
+            buyerBid.ouid,
+            buyerBid.uuid,
+            71,
+            buyerBid.direction,
+            buyerBid.price,
+            0,
+            200000
+        )
+
+        val deferredResult = tradeManager.handleTrade(tradeEvent)
+
+        assertThat(deferredResult).isEmpty()
+        assertThat(tempEventPersister.saved.map { it.ouid }).containsExactly(sellerAsk.ouid)
+        assertThat(processedEventPersister.processed).isEmpty()
+
+        val updateEvent = UpdatedOrderEvent(
+            sellerAsk.ouid,
+            sellerAsk.uuid,
+            72,
+            pair,
+            sellerAsk.price,
+            sellerAsk.quantity,
+            10000,
+            200000,
+            sellerAsk.quantity,
+            sellerAsk.direction
+        )
+        orderManager.handleUpdateOrder(updateEvent)
+
+        val replayResult = tradeManager.handleTrade(tradeEvent)
+
+        assertThat(replayResult).hasSize(4)
+        assertThat(orderPersister.orders.getValue(sellerAsk.ouid).status).isEqualTo(OrderStatus.FILLED.code)
+        assertThat(orderPersister.orders.getValue(buyerBid.ouid).status).isEqualTo(OrderStatus.FILLED.code)
+        assertThat(tempEventPersister.loadTempEvents(sellerAsk.ouid)).isEmpty()
+        assertThat(processedEventPersister.processed).hasSize(1)
+        val orderUpdates = richOrderPublisher.published.filterIsInstance<RichOrderUpdate>()
+        assertThat(orderUpdates.last { it.ouid == sellerAsk.ouid }.status).isEqualTo(OrderStatus.FILLED)
+        assertThat(orderUpdates.last { it.ouid == buyerBid.ouid }.status).isEqualTo(OrderStatus.FILLED)
+        assertThat(richTradePublisher.published).hasSize(1)
     }
 
     @Test

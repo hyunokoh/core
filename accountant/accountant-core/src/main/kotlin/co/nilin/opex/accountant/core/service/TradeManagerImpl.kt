@@ -53,6 +53,11 @@ open class TradeManagerImpl(
             }
             return emptyList()
         }
+        if (isTradeWaitingForEarlierOrderMutation(trade, takerOrder, makerOrder)) {
+            logger.info("Trade event deferred until earlier order mutation is applied: tradeId=${trade.tradeId}")
+            tempEventPersister.saveTempEvent(trade.takerOuid, trade)
+            return emptyList()
+        }
         if (!isTradeApplicableToOrders(trade, takerOrder, makerOrder)) {
             logger.warn("Trade event ignored because it is inconsistent with local order state: tradeId=${trade.tradeId}")
             return emptyList()
@@ -245,6 +250,50 @@ open class TradeManagerImpl(
             !makerOrder.status.isTerminal() &&
             takerOrder.quantity - takerOrder.filledQuantity >= trade.matchedQuantity &&
             makerOrder.quantity - makerOrder.filledQuantity >= trade.matchedQuantity
+    }
+
+    private fun isTradeWaitingForEarlierOrderMutation(
+        trade: TradeEvent,
+        takerOrder: Order,
+        makerOrder: Order
+    ): Boolean {
+        return isOrderWaitingForEarlierMutation(
+            takerOrder,
+            trade,
+            trade.takerUuid,
+            trade.takerDirection,
+            trade.takerPrice,
+            trade.takerRemainedQuantity
+        ) || isOrderWaitingForEarlierMutation(
+            makerOrder,
+            trade,
+            trade.makerUuid,
+            trade.makerDirection,
+            trade.makerPrice,
+            trade.makerRemainedQuantity
+        )
+    }
+
+    private fun isOrderWaitingForEarlierMutation(
+        order: Order,
+        trade: TradeEvent,
+        tradeUuid: String,
+        tradeDirection: co.nilin.opex.matching.engine.core.model.OrderDirection,
+        tradePrice: Long,
+        tradeRemainedQuantity: Long
+    ): Boolean {
+        if (order.pair != trade.pair.toString() ||
+            order.uuid != tradeUuid ||
+            order.direction != tradeDirection ||
+            order.status.isTerminal()
+        ) {
+            return false
+        }
+
+        val localRemainingBeforeTrade = order.quantity - order.filledQuantity
+        val eventRemainingBeforeTrade = trade.matchedQuantity + tradeRemainedQuantity
+        return eventRemainingBeforeTrade < localRemainingBeforeTrade ||
+            (order.price != tradePrice && eventRemainingBeforeTrade <= localRemainingBeforeTrade)
     }
 
     private suspend fun loadTradeOrdersForUpdate(trade: TradeEvent): Pair<Order?, Order?> {
