@@ -147,11 +147,15 @@ class MarketQueryHandlerImpl(
             with(Instant.ofEpochMilli(endTime)) {
                 LocalDateTime.ofInstant(this, ZoneId.systemDefault())
             }
-
-        val candleInfo = if (startTime == null && endTime == null)
-            tradeRepository.latestCandleData(symbol, interval, st, et, limit)
+        val effectiveEndTime = if (startTime == null && endTime != null)
+            et.minusNanos(1_000_000)
         else
-            tradeRepository.candleData(symbol, interval, st, et, limit)
+            et
+
+        val candleInfo = if (startTime == null)
+            tradeRepository.latestCandleData(symbol, interval, st, effectiveEndTime, limit)
+        else
+            tradeRepository.candleData(symbol, interval, st, effectiveEndTime, limit)
 
         return candleInfo
             .collectList()

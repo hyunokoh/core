@@ -340,6 +340,60 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
     }
 
     @Test
+    fun givenOnlyEndTime_whenCandlesRequested_thenReturnMostRecentLimitedCandlesBeforeEndTime(): Unit = runBlocking {
+        val now = LocalDateTime.now().withSecond(10).withNano(0)
+        val oldTradeTime = now.minusMinutes(3)
+        val latestTradeTime = now.minusMinutes(1)
+        val makerOuid = "latest-before-end-kline-maker"
+        val takerOuid = "latest-before-end-kline-taker"
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(id = null, ouid = makerOuid, direction = OrderDirection.ASK),
+            status = OrderStatus.FILLED
+        )
+        seedOrder(
+            VALID.TAKER_ORDER_MODEL.copy(id = null, ouid = takerOuid, direction = OrderDirection.BID),
+            status = OrderStatus.FILLED
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 5201,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(95),
+                matchedQuantity = BigDecimal.valueOf(2),
+                createDate = oldTradeTime,
+                makerOuid = makerOuid,
+                takerOuid = takerOuid
+            )
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 5202,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(125),
+                matchedQuantity = BigDecimal.valueOf(3),
+                createDate = latestTradeTime,
+                makerOuid = makerOuid,
+                takerOuid = takerOuid
+            )
+        )
+
+        val candles = marketQueryHandler.getCandleInfo(
+            VALID.ETH_USDT,
+            "1 minute",
+            null,
+            latestTradeTime.withSecond(0).plusMinutes(1).toEpochMillis(),
+            1
+        )
+
+        assertThat(candles).hasSize(1)
+        assertThat(candles.first().open).isEqualByComparingTo(BigDecimal.valueOf(125))
+        assertThat(candles.first().close).isEqualByComparingTo(BigDecimal.valueOf(125))
+        assertThat(candles.first().volume).isEqualByComparingTo(BigDecimal.valueOf(3))
+        assertThat(candles.first().quoteAssetVolume).isEqualByComparingTo(BigDecimal.valueOf(375))
+        assertThat(candles.first().trades).isEqualTo(1)
+    }
+
+    @Test
     fun givenOpenOrdersAndTrades_whenTickerRequested_thenReturnBestPricesAndWeightedAverage(): Unit = runBlocking {
         val symbol = "BEST_USDT"
         val now = LocalDateTime.now()

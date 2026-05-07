@@ -247,7 +247,7 @@ class MarketController(
                         it.low.toString(),
                         it.close.toString(),
                         it.volume.toString(),
-                        it.closeTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                        it.closeTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1,
                         it.quoteAssetVolume.toString(),
                         it.trades,
                         it.takerBuyBaseAssetVolume.toString(),

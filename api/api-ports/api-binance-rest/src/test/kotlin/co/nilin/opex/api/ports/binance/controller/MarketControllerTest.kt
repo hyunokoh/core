@@ -14,6 +14,8 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
 import java.security.Principal
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 private class MarketControllerTest {
 
@@ -200,6 +202,36 @@ private class MarketControllerTest {
     }
 
     @Test
+    fun givenCandle_whenKlinesRequested_thenReturnBinanceInclusiveCloseTime(): Unit = runBlocking {
+        val openTime = LocalDateTime.of(2026, 1, 1, 0, 0)
+        val closeTime = openTime.plusMinutes(1)
+        val marketDataProxy = RecordingMarketDataProxy(
+            candles = listOf(
+                CandleData(
+                    openTime,
+                    closeTime,
+                    BigDecimal("100"),
+                    BigDecimal("101"),
+                    BigDecimal("102"),
+                    BigDecimal("99"),
+                    BigDecimal("0.5"),
+                    BigDecimal("50.5"),
+                    3,
+                    BigDecimal("0.2"),
+                    BigDecimal("20.2")
+                )
+            )
+        )
+        val controller = controller(marketDataProxy)
+
+        val response = controller.klines("ETHUSDT", "1m", null, null, 1)
+
+        assertThat(response).hasSize(1)
+        assertThat(response.first()[0]).isEqualTo(openTime.toEpochMillis())
+        assertThat(response.first()[6]).isEqualTo(closeTime.toEpochMillis() - 1)
+    }
+
+    @Test
     fun givenSymbol_whenExchangeInfoRequested_thenReturnOnlyRequestedSymbol(): Unit = runBlocking {
         val controller = controller(RecordingMarketDataProxy())
 
@@ -292,7 +324,8 @@ private class MarketControllerTest {
 
     private class RecordingMarketDataProxy(
         private val bidOrders: List<OrderBook> = emptyList(),
-        private val askOrders: List<OrderBook> = emptyList()
+        private val askOrders: List<OrderBook> = emptyList(),
+        private val candles: List<CandleData> = emptyList()
     ) : MarketDataProxy {
         private var callCount = 0
         var openBidOrdersLimit: Int? = null
@@ -358,7 +391,7 @@ private class MarketControllerTest {
             limit: Int
         ): List<CandleData> {
             called()
-            return emptyList()
+            return candles
         }
 
         override suspend fun getMarketCurrencyRates(quote: String, base: String?): List<CurrencyRate> {
@@ -423,4 +456,7 @@ private class MarketControllerTest {
 
         override suspend fun getCurrencyImplementations(currency: String?): List<CurrencyImplementation> = emptyList()
     }
+
+    private fun LocalDateTime.toEpochMillis(): Long =
+        atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 }

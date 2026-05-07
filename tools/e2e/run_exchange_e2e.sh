@@ -83,7 +83,7 @@ Runs a real Docker-backed exchange E2E flow:
   35b. Verify Binance-compatible price ticker reflects the latest executed trade.
   35c. Verify Binance-compatible 24h ticker reflects the latest executed trade statistics.
   35d. Verify Binance-compatible klines reflect executed trade OHLC and volume statistics.
-  35e. Verify Binance-compatible default klines returns the latest market-projected candle.
+  35e. Verify Binance-compatible default and endTime-only klines return the latest market-projected candle.
   36. Verify Binance-compatible private order submission/cancel/account/order/trade APIs reflect settled balances and executions.
   36b. Verify Binance-compatible openOrders/allOrders without a symbol returns the user's orders across markets.
   36c. Verify Binance-compatible myTrades fromId returns trades by inclusive exchange trade id.
@@ -1384,7 +1384,7 @@ wait_binance_latest_kline_matches_market_projection() {
   local internal_symbol="$2"
   local output_file="$3"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  local body expected open high low close volume quote_volume trades taker_buy_base_volume taker_buy_quote_volume
+  local body end_time_body expected open high low close volume quote_volume trades taker_buy_base_volume taker_buy_quote_volume close_time_ms
   until expected="$(psql_query "postgres-market" "
     with latest_bucket as (
       select date_trunc('minute', max(create_date)) as open_time
@@ -1412,11 +1412,12 @@ wait_binance_latest_kline_matches_market_projection() {
            to_char(sum(matched_price * matched_quantity), 'FM9999999990.00000000'),
            count(id),
            to_char(sum(case when taker_side = 'BID' then matched_quantity else 0 end), 'FM9999999990.00000000'),
-           to_char(sum(case when taker_side = 'BID' then matched_price * matched_quantity else 0 end), 'FM9999999990.00000000')
+           to_char(sum(case when taker_side = 'BID' then matched_price * matched_quantity else 0 end), 'FM9999999990.00000000'),
+           (select floor(extract(epoch from open_time + interval '1 minute') * 1000)::bigint - 1 from latest_bucket)
     from bucket_trades;
   ")" &&
     [[ -n "$expected" ]] &&
-    IFS=',' read -r open high low close volume quote_volume trades taker_buy_base_volume taker_buy_quote_volume <<< "$expected" &&
+    IFS=',' read -r open high low close volume quote_volume trades taker_buy_base_volume taker_buy_quote_volume close_time_ms <<< "$expected" &&
     body="$(curl -fsS "http://127.0.0.1:8094/v3/klines?symbol=${symbol}&interval=1m&limit=1")" &&
     printf '%s\n' "$body" | jq -e \
       --argjson open "$open" \
@@ -1427,13 +1428,41 @@ wait_binance_latest_kline_matches_market_projection() {
       --argjson quote_volume "$quote_volume" \
       --argjson trades "$trades" \
       --argjson taker_buy_base_volume "$taker_buy_base_volume" \
-      --argjson taker_buy_quote_volume "$taker_buy_quote_volume" '
+      --argjson taker_buy_quote_volume "$taker_buy_quote_volume" \
+      --argjson close_time_ms "$close_time_ms" '
       length == 1 and
       (.[0][1] | tonumber) == $open and
       (.[0][2] | tonumber) == $high and
       (.[0][3] | tonumber) == $low and
       (.[0][4] | tonumber) == $close and
       (.[0][5] | tonumber) == $volume and
+      .[0][6] == $close_time_ms and
+      (.[0][7] | tonumber) == $quote_volume and
+      .[0][8] == $trades and
+      (.[0][9] | tonumber) == $taker_buy_base_volume and
+      (.[0][10] | tonumber) == $taker_buy_quote_volume and
+      .[0][0] > 0 and
+      .[0][6] > 0
+    ' >/dev/null &&
+    end_time_body="$(curl -fsS "http://127.0.0.1:8094/v3/klines?symbol=${symbol}&interval=1m&endTime=${close_time_ms}&limit=1")" &&
+    printf '%s\n' "$end_time_body" | jq -e \
+      --argjson open "$open" \
+      --argjson high "$high" \
+      --argjson low "$low" \
+      --argjson close "$close" \
+      --argjson volume "$volume" \
+      --argjson quote_volume "$quote_volume" \
+      --argjson trades "$trades" \
+      --argjson taker_buy_base_volume "$taker_buy_base_volume" \
+      --argjson taker_buy_quote_volume "$taker_buy_quote_volume" \
+      --argjson close_time_ms "$close_time_ms" '
+      length == 1 and
+      (.[0][1] | tonumber) == $open and
+      (.[0][2] | tonumber) == $high and
+      (.[0][3] | tonumber) == $low and
+      (.[0][4] | tonumber) == $close and
+      (.[0][5] | tonumber) == $volume and
+      .[0][6] == $close_time_ms and
       (.[0][7] | tonumber) == $quote_volume and
       .[0][8] == $trades and
       (.[0][9] | tonumber) == $taker_buy_base_volume and
@@ -1445,6 +1474,7 @@ wait_binance_latest_kline_matches_market_projection() {
       echo "Timed out waiting for Binance latest kline to match market projection symbol=$symbol" >&2
       echo "expected: $expected" >&2
       echo "actual: $body" >&2
+      echo "actual endTime-only: $end_time_body" >&2
       "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
       exit 1
     fi
@@ -6228,7 +6258,8 @@ main() {
   "binanceLatestKline": {
     "symbol": "ETHUSDT",
     "interval": "1m",
-    "matchesMarketProjection": true
+    "matchesMarketProjection": true,
+    "endTimeOnlyMatchesMarketProjection": true
   },
   "binanceMyTradesFromId": {
     "symbol": "ETHUSDT",
