@@ -83,6 +83,7 @@ Runs a real Docker-backed exchange E2E flow:
   35b. Verify Binance-compatible price ticker reflects the latest executed trade.
   35c. Verify Binance-compatible 24h ticker reflects the latest executed trade statistics.
   35d. Verify Binance-compatible klines reflect executed trade OHLC and volume statistics.
+  35e. Verify Binance-compatible default klines returns the latest market-projected candle.
   36. Verify Binance-compatible private order submission/cancel/account/order/trade APIs reflect settled balances and executions.
   36b. Verify Binance-compatible openOrders/allOrders without a symbol returns the user's orders across markets.
   36c. Verify Binance-compatible myTrades fromId returns trades by inclusive exchange trade id.
@@ -1370,6 +1371,80 @@ wait_binance_klines_1m_candle() {
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for Binance klines symbol=$symbol" >&2
       echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_latest_kline_matches_market_projection() {
+  local symbol="$1"
+  local internal_symbol="$2"
+  local output_file="$3"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body expected open high low close volume quote_volume trades taker_buy_base_volume taker_buy_quote_volume
+  until expected="$(psql_query "postgres-market" "
+    with latest_bucket as (
+      select date_trunc('minute', max(create_date)) as open_time
+      from trades
+      where symbol = '$internal_symbol'
+    ), bucket_trades as (
+      select t.id,
+             t.create_date,
+             t.matched_price,
+             t.matched_quantity,
+             taker_order.side as taker_side
+      from trades t
+      join latest_bucket b
+        on t.create_date >= b.open_time
+       and t.create_date < b.open_time + interval '1 minute'
+      left join orders taker_order
+        on t.taker_ouid = taker_order.ouid
+      where t.symbol = '$internal_symbol'
+    )
+    select to_char((array_agg(matched_price order by create_date, id))[1], 'FM9999999990.00000000'),
+           to_char(max(matched_price), 'FM9999999990.00000000'),
+           to_char(min(matched_price), 'FM9999999990.00000000'),
+           to_char((array_agg(matched_price order by create_date desc, id desc))[1], 'FM9999999990.00000000'),
+           to_char(sum(matched_quantity), 'FM9999999990.00000000'),
+           to_char(sum(matched_price * matched_quantity), 'FM9999999990.00000000'),
+           count(id),
+           to_char(sum(case when taker_side = 'BID' then matched_quantity else 0 end), 'FM9999999990.00000000'),
+           to_char(sum(case when taker_side = 'BID' then matched_price * matched_quantity else 0 end), 'FM9999999990.00000000')
+    from bucket_trades;
+  ")" &&
+    [[ -n "$expected" ]] &&
+    IFS=',' read -r open high low close volume quote_volume trades taker_buy_base_volume taker_buy_quote_volume <<< "$expected" &&
+    body="$(curl -fsS "http://127.0.0.1:8094/v3/klines?symbol=${symbol}&interval=1m&limit=1")" &&
+    printf '%s\n' "$body" | jq -e \
+      --argjson open "$open" \
+      --argjson high "$high" \
+      --argjson low "$low" \
+      --argjson close "$close" \
+      --argjson volume "$volume" \
+      --argjson quote_volume "$quote_volume" \
+      --argjson trades "$trades" \
+      --argjson taker_buy_base_volume "$taker_buy_base_volume" \
+      --argjson taker_buy_quote_volume "$taker_buy_quote_volume" '
+      length == 1 and
+      (.[0][1] | tonumber) == $open and
+      (.[0][2] | tonumber) == $high and
+      (.[0][3] | tonumber) == $low and
+      (.[0][4] | tonumber) == $close and
+      (.[0][5] | tonumber) == $volume and
+      (.[0][7] | tonumber) == $quote_volume and
+      .[0][8] == $trades and
+      (.[0][9] | tonumber) == $taker_buy_base_volume and
+      (.[0][10] | tonumber) == $taker_buy_quote_volume and
+      .[0][0] > 0 and
+      .[0][6] > 0
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance latest kline to match market projection symbol=$symbol" >&2
+      echo "expected: $expected" >&2
+      echo "actual: $body" >&2
       "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
       exit 1
     fi
@@ -5224,6 +5299,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
+  wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
   wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,69\nFEE,42\nORDER_CANCEL,35\nORDER_CREATE,65\nORDER_FINALIZED,1\nTRADE,42\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
@@ -6148,6 +6224,11 @@ main() {
     "trades": 1,
     "takerBuyBaseVolume": 1,
     "takerBuyQuoteVolume": 100
+  },
+  "binanceLatestKline": {
+    "symbol": "ETHUSDT",
+    "interval": "1m",
+    "matchesMarketProjection": true
   },
   "binanceMyTradesFromId": {
     "symbol": "ETHUSDT",
