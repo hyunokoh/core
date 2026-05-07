@@ -981,6 +981,72 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenFullResponseTypeAndFilledProjection_whenCreateOrderRequested_thenReturnProjectedFills(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponses = mutableListOf(
+                null,
+                queryOrderResponse!!.copy(
+                    clientOrderId = "full-filled-client-1",
+                    orderId = 101,
+                    executedQuantity = BigDecimal("0.2"),
+                    accumulativeQuoteQty = BigDecimal("20.6"),
+                    status = OrderStatus.FILLED
+                )
+            )
+            allTradesResponses = mutableListOf(
+                listOf(
+                    trade(
+                        orderId = 101,
+                        price = BigDecimal("103"),
+                        quantity = BigDecimal("0.2"),
+                        quoteQuantity = BigDecimal("20.6"),
+                        commission = BigDecimal("0.002"),
+                        commissionAsset = "ETH",
+                        isBuyer = true,
+                        isMaker = false
+                    )
+                )
+            )
+        }
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.2"),
+            quoteOrderQty = null,
+            price = BigDecimal("103"),
+            newClientOrderId = "full-filled-client-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = OrderResponseType.FULL,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(response.orderId).isEqualTo(101)
+        assertThat(response.status).isEqualTo(OrderStatus.FILLED)
+        assertThat(response.executedQty).isEqualByComparingTo(BigDecimal("0.2"))
+        assertThat(response.cummulativeQuoteQty).isEqualByComparingTo(BigDecimal("20.6"))
+        assertThat(response.fills).containsExactly(
+            co.nilin.opex.api.ports.binance.data.FillsData(
+                BigDecimal("103"),
+                BigDecimal("0.2"),
+                BigDecimal("0.002"),
+                "ETH"
+            )
+        )
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("ETH_USDT")
+        assertThat(queryHandler.allTradesOrderId).isEqualTo(101)
+        assertThat(queryHandler.allTradesLimit).isEqualTo(1000)
+    }
+
+    @Test
     fun givenAckResponseType_whenCreateOrderRequested_thenSubmitOrderAndReturnAckResponse(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy().apply {
             queryOrderResponses = mutableListOf(
@@ -1168,6 +1234,7 @@ private class AccountControllerTest {
         var queryOrderResponse: Order? = order()
         var queryOrderResponses: MutableList<Order?> = mutableListOf()
         var queryOrderFailures: MutableList<RuntimeException> = mutableListOf()
+        var allTradesResponses: MutableList<List<Trade>> = mutableListOf()
 
         override suspend fun queryOrder(
             principal: Principal,
@@ -1218,6 +1285,8 @@ private class AccountControllerTest {
             allTradesSymbol = symbol
             allTradesLimit = limit
             allTradesOrderId = orderId
+            if (allTradesResponses.isNotEmpty())
+                return allTradesResponses.removeAt(0)
             return emptyList()
         }
 
@@ -1244,6 +1313,31 @@ private class AccountControllerTest {
             status = OrderStatus.NEW,
             createDate = LocalDateTime.now(),
             updateDate = LocalDateTime.now()
+        )
+
+        fun trade(
+            orderId: Long,
+            price: BigDecimal,
+            quantity: BigDecimal,
+            quoteQuantity: BigDecimal,
+            commission: BigDecimal,
+            commissionAsset: String,
+            isBuyer: Boolean,
+            isMaker: Boolean
+        ) = Trade(
+            symbol = "ETH_USDT",
+            id = 201,
+            orderId = orderId,
+            price = price,
+            quantity = quantity,
+            quoteQuantity = quoteQuantity,
+            commission = commission,
+            commissionAsset = commissionAsset,
+            time = Date(),
+            isBuyer = isBuyer,
+            isMaker = isMaker,
+            isBestMatch = true,
+            isMakerBuyer = false
         )
     }
 

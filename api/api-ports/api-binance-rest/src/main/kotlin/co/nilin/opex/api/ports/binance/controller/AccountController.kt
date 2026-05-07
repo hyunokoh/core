@@ -134,10 +134,31 @@ class AccountController(
             submitTime
         )
 
-        if (newOrderRespType == OrderResponseType.ACK) {
+        val effectiveOrderResponseType = newOrderRespType ?: when (type) {
+            OrderType.LIMIT, OrderType.MARKET -> OrderResponseType.FULL
+            else -> OrderResponseType.ACK
+        }
+
+        val responseOrder = if (
+            effectiveOrderResponseType == OrderResponseType.FULL &&
+            projectedOrder != null &&
+            (type == OrderType.MARKET || effectiveMatchConstraint == MatchConstraint.IOC)
+        ) {
+            waitForImmediateOrderExecutionProjection(
+                Principal { authentication.name },
+                internalSymbol,
+                effectiveClientOrderId,
+                submitTime,
+                projectedOrder
+            )
+        } else {
+            projectedOrder
+        }
+
+        if (effectiveOrderResponseType == OrderResponseType.ACK) {
             return NewOrderResponse(
                 symbol,
-                projectedOrder?.orderId ?: -1,
+                responseOrder?.orderId ?: -1,
                 -1,
                 effectiveClientOrderId,
                 submitTime,
@@ -153,7 +174,13 @@ class AccountController(
             )
         }
 
-        return projectedOrder?.asNewOrderResponse(symbol, submitTime) ?: NewOrderResponse(
+        val fills = if (effectiveOrderResponseType == OrderResponseType.FULL && responseOrder != null) {
+            orderFills(Principal { authentication.name }, internalSymbol, responseOrder)
+        } else {
+            null
+        }
+
+        return responseOrder?.asNewOrderResponse(symbol, submitTime, fills) ?: NewOrderResponse(
             symbol,
             -1,
             -1,
@@ -664,7 +691,79 @@ class AccountController(
         return null
     }
 
-    private fun Order.asNewOrderResponse(symbol: String, submitTime: Long) = NewOrderResponse(
+    private suspend fun waitForImmediateOrderExecutionProjection(
+        principal: Principal,
+        internalSymbol: String,
+        clientOrderId: String,
+        submitTime: Long,
+        fallbackOrder: Order
+    ): Order {
+        if (fallbackOrder.executedQuantity > BigDecimal.ZERO || fallbackOrder.status != OrderStatus.NEW)
+            return fallbackOrder
+
+        repeat(orderProjectionAttempts) {
+            val order = try {
+                queryHandler.queryOrder(principal, internalSymbol, null, clientOrderId)
+            } catch (ex: WebClientResponseException) {
+                null
+            }
+            if (
+                order != null &&
+                order.clientOrderId == clientOrderId &&
+                order.createDate.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() >= submitTime - 1000 &&
+                (order.executedQuantity > BigDecimal.ZERO || order.status != OrderStatus.NEW)
+            ) {
+                return order
+            }
+            delay(orderProjectionPollDelayMs)
+        }
+        return fallbackOrder
+    }
+
+    private suspend fun orderFills(principal: Principal, internalSymbol: String, order: Order): List<FillsData>? {
+        val orderId = order.orderId ?: return null
+        if (order.executedQuantity <= BigDecimal.ZERO)
+            return null
+
+        val trades = waitForOrderTradeProjection(principal, internalSymbol, orderId, order.executedQuantity)
+        if (trades.isEmpty())
+            return null
+
+        return trades.map {
+            FillsData(
+                it.price,
+                it.quantity,
+                it.commission,
+                it.commissionAsset
+            )
+        }
+    }
+
+    private suspend fun waitForOrderTradeProjection(
+        principal: Principal,
+        internalSymbol: String,
+        orderId: Long,
+        expectedExecutedQuantity: BigDecimal
+    ): List<Trade> {
+        repeat(orderProjectionAttempts) {
+            val trades = queryHandler.allTrades(
+                principal,
+                internalSymbol,
+                null,
+                null,
+                null,
+                maxAccountQueryLimit,
+                orderId
+            )
+            val projectedExecutedQuantity = trades.fold(BigDecimal.ZERO) { total, trade -> total + trade.quantity }
+            if (trades.isNotEmpty() && projectedExecutedQuantity >= expectedExecutedQuantity)
+                return trades
+            delay(orderProjectionPollDelayMs)
+        }
+        return emptyList()
+    }
+
+    private fun Order.asNewOrderResponse(symbol: String, submitTime: Long, fills: List<FillsData>? = null) = NewOrderResponse(
         symbol,
         orderId ?: -1,
         -1,
@@ -678,7 +777,7 @@ class AccountController(
         constraint.asTimeInForce(),
         type.asOrderType(),
         direction.asOrderSide(),
-        null
+        fills
     )
 
 }

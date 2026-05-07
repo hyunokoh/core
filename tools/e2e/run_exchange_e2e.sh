@@ -3564,7 +3564,28 @@ main() {
   fi
   wait_order_book_level "ETH_USDT" "ASK" "103" "0.3"
   wait_binance_account_balance "$api_market_buy_seller" "ETH" "0.7" "0.3" /tmp/opex-e2e-binance-api-market-buy-seller-reserved-eth.json
-  expect_2xx_retry "Binance API market buyer bid" "binance_private_post '$api_market_buy_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&price=103&newClientOrderId=${api_market_buy_client_id}'" >/tmp/opex-e2e-binance-api-market-buy-bid.json
+  expect_2xx_retry "Binance API market buyer bid" "binance_private_post '$api_market_buy_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&price=103&newClientOrderId=${api_market_buy_client_id}&newOrderRespType=FULL'" >/tmp/opex-e2e-binance-api-market-buy-bid.json
+  jq -e \
+    --arg clientOrderId "$api_market_buy_client_id" '
+      .symbol == "ETHUSDT" and
+      (.orderId | type == "number") and
+      .orderId > 0 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      .price == 103 and
+      .origQty == 0.2 and
+      .executedQty == 0.2 and
+      .cummulativeQuoteQty == 20.6 and
+      .status == "FILLED" and
+      .type == "MARKET" and
+      .side == "BUY" and
+      (.transactTime | type == "number") and
+      (.fills | length == 1) and
+      .fills[0].price == 103 and
+      .fills[0].qty == 0.2 and
+      .fills[0].commission == 0.002 and
+      .fills[0].commissionAsset == "ETH"
+    ' /tmp/opex-e2e-binance-api-market-buy-bid.json >/dev/null
   wait_user_trade_projection "$api_market_buy_seller" "ETH_USDT" "103" "0.2" "20.6" "0.206" "USDT" false true false /tmp/opex-e2e-binance-api-market-buy-seller-trades.json
   wait_user_trade_projection "$api_market_buy_buyer" "ETH_USDT" "103" "0.2" "20.6" "0.002" "ETH" true false false /tmp/opex-e2e-binance-api-market-buy-buyer-trades.json
   wait_binance_private_order_status_by_client_order_id "$api_market_buy_buyer" "ETHUSDT" "$api_market_buy_client_id" "103" "0.2" "FILLED" "0.2" "20.6" "BUY" /tmp/opex-e2e-binance-api-market-buy-buyer-query-filled.json "MARKET"
