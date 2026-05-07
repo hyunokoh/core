@@ -5695,6 +5695,17 @@ main() {
   expect_http_status "withdraw zero amount rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_zero_amount_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-zero-amount.json
   expect_http_status "withdraw overbalance rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_overbalance_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-overbalance.json
   assert_wallet_balance "withdraw owner unchanged after invalid requests" "$withdraw_owner" "USDT" "10"
+  wait_query_eq "invalid withdraw requests absent from ledger" "postgres-wallet" "0" "
+    select count(*)
+    from withdraws
+    where uuid = '$withdraw_owner'
+      and dest_address in (
+        '0xwithdrawbelowminimum',
+        '0xwithdrawnetbelowminimum',
+        '0xwithdrawzero',
+        '0xwithdrawoverbalance'
+      );
+  "
 
   local withdraw_cancel_body='{"currency":"USDT","amount":3,"destSymbol":"USDT","destAddress":"0xwithdrawcancel","destNetwork":"test-ethereum","destNote":"cancel","description":"e2e withdraw cancel"}'
   expect_2xx "withdraw cancel request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_cancel_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-cancel-request.json
