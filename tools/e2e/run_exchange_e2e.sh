@@ -113,7 +113,7 @@ Runs a real Docker-backed exchange E2E flow:
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
   40. Verify SOL_USDT, DOGE_USDT, and TON_USDT can trade on the secondary matching-engine shard.
-  41. Restart Matching Engine with an open order and verify it can still be matched.
+  41. Restart Matching Engine with an open order, verify Redis snapshot restore, and verify it can still be matched.
   42. Restart Wallet before a trade settlement and verify balances still settle correctly.
   43. Restart Accountant before a trade settlement and verify financial actions still settle correctly.
   44. Restart Matching Gateway and verify new order submission still works.
@@ -1141,6 +1141,51 @@ wait_order_book_empty_at_price() {
       echo "Timed out waiting for empty order book price symbol=$symbol direction=$direction price=$price" >&2
       echo "$body" >&2
       "${COMPOSE[@]}" logs --tail=200 market matching-engine >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+wait_matching_snapshot_order() {
+  local label="$1"
+  local owner="$2"
+  local symbol="$3"
+  local direction="$4"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local snapshot
+  until snapshot="$("${COMPOSE[@]}" exec -T redis redis-cli --raw HGET OrderbookSnapshots "$symbol" 2>/dev/null)" &&
+    jq -e --arg owner "$owner" --arg symbol "$symbol" --arg direction "$direction" '
+      (.pair.leftSideName + "_" + .pair.rightSideName) == $symbol and
+      ((.processedOrderOuids // []) | length) > 0 and
+      ([.orders[]? | select(.uuid == $owner and .direction == $direction)] | length) >= 1
+    ' <<<"$snapshot" >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for matching snapshot order: $label owner=$owner symbol=$symbol direction=$direction" >&2
+      printf '%s\n' "$snapshot" >&2
+      "${COMPOSE[@]}" logs --tail=200 matching-engine redis >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+wait_matching_snapshot_no_order() {
+  local label="$1"
+  local owner="$2"
+  local symbol="$3"
+  local direction="$4"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local snapshot
+  until snapshot="$("${COMPOSE[@]}" exec -T redis redis-cli --raw HGET OrderbookSnapshots "$symbol" 2>/dev/null)" &&
+    jq -e --arg owner "$owner" --arg symbol "$symbol" --arg direction "$direction" '
+      (.pair.leftSideName + "_" + .pair.rightSideName) == $symbol and
+      ([.orders[]? | select(.uuid == $owner and .direction == $direction)] | length) == 0
+    ' <<<"$snapshot" >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for matching snapshot order removal: $label owner=$owner symbol=$symbol direction=$direction" >&2
+      printf '%s\n' "$snapshot" >&2
+      "${COMPOSE[@]}" logs --tail=200 matching-engine redis >&2 || true
       exit 1
     fi
     sleep 2
@@ -4134,6 +4179,7 @@ main() {
   expect_2xx_retry "engine-restart resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$engine_restart_ask' '$engine_restart_seller'" >/tmp/opex-e2e-engine-restart-ask.json
   wait_user_open_order "$engine_restart_seller" "ETH_USDT" "111" "0.5" /tmp/opex-e2e-engine-restart-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "111" "0.5"
+  wait_matching_snapshot_order "engine-restart snapshot before restart" "$engine_restart_seller" "ETH_USDT" "ASK"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$engine_restart_seller" "ETH" "0.5"; do
     if (( SECONDS > deadline )); then
@@ -4146,10 +4192,12 @@ main() {
   done
 
   restart_matching_engine_and_wait
+  wait_matching_snapshot_order "engine-restart snapshot after restart" "$engine_restart_seller" "ETH_USDT" "ASK"
   wait_user_open_order "$engine_restart_seller" "ETH_USDT" "111" "0.5" /tmp/opex-e2e-engine-restart-open-orders-after-restart.json
   wait_order_book_level "ETH_USDT" "ASK" "111" "0.5"
   expect_2xx_retry "engine-restart crossing bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$engine_restart_bid' '$engine_restart_buyer'" >/tmp/opex-e2e-engine-restart-bid.json
   wait_no_user_open_orders "$engine_restart_seller" "ETH_USDT"
+  wait_matching_snapshot_no_order "engine-restart snapshot after fill" "$engine_restart_seller" "ETH_USDT" "ASK"
   wait_user_trade_projection "$engine_restart_seller" "ETH_USDT" "111" "0.5" "55.5" "0.555" "USDT" false true false /tmp/opex-e2e-engine-restart-seller-trades.json
   wait_user_trade_projection "$engine_restart_buyer" "ETH_USDT" "111" "0.5" "55.5" "0.005" "ETH" true false false /tmp/opex-e2e-engine-restart-buyer-trades.json
   wait_user_order_projection_by_price "$engine_restart_seller" "ETH_USDT" "111" "0.5" "FILLED" "0.5" "55.5" /tmp/opex-e2e-engine-restart-seller-orders.json
