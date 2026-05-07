@@ -449,28 +449,26 @@ private class AccountControllerTest {
     }
 
     @Test
-    fun givenNewClientOrderId_whenCancelOrderRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
+    fun givenNewClientOrderId_whenCancelOrderRequested_thenCancelActualOrderWithNewResponseClientOrderId(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(queryHandler, matchingGatewayProxy)
 
-        assertThatThrownBy {
-            runBlocking {
-                controller.cancelOrder(
-                    principal = Principal { "user-1" },
-                    symbol = "ETHUSDT",
-                    orderId = 100,
-                    origClientOrderId = null,
-                    newClientOrderId = "cancel-1",
-                    recvWindow = null,
-                    timestamp = signedTimestamp(),
-                    securityContext = securityContext()
-                )
-            }
-        }.isOpexError(OpexError.InvalidRequestParam)
+        val response = controller.cancelOrder(
+            principal = Principal { "user-1" },
+            symbol = "ETHUSDT",
+            orderId = 100,
+            origClientOrderId = null,
+            newClientOrderId = "cancel-1",
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
 
-        assertThat(queryHandler.queryOrderCallCount).isZero()
-        assertThat(matchingGatewayProxy.cancelOrderCallCount).isZero()
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
+        assertThat(response.origClientOrderId).isEqualTo("client-1")
+        assertThat(response.clientOrderId).isEqualTo("cancel-1")
+        assertThat(matchingGatewayProxy.cancelOrderCallCount).isEqualTo(1)
     }
 
     @Test

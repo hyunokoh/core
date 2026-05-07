@@ -166,7 +166,7 @@ class AccountController(
         validateRequiredSymbol(symbol)
         val localSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateOrderLookupParams(orderId, origClientOrderId)
-        validateUnsupportedCancelOrderParams(newClientOrderId)
+        validateNewClientOrderId(newClientOrderId)
 
         val order = queryHandler.queryOrder(principal, localSymbol, orderId, origClientOrderId)
             ?: throw OpexError.OrderNotFound.exception()
@@ -544,11 +544,6 @@ class AccountController(
             throw OpexError.InvalidRequestParam.exception("Parameter 'orderId' is either missing or invalid")
         if (origClientOrderId != null && origClientOrderId.isBlank())
             throw OpexError.InvalidRequestParam.exception("Parameter 'origClientOrderId' is either missing or invalid")
-    }
-
-    private fun validateUnsupportedCancelOrderParams(newClientOrderId: String?) {
-        if (newClientOrderId != null)
-            throw OpexError.InvalidRequestParam.exception("Parameter 'newClientOrderId' is either missing or invalid")
     }
 
     private fun validAccountQueryLimit(limit: Int?): Int {
