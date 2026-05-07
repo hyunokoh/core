@@ -122,7 +122,7 @@ Runs a real Docker-backed exchange E2E flow:
   47. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
   48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet or transaction history.
   49. Verify wallet transfer success/rejection/idempotency through the real HTTP path and ledger.
-  50. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, and user history.
   51. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
   52. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
@@ -5813,6 +5813,35 @@ main() {
   expect_http_status "withdraw rejected duplicate reject rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject-duplicate")" >/tmp/opex-e2e-withdraw-rejected-duplicate-reject.json
   wait_withdraw_status "withdraw remains rejected after terminal attempts" "$withdraw_reject_id" "REJECTED" /tmp/opex-e2e-withdraw-rejected-terminal.json
   assert_wallet_balance "withdraw owner unchanged after rejected terminal attempts" "$withdraw_owner" "USDT" "6"
+  local withdraw_history_body
+  local withdraw_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until withdraw_history_body="$(expect_2xx "withdraw user history" "$(curl_json POST "http://127.0.0.1:8091/withdraw/history" '{"currency":"USDT","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&
+    printf '%s\n' "$withdraw_history_body" | jq -e \
+      --arg owner "$withdraw_owner" \
+      --arg chain_ref "${withdraw_ref}-chain" \
+      --arg reject_reason "e2e-reject" \
+      --argjson cancel_id "$withdraw_cancel_id" \
+      --argjson accept_id "$withdraw_accept_id" \
+      --argjson duplicate_ref_id "$withdraw_duplicate_ref_id" \
+      --argjson reject_id "$withdraw_reject_id" '
+      length == 4
+      and all(.[]; .uuid == $owner and .currency == "USDT")
+      and ([.[] | select(.status == "CANCELED")] | length) == 1
+      and ([.[] | select(.status == "DONE")] | length) == 1
+      and ([.[] | select(.status == "REJECTED")] | length) == 2
+      and any(.[]; .withdrawId == $cancel_id and .status == "CANCELED" and ((.amount | tonumber) == 2.9) and ((.appliedFee | tonumber) == 0.1))
+      and any(.[]; .withdrawId == $accept_id and .status == "DONE" and .destTransactionRef == $chain_ref and ((.amount | tonumber) == 3.9) and ((.appliedFee | tonumber) == 0.1) and ((.destAmount | tonumber) >= 3.899999) and ((.destAmount | tonumber) <= 3.900001))
+      and any(.[]; .withdrawId == $duplicate_ref_id and .status == "REJECTED" and .statusReason == "e2e-duplicate-ref" and ((.amount | tonumber) == 1.0) and ((.appliedFee | tonumber) == 0.1))
+      and any(.[]; .withdrawId == $reject_id and .status == "REJECTED" and .statusReason == $reject_reason and ((.amount | tonumber) == 1.9) and ((.appliedFee | tonumber) == 0.1))
+    ' >/dev/null; do
+    if (( SECONDS > withdraw_history_deadline )); then
+      echo "Timed out waiting for withdraw user history to reflect terminal states" >&2
+      printf '%s\n' "$withdraw_history_body" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  printf '%s\n' "$withdraw_history_body" >/tmp/opex-e2e-withdraw-history.json
 
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
