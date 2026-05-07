@@ -96,6 +96,7 @@ Runs a real Docker-backed exchange E2E flow:
   36j. Verify Binance-compatible duplicate orderId cancel keeps balances unchanged.
   36k. Verify Binance-compatible filled orderId cancel is rejected and keeps balances unchanged.
   36l. Verify Binance-compatible partial fill orderId cancel releases only the remaining locked balance.
+  36m0. Verify Binance-compatible MARKET sell with no liquidity cancels immediately and releases funds.
   36m. Verify Binance-compatible MARKET sell maps to IOC and settles through the real exchange path.
   36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
   36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
@@ -3509,6 +3510,40 @@ main() {
   wait_binance_private_trades_empty_for_order_id "$api_order_buyer" "ETHUSDT" "$api_order_seller_binance_order_id" /tmp/opex-e2e-binance-api-buyer-seller-order-id-my-trades.json
   expect_http_status "Binance API buyer seller order lookup forbidden" "403" "$(binance_private_get_status "$api_order_buyer" "/v3/order" "symbol=ETHUSDT&orderId=${api_order_seller_binance_order_id}")" >/tmp/opex-e2e-binance-api-buyer-seller-order-id-query.json
 
+  local api_market_no_liq_seller="e2e-api-market-no-liq-s-$(date +%s)"
+  local api_market_no_liq_ref="e2e-api-mkt-no-liq-$(date +%s)"
+  local api_market_no_liq_client_id="e2e-mkt-no-liq-s-$(date +%s)"
+  expect_2xx "Binance API market no-liquidity seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_market_no_liq_seller}_MAIN?description=e2e-api-market-no-liq&transferRef=${api_market_no_liq_ref}-eth")" >/dev/null
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_order_book_empty "ETH_USDT" "BID"
+  expect_2xx_retry "Binance API market seller ask no liquidity" "binance_private_post '$api_market_no_liq_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=MARKET&quantity=0.2&newClientOrderId=${api_market_no_liq_client_id}'" >/tmp/opex-e2e-binance-api-market-no-liq-ask.json
+  jq -e \
+    --arg clientOrderId "$api_market_no_liq_client_id" '
+      .symbol == "ETHUSDT" and
+      (.orderId | type == "number") and
+      .orderId > 0 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      .price == 0 and
+      .origQty == 0.2 and
+      .executedQty == 0 and
+      .cummulativeQuoteQty == 0 and
+      .status == "CANCELED" and
+      .type == "MARKET" and
+      .side == "SELL" and
+      (.transactTime | type == "number") and
+      (.fills | type == "array") and
+      (.fills | length == 0)
+    ' /tmp/opex-e2e-binance-api-market-no-liq-ask.json >/dev/null
+  local api_market_no_liq_order_id
+  api_market_no_liq_order_id="$(jq -r '.orderId' /tmp/opex-e2e-binance-api-market-no-liq-ask.json)"
+  wait_no_user_open_orders "$api_market_no_liq_seller" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_order_book_empty "ETH_USDT" "BID"
+  wait_binance_private_order_status_by_client_order_id "$api_market_no_liq_seller" "ETHUSDT" "$api_market_no_liq_client_id" "0" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-market-no-liq-query-canceled.json "MARKET"
+  wait_binance_private_trades_empty_for_order_id "$api_market_no_liq_seller" "ETHUSDT" "$api_market_no_liq_order_id" /tmp/opex-e2e-binance-api-market-no-liq-my-trades.json
+  wait_binance_account_balance "$api_market_no_liq_seller" "ETH" "1" "0" /tmp/opex-e2e-binance-api-market-no-liq-seller-eth-account.json
+
   local api_market_seller="e2e-api-market-s-$(date +%s)"
   local api_market_buyer="e2e-api-market-b-$(date +%s)"
   local api_market_ref="e2e-api-mkt-$(date +%s)"
@@ -5601,7 +5636,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,77\nFEE,46\nORDER_CANCEL,41\nORDER_CREATE,73\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,78\nFEE,46\nORDER_CANCEL,42\nORDER_CREATE,74\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -5612,7 +5647,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,46.04000000\nUSDT,3083.90400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,47.04000000\nUSDT,3083.90400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -5676,7 +5711,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,36\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,73\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,37\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,74\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -6598,6 +6633,18 @@ main() {
     "buyerUsdtAfterReject": 40,
     "buyerLockedUsdtAfterReject": 0,
     "bookUnchangedAfterReject": true
+  },
+  "binanceMarketSellNoLiquidityScenario": {
+    "symbol": "ETHUSDT",
+    "seller": "$api_market_no_liq_seller",
+    "orderId": $api_market_no_liq_order_id,
+    "marketClientOrderId": "$api_market_no_liq_client_id",
+    "executedQty": 0,
+    "quoteQty": 0,
+    "finalStatus": "CANCELED",
+    "sellerEthAfterRelease": 1,
+    "sellerLockedEthAfterRelease": 0,
+    "tradesVisible": 0
   },
   "binanceIocLimitNoLiquidityScenario": {
     "symbol": "ETHUSDT",

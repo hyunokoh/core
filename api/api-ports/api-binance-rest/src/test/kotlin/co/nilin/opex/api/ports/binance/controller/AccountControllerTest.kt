@@ -1123,6 +1123,72 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenUnfilledMarketOrderAndNoResponseType_whenCreateOrderRequested_thenReturnCanceledFullResponse(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponses = mutableListOf(
+                null,
+                queryOrderResponse!!.copy(
+                    clientOrderId = "default-full-market-canceled-1",
+                    orderId = 103,
+                    direction = OrderDirection.ASK,
+                    constraint = MatchConstraint.IOC,
+                    type = MatchingOrderType.MARKET_ORDER,
+                    price = BigDecimal.ZERO,
+                    quantity = BigDecimal("0.2"),
+                    executedQuantity = BigDecimal.ZERO,
+                    accumulativeQuoteQty = BigDecimal.ZERO,
+                    status = OrderStatus.NEW
+                ),
+                queryOrderResponse!!.copy(
+                    clientOrderId = "default-full-market-canceled-1",
+                    orderId = 103,
+                    direction = OrderDirection.ASK,
+                    constraint = MatchConstraint.IOC,
+                    type = MatchingOrderType.MARKET_ORDER,
+                    price = BigDecimal.ZERO,
+                    quantity = BigDecimal("0.2"),
+                    executedQuantity = BigDecimal.ZERO,
+                    accumulativeQuoteQty = BigDecimal.ZERO,
+                    status = OrderStatus.CANCELED
+                )
+            )
+        }
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.SELL,
+            type = OrderType.MARKET,
+            timeInForce = null,
+            quantity = BigDecimal("0.2"),
+            quoteOrderQty = null,
+            price = null,
+            newClientOrderId = "default-full-market-canceled-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderConstraint).isEqualTo(MatchConstraint.IOC)
+        assertThat(matchingGatewayProxy.createOrderType).isEqualTo(MatchingOrderType.MARKET_ORDER)
+        assertThat(response.orderId).isEqualTo(103)
+        assertThat(response.status).isEqualTo(OrderStatus.CANCELED)
+        assertThat(response.price).isEqualByComparingTo(BigDecimal.ZERO)
+        assertThat(response.origQty).isEqualByComparingTo(BigDecimal("0.2"))
+        assertThat(response.executedQty).isEqualByComparingTo(BigDecimal.ZERO)
+        assertThat(response.cummulativeQuoteQty).isEqualByComparingTo(BigDecimal.ZERO)
+        assertThat(response.type).isEqualTo(OrderType.MARKET)
+        assertThat(response.side).isEqualTo(OrderSide.SELL)
+        assertThat(response.fills).isEmpty()
+        assertThat(queryHandler.allTradesSymbol).isEqualTo("not-called")
+    }
+
+    @Test
     fun givenAckResponseType_whenCreateOrderRequested_thenSubmitOrderAndReturnAckResponse(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy().apply {
             queryOrderResponses = mutableListOf(

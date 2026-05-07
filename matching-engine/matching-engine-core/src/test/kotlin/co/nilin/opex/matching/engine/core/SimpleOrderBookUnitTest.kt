@@ -1741,27 +1741,49 @@ class SimpleOrderBookUnitTest {
     }
 
     @Test
-    fun givenEmptyOrderBook_whenIocBidMarketOrderCreated_thenNoOrderCreated() {
-        //given
+    fun givenEmptyOrderBook_whenIocBidMarketOrderCreated_thenImmediatelyCanceledWithoutBookEntry() {
         val orderBook = SimpleOrderBook(pair, false)
-        //when
+        val events = mutableListOf<CoreEvent>()
+        EventDispatcher.register(CoreEvent::class.java) { events.add(it) }
+        val bidOuid = UUID.randomUUID().toString()
 
         val order = orderBook.handleNewOrderCommand(
             OrderCreateCommand(
-                UUID.randomUUID().toString(),
+                bidOuid,
                 uuid,
                 pair,
                 1,
                 1,
                 OrderDirection.BID,
-                MatchConstraint.GTC,
+                MatchConstraint.IOC,
                 OrderType.MARKET_ORDER
             )
-        )
-        //then
+        ) as SimpleOrder
+
+        Assertions.assertEquals(0, order.filledQuantity)
+        Assertions.assertEquals(1, order.remainedQuantity())
         Assertions.assertEquals(orderBook.bidOrders.entriesList().size, 0)
+        Assertions.assertEquals(orderBook.orders.size, 0)
         Assertions.assertNull(orderBook.bestBidOrder)
-        Assertions.assertNull(order)
+        Assertions.assertEquals(
+            listOf(
+                CreateOrderEvent::class.java,
+                CancelOrderEvent::class.java,
+                OrderBookPublishedEvent::class.java
+            ),
+            events.map { it::class.java }
+        )
+        (events[1] as CancelOrderEvent).also {
+            Assertions.assertEquals(bidOuid, it.ouid)
+            Assertions.assertEquals(uuid, it.uuid)
+            Assertions.assertEquals(order.id(), it.orderId)
+            Assertions.assertEquals(1, it.price)
+            Assertions.assertEquals(1, it.quantity)
+            Assertions.assertEquals(1, it.remainedQuantity)
+            Assertions.assertEquals(OrderDirection.BID, it.direction)
+            Assertions.assertEquals(MatchConstraint.IOC, it.matchConstraint)
+            Assertions.assertEquals(OrderType.MARKET_ORDER, it.orderType)
+        }
     }
 
     @Test
