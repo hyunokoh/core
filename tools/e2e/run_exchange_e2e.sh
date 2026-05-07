@@ -120,7 +120,7 @@ Runs a real Docker-backed exchange E2E flow:
   45. Restart all core exchange services and verify a fresh trade still settles.
   46. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
   47. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
-  48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet or transaction history.
+  48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet, transaction history, or legacy transaction API.
   49. Verify wallet transfer success/rejection/idempotency through the real HTTP path, ledger, and transaction API.
   50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, user history, and transaction history.
   51. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
@@ -5664,6 +5664,28 @@ main() {
     sleep 1
   done
   printf '%s\n' "$duplicate_deposit_history_body" >/tmp/opex-e2e-duplicate-deposit-transaction-history.json
+
+  local duplicate_deposit_legacy_history_body
+  local duplicate_deposit_legacy_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until duplicate_deposit_legacy_history_body="$(expect_2xx "duplicate deposit legacy transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/deposit/${duplicate_deposit_owner}" '{"coin":"USDT","category":"DEPOSIT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    printf '%s\n' "$duplicate_deposit_legacy_history_body" | jq -e --arg ref "$duplicate_deposit_ref" '
+      length == 1
+      and .[0].currency == "USDT"
+      and .[0].wallet == "MAIN"
+      and .[0].category == "DEPOSIT"
+      and .[0].description == "e2e-duplicate-deposit"
+      and .[0].ref == $ref
+      and (.[0].amount | tonumber) >= 4.999999
+      and (.[0].amount | tonumber) <= 5.000001
+    ' >/dev/null; do
+    if (( SECONDS > duplicate_deposit_legacy_history_deadline )); then
+      echo "Timed out waiting for duplicate deposit legacy transaction history to show one credited deposit" >&2
+      printf '%s\n' "$duplicate_deposit_legacy_history_body" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  printf '%s\n' "$duplicate_deposit_legacy_history_body" >/tmp/opex-e2e-duplicate-deposit-legacy-history.json
 
   local transfer_sender="e2e-transfer-sender-$(date +%s)"
   local transfer_receiver="e2e-transfer-receiver-$(date +%s)"
