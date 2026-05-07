@@ -1047,6 +1047,80 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenFilledMarketOrderAndNoResponseType_whenCreateOrderRequested_thenDefaultToFullResponse(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponses = mutableListOf(
+                null,
+                queryOrderResponse!!.copy(
+                    clientOrderId = "default-full-market-1",
+                    orderId = 102,
+                    direction = OrderDirection.ASK,
+                    constraint = MatchConstraint.IOC,
+                    type = MatchingOrderType.MARKET_ORDER,
+                    price = BigDecimal.ZERO,
+                    quantity = BigDecimal("0.2"),
+                    executedQuantity = BigDecimal("0.2"),
+                    accumulativeQuoteQty = BigDecimal("20.4"),
+                    status = OrderStatus.FILLED
+                )
+            )
+            allTradesResponses = mutableListOf(
+                listOf(
+                    trade(
+                        orderId = 102,
+                        price = BigDecimal("102"),
+                        quantity = BigDecimal("0.2"),
+                        quoteQuantity = BigDecimal("20.4"),
+                        commission = BigDecimal("0.204"),
+                        commissionAsset = "USDT",
+                        isBuyer = false,
+                        isMaker = false
+                    )
+                )
+            )
+        }
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.SELL,
+            type = OrderType.MARKET,
+            timeInForce = null,
+            quantity = BigDecimal("0.2"),
+            quoteOrderQty = null,
+            price = null,
+            newClientOrderId = "default-full-market-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderConstraint).isEqualTo(MatchConstraint.IOC)
+        assertThat(matchingGatewayProxy.createOrderType).isEqualTo(MatchingOrderType.MARKET_ORDER)
+        assertThat(response.orderId).isEqualTo(102)
+        assertThat(response.status).isEqualTo(OrderStatus.FILLED)
+        assertThat(response.price).isEqualByComparingTo(BigDecimal.ZERO)
+        assertThat(response.executedQty).isEqualByComparingTo(BigDecimal("0.2"))
+        assertThat(response.cummulativeQuoteQty).isEqualByComparingTo(BigDecimal("20.4"))
+        assertThat(response.type).isEqualTo(OrderType.MARKET)
+        assertThat(response.side).isEqualTo(OrderSide.SELL)
+        assertThat(response.fills).containsExactly(
+            co.nilin.opex.api.ports.binance.data.FillsData(
+                BigDecimal("102"),
+                BigDecimal("0.2"),
+                BigDecimal("0.204"),
+                "USDT"
+            )
+        )
+        assertThat(queryHandler.allTradesOrderId).isEqualTo(102)
+    }
+
+    @Test
     fun givenAckResponseType_whenCreateOrderRequested_thenSubmitOrderAndReturnAckResponse(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy().apply {
             queryOrderResponses = mutableListOf(

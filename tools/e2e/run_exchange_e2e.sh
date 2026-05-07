@@ -3527,6 +3527,27 @@ main() {
   wait_order_book_level "ETH_USDT" "BID" "102" "0.3"
   wait_binance_account_balance "$api_market_buyer" "USDT" "9.4" "30.6" /tmp/opex-e2e-binance-api-market-buyer-reserved-usdt.json
   expect_2xx_retry "Binance API market seller ask" "binance_private_post '$api_market_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=MARKET&quantity=0.2&newClientOrderId=${api_market_seller_client_id}'" >/tmp/opex-e2e-binance-api-market-ask.json
+  jq -e \
+    --arg clientOrderId "$api_market_seller_client_id" '
+      .symbol == "ETHUSDT" and
+      (.orderId | type == "number") and
+      .orderId > 0 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      .price == 0 and
+      .origQty == 0.2 and
+      .executedQty == 0.2 and
+      .cummulativeQuoteQty == 20.4 and
+      .status == "FILLED" and
+      .type == "MARKET" and
+      .side == "SELL" and
+      (.transactTime | type == "number") and
+      (.fills | length == 1) and
+      .fills[0].price == 102 and
+      .fills[0].qty == 0.2 and
+      .fills[0].commission == 0.204 and
+      .fills[0].commissionAsset == "USDT"
+    ' /tmp/opex-e2e-binance-api-market-ask.json >/dev/null
   wait_user_trade_projection "$api_market_seller" "ETH_USDT" "102" "0.2" "20.4" "0.204" "USDT" false false true /tmp/opex-e2e-binance-api-market-seller-trades.json
   wait_user_trade_projection "$api_market_buyer" "ETH_USDT" "102" "0.2" "20.4" "0.002" "ETH" true true true /tmp/opex-e2e-binance-api-market-buyer-trades.json
   wait_binance_private_order_status_by_client_order_id "$api_market_seller" "ETHUSDT" "$api_market_seller_client_id" "0" "0.2" "FILLED" "0.2" "20.4" "SELL" /tmp/opex-e2e-binance-api-market-seller-query-filled.json "MARKET"
