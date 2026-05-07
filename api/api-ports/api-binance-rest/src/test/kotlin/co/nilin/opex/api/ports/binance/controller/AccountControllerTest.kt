@@ -689,6 +689,7 @@ private class AccountControllerTest {
         assertThat(response.orderId).isEqualTo(100)
         assertThat(response.status).isEqualTo(OrderStatus.NEW)
         assertThat(response.side).isEqualTo(OrderSide.BUY)
+        assertThat(response.fills).isEmpty()
         assertThat(queryHandler.queryOrderCallCount).isEqualTo(2)
         assertThat(queryHandler.queryOrigClientOrderId).isEqualTo("client-1")
         assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
@@ -723,6 +724,7 @@ private class AccountControllerTest {
         assertThat(response.clientOrderId).startsWith("x-")
         assertThat(response.orderId).isEqualTo(100)
         assertThat(response.status).isEqualTo(OrderStatus.NEW)
+        assertThat(response.fills).isEmpty()
         assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo(response.clientOrderId)
@@ -977,7 +979,7 @@ private class AccountControllerTest {
         assertThat(response.clientOrderId).isEqualTo("full-client-1")
         assertThat(response.orderId).isEqualTo(100)
         assertThat(response.status).isEqualTo(OrderStatus.NEW)
-        assertThat(response.fills).isNull()
+        assertThat(response.fills).isEmpty()
     }
 
     @Test

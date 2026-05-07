@@ -720,14 +720,14 @@ class AccountController(
         return fallbackOrder
     }
 
-    private suspend fun orderFills(principal: Principal, internalSymbol: String, order: Order): List<FillsData>? {
-        val orderId = order.orderId ?: return null
+    private suspend fun orderFills(principal: Principal, internalSymbol: String, order: Order): List<FillsData> {
+        val orderId = order.orderId ?: return emptyList()
         if (order.executedQuantity <= BigDecimal.ZERO)
-            return null
+            return emptyList()
 
         val trades = waitForOrderTradeProjection(principal, internalSymbol, orderId, order.executedQuantity)
         if (trades.isEmpty())
-            return null
+            return emptyList()
 
         return trades.map {
             FillsData(

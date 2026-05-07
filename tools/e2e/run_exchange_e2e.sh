@@ -3774,7 +3774,8 @@ main() {
       .type == "LIMIT" and
       .side == "SELL" and
       (.transactTime | type == "number") and
-      (.fills == null)
+      (.fills | type == "array") and
+      (.fills | length == 0)
     ' /tmp/opex-e2e-binance-api-client-cancel-ask.json >/dev/null
   wait_user_open_order "$api_client_cancel_owner" "ETH_USDT" "161" "0.2" /tmp/opex-e2e-binance-api-client-cancel-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "161" "0.2"
@@ -3823,7 +3824,8 @@ main() {
       .type == "LIMIT" and
       .side == "SELL" and
       (.transactTime | type == "number") and
-      (.fills == null)
+      (.fills | type == "array") and
+      (.fills | length == 0)
     ' /tmp/opex-e2e-binance-api-generated-client-ask.json >/dev/null
   wait_user_open_order "$api_generated_client_owner" "ETH_USDT" "167" "0.2" /tmp/opex-e2e-binance-api-generated-client-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "167" "0.2"
@@ -3923,7 +3925,8 @@ main() {
       .type == "LIMIT" and
       .side == "SELL" and
       (.transactTime | type == "number") and
-      (.fills == null)
+      (.fills | type == "array") and
+      (.fills | length == 0)
     ' /tmp/opex-e2e-binance-api-full-ask.json >/dev/null
   wait_user_open_order "$api_full_owner" "ETH_USDT" "169" "0.2" /tmp/opex-e2e-binance-api-full-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "169" "0.2"
