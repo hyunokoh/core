@@ -96,6 +96,7 @@ Runs a real Docker-backed exchange E2E flow:
   36l. Verify Binance-compatible partial fill orderId cancel releases only the remaining locked balance.
   36m. Verify Binance-compatible MARKET sell maps to IOC and settles through the real exchange path.
   36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
+  36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -3351,6 +3352,11 @@ main() {
   local api_market_buy_client_id="e2e-mkt-b-$(date +%s)"
   expect_2xx "Binance API market-buy seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_market_buy_seller}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-eth")" >/dev/null
   expect_2xx "Binance API market-buy buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${api_market_buy_buyer}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-usdt")" >/dev/null
+  expect_http_status "Binance API market-buy without price cap rejected" "400" "$(binance_private_post "$api_market_buy_buyer" "/v3/order" "symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&newClientOrderId=${api_market_buy_client_id}-no-cap")" >/tmp/opex-e2e-binance-api-market-buy-no-cap-reject.json
+  wait_no_user_open_orders "$api_market_buy_buyer" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_order_book_empty "ETH_USDT" "BID"
+  wait_binance_account_balance "$api_market_buy_buyer" "USDT" "40" "0" /tmp/opex-e2e-binance-api-market-buy-no-cap-buyer-usdt-account.json
   expect_2xx_retry "Binance API market-buy maker ask" "binance_private_post '$api_market_buy_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.3&price=103'" >/tmp/opex-e2e-binance-api-market-buy-ask.json
   wait_user_open_order "$api_market_buy_seller" "ETH_USDT" "103" "0.3" /tmp/opex-e2e-binance-api-market-buy-open-orders.json
   local api_market_buy_ask_order_id
@@ -6137,6 +6143,14 @@ main() {
     "remainingMakerQtyCanceled": 0.1,
     "finalMakerStatus": "CANCELED",
     "marketOrderStatus": "FILLED"
+  },
+  "binanceMarketBuyWithoutPriceCapRejection": {
+    "symbol": "ETHUSDT",
+    "buyer": "$api_market_buy_buyer",
+    "status": "HTTP_400",
+    "buyerUsdtAfterReject": 40,
+    "buyerLockedUsdtAfterReject": 0,
+    "bookUnchangedAfterReject": true
   },
   "binanceMyTradesOrderIdIsolation": {
     "symbol": "ETHUSDT",
