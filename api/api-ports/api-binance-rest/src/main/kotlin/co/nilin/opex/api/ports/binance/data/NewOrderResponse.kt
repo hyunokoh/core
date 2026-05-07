@@ -7,7 +7,6 @@ import co.nilin.opex.api.core.inout.TimeInForce
 import co.nilin.opex.api.ports.binance.controller.AccountController
 import com.fasterxml.jackson.annotation.JsonInclude
 import java.math.BigDecimal
-import java.util.*
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class NewOrderResponse(
@@ -15,7 +14,7 @@ data class NewOrderResponse(
     val orderId: Long,
     val orderListId: Long, //Unless OCO, value will be -1
     val clientOrderId: String?,
-    val transactTime: Date,
+    val transactTime: Long,
     val price: BigDecimal?,
     val origQty: BigDecimal?,
     val executedQty: BigDecimal?,

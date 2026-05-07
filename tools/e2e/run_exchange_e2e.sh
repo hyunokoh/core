@@ -99,6 +99,7 @@ Runs a real Docker-backed exchange E2E flow:
   36m. Verify Binance-compatible MARKET sell maps to IOC and settles through the real exchange path.
   36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
   36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
+  36p. Verify Binance-compatible newOrderRespType=ACK still submits through the real exchange path.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -3666,6 +3667,34 @@ main() {
   wait_binance_account_balance "$api_generated_client_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-generated-client-released-account.json
   wait_binance_private_order_status_by_client_order_id "$api_generated_client_owner" "ETHUSDT" "$api_generated_client_id" "167" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-generated-client-query-canceled.json
 
+  local api_ack_owner="e2e-api-ack-$(date +%s)"
+  local api_ack_ref="e2e-api-ack-$(date +%s)"
+  local api_ack_client_id="e2e-ack-$(date +%s)"
+  expect_2xx "Binance API ACK owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_ack_owner}_MAIN?description=e2e-api-ack&transferRef=${api_ack_ref}-eth")" >/dev/null
+  expect_2xx_retry "Binance API ACK response limit ask" "binance_private_post '$api_ack_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=170&newClientOrderId=${api_ack_client_id}&newOrderRespType=ACK'" >/tmp/opex-e2e-binance-api-ack-ask.json
+  jq -e \
+    --arg clientOrderId "$api_ack_client_id" '
+      .symbol == "ETHUSDT" and
+      .orderId == -1 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      (.transactTime | type == "number") and
+      (.price == null) and
+      (.origQty == null) and
+      (.executedQty == null) and
+      (.cummulativeQuoteQty == null) and
+      (.status == null) and
+      (.fills == null)
+    ' /tmp/opex-e2e-binance-api-ack-ask.json >/dev/null
+  wait_user_open_order "$api_ack_owner" "ETH_USDT" "170" "0.2" /tmp/opex-e2e-binance-api-ack-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "170" "0.2"
+  wait_binance_account_balance "$api_ack_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-ack-reserved-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_ack_owner" "ETHUSDT" "$api_ack_client_id" "170" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-ack-query-new.json
+  expect_2xx_retry "Binance API ACK cleanup cancel" "binance_private_delete '$api_ack_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_ack_client_id}'" >/tmp/opex-e2e-binance-api-ack-cancel-response.json
+  wait_no_user_open_orders "$api_ack_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_account_balance "$api_ack_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-ack-released-account.json
+
   local api_scoped_client_owner_one="e2e-api-scoped-client-1-$(date +%s)"
   local api_scoped_client_owner_two="e2e-api-scoped-client-2-$(date +%s)"
   local api_scoped_client_ref="e2e-api-scoped-client-$(date +%s)"
@@ -5330,7 +5359,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,69\nFEE,42\nORDER_CANCEL,35\nORDER_CREATE,65\nORDER_FINALIZED,1\nTRADE,42\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,70\nFEE,42\nORDER_CANCEL,36\nORDER_CREATE,66\nORDER_FINALIZED,1\nTRADE,42\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -5341,7 +5370,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,40.04400000\nUSDT,2884.59400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,41.04400000\nUSDT,2884.59400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -5405,7 +5434,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,30\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,65\nTradeEvent,PROCESSED,85\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,31\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,66\nTradeEvent,PROCESSED,85\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'

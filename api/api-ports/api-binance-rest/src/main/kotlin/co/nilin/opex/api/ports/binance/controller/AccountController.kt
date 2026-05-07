@@ -127,7 +127,7 @@ class AccountController(
             -1,
             -1,
             effectiveClientOrderId,
-            Date(),
+            Date().time,
             null,
             null,
             null,
@@ -496,7 +496,7 @@ class AccountController(
     ) {
         if (icebergQty != null)
             throw OpexError.InvalidRequestParam.exception("Parameter 'icebergQty' is either missing or invalid")
-        if (newOrderRespType != null)
+        if (newOrderRespType != null && newOrderRespType != OrderResponseType.ACK)
             throw OpexError.InvalidRequestParam.exception("Parameter 'newOrderRespType' is either missing or invalid")
     }
 

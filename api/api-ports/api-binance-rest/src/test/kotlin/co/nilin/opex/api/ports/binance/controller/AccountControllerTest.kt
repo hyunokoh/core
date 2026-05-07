@@ -884,7 +884,7 @@ private class AccountControllerTest {
     }
 
     @Test
-    fun givenResponseType_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+    fun givenUnsupportedResponseType_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
 
@@ -901,7 +901,7 @@ private class AccountControllerTest {
                     newClientOrderId = null,
                     stopPrice = null,
                     icebergQty = null,
-                    newOrderRespType = OrderResponseType.ACK,
+                    newOrderRespType = OrderResponseType.RESULT,
                     recvWindow = null,
                     timestamp = signedTimestamp(),
                     securityContext = securityContext()
@@ -910,6 +910,40 @@ private class AccountControllerTest {
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
+    }
+
+    @Test
+    fun givenAckResponseType_whenCreateOrderRequested_thenSubmitOrderAndReturnAckResponse(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply { queryOrderResponse = null }
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("100"),
+            newClientOrderId = "ack-client-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = OrderResponseType.ACK,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("ack-client-1")
+        assertThat(response.symbol).isEqualTo("ETHUSDT")
+        assertThat(response.clientOrderId).isEqualTo("ack-client-1")
+        assertThat(response.orderId).isEqualTo(-1)
+        assertThat(response.transactTime).isPositive()
+        assertThat(response.price).isNull()
+        assertThat(response.status).isNull()
+        assertThat(response.fills).isNull()
     }
 
     @Test
