@@ -121,7 +121,7 @@ Runs a real Docker-backed exchange E2E flow:
   46. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
   47. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
   48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet or transaction history.
-  49. Verify wallet transfer success/rejection/idempotency through the real HTTP path and ledger.
+  49. Verify wallet transfer success/rejection/idempotency through the real HTTP path, ledger, and transaction API.
   50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, user history, and transaction history.
   51. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
   52. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
@@ -5713,6 +5713,54 @@ main() {
     from transaction
     where transfer_ref in ('${transfer_ref}-negative', '${transfer_ref}-overbalance');
   "
+  local transfer_sender_history_body transfer_receiver_history_body
+  local transfer_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until transfer_sender_history_body="$(expect_2xx "wallet transfer sender transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${transfer_sender}" '{"coin":"USDT","category":"NORMAL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    printf '%s\n' "$transfer_sender_history_body" | jq -e \
+      --arg sender "$transfer_sender" \
+      --arg receiver "$transfer_receiver" \
+      --arg transferRef "$transfer_ref" '
+      length == 1
+      and .[0].senderUuid == $sender
+      and .[0].receiverUuid == $receiver
+      and .[0].currency == "USDT"
+      and .[0].category == "NORMAL"
+      and .[0].srcWalletType == "MAIN"
+      and .[0].destWalletType == "MAIN"
+      and .[0].ref == $transferRef
+      and .[0].description == "e2e wallet transfer"
+      and .[0].withdraw == true
+      and ((.[0].amount | tonumber) >= 2.999999)
+      and ((.[0].amount | tonumber) <= 3.000001)
+    ' >/dev/null &&
+    transfer_receiver_history_body="$(expect_2xx "wallet transfer receiver transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${transfer_receiver}" '{"coin":"USDT","category":"NORMAL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    printf '%s\n' "$transfer_receiver_history_body" | jq -e \
+      --arg sender "$transfer_sender" \
+      --arg receiver "$transfer_receiver" \
+      --arg transferRef "$transfer_ref" '
+      length == 1
+      and .[0].senderUuid == $sender
+      and .[0].receiverUuid == $receiver
+      and .[0].currency == "USDT"
+      and .[0].category == "NORMAL"
+      and .[0].srcWalletType == "MAIN"
+      and .[0].destWalletType == "MAIN"
+      and .[0].ref == $transferRef
+      and .[0].description == "e2e wallet transfer"
+      and .[0].withdraw == false
+      and ((.[0].amount | tonumber) >= 2.999999)
+      and ((.[0].amount | tonumber) <= 3.000001)
+    ' >/dev/null; do
+    if (( SECONDS > transfer_history_deadline )); then
+      echo "Timed out waiting for wallet transfer transaction history to reflect both sides" >&2
+      printf 'sender history: %s\n' "$transfer_sender_history_body" >&2
+      printf 'receiver history: %s\n' "$transfer_receiver_history_body" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  printf '%s\n' "$transfer_sender_history_body" >/tmp/opex-e2e-wallet-transfer-sender-history.json
+  printf '%s\n' "$transfer_receiver_history_body" >/tmp/opex-e2e-wallet-transfer-receiver-history.json
 
   local withdraw_owner="e2e-withdraw-$(date +%s)"
   local withdraw_ref="e2e-withdraw-$(date +%s)"
