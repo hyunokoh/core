@@ -102,6 +102,7 @@ Runs a real Docker-backed exchange E2E flow:
   36p. Verify Binance-compatible newOrderRespType=ACK still submits through the real exchange path.
   36q. Verify Binance-compatible cancel newClientOrderId is returned without changing the real cancel path.
   36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
+  36s. Verify Binance-compatible LIMIT IOC with no liquidity cancels and releases reserved funds.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -3574,6 +3575,15 @@ main() {
   wait_binance_private_order_status_by_order_id "$api_market_buy_seller" "ETHUSDT" "$api_market_buy_ask_order_id" "103" "0.3" "CANCELED" "0.2" "20.6" "SELL" /tmp/opex-e2e-binance-api-market-buy-seller-query-canceled.json
   wait_binance_account_balance "$api_market_buy_seller" "ETH" "0.8" "0" /tmp/opex-e2e-binance-api-market-buy-seller-released-eth-account.json
 
+  local api_ioc_limit_owner="e2e-api-ioc-limit-$(date +%s)"
+  local api_ioc_limit_ref="e2e-api-ioc-limit-$(date +%s)"
+  expect_2xx "Binance API IOC limit owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_ioc_limit_owner}_MAIN?description=e2e-api-ioc-limit&transferRef=${api_ioc_limit_ref}-eth")" >/dev/null
+  expect_2xx_retry "Binance API IOC limit ask without liquidity" "binance_private_post '$api_ioc_limit_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=IOC&quantity=0.2&price=171'" >/tmp/opex-e2e-binance-api-ioc-limit-ask.json
+  wait_no_user_open_orders "$api_ioc_limit_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_private_order_projection "$api_ioc_limit_owner" "ETHUSDT" "171" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-ioc-limit-orders.json
+  wait_binance_account_balance "$api_ioc_limit_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-ioc-limit-owner-released-eth-account.json
+
   local api_cancel_owner="e2e-api-cancel-$(date +%s)"
   local api_cancel_ref="e2e-api-cancel-$(date +%s)"
   expect_2xx "Binance API cancel ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_cancel_owner}_MAIN?description=e2e-api-cancel&transferRef=${api_cancel_ref}-eth")" >/dev/null
@@ -5394,7 +5404,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,70\nFEE,42\nORDER_CANCEL,36\nORDER_CREATE,66\nORDER_FINALIZED,1\nTRADE,42\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,71\nFEE,42\nORDER_CANCEL,37\nORDER_CREATE,67\nORDER_FINALIZED,1\nTRADE,42\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -5405,7 +5415,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,41.04400000\nUSDT,2884.59400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,42.04400000\nUSDT,2884.59400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -5469,7 +5479,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,31\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,66\nTradeEvent,PROCESSED,85\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,32\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,67\nTradeEvent,PROCESSED,85\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -6392,6 +6402,15 @@ main() {
     "buyerLockedUsdtAfterReject": 0,
     "bookUnchangedAfterReject": true
   },
+  "binanceIocLimitNoLiquidityScenario": {
+    "symbol": "ETHUSDT",
+    "owner": "$api_ioc_limit_owner",
+    "price": 171,
+    "quantity": 0.2,
+    "finalStatus": "CANCELED",
+    "ownerEthAfterCancel": 1,
+    "ownerLockedEthAfterCancel": 0
+  },
   "binanceMyTradesOrderIdIsolation": {
     "symbol": "ETHUSDT",
     "owner": "$api_order_buyer",
@@ -6743,10 +6762,10 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 69,
+      "DEPOSIT": 71,
       "FEE": 42,
-      "ORDER_CANCEL": 35,
-      "ORDER_CREATE": 65,
+      "ORDER_CANCEL": 37,
+      "ORDER_CREATE": 67,
       "ORDER_FINALIZED": 1,
       "TRADE": 42,
       "WITHDRAW_ACCEPT": 1,
@@ -6756,7 +6775,7 @@ main() {
     },
     "walletAggregateBalances": {
       "BTC": 0.002,
-      "ETH": 40.044,
+      "ETH": 42.044,
       "USDT": 2884.594
     },
     "walletWithdrawStatuses": {
@@ -6770,9 +6789,9 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 30,
+      "CancelOrderEvent": 32,
       "RejectOrderEvent": 2,
-      "SubmitOrderEvent": 65,
+      "SubmitOrderEvent": 67,
       "TradeEvent": 85,
       "UpdatedOrderEvent": 3
     },
