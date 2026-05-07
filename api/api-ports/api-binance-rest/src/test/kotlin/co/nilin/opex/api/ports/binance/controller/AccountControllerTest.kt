@@ -900,32 +900,84 @@ private class AccountControllerTest {
     }
 
     @Test
-    fun givenUnsupportedResponseType_whenCreateOrderRequested_thenRejectBeforeGatewayCall(): Unit = runBlocking {
+    fun givenResultResponseType_whenCreateOrderRequested_thenSubmitOrderAndReturnProjectedResponse(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponses = mutableListOf(
+                null,
+                queryOrderResponse!!.copy(clientOrderId = "result-client-1")
+            )
+        }
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
-        val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
+        val controller = controller(queryHandler, matchingGatewayProxy)
 
-        assertThatThrownBy {
-            runBlocking {
-                controller.createNewOrder(
-                    symbol = "ETHUSDT",
-                    side = OrderSide.SELL,
-                    type = OrderType.LIMIT,
-                    timeInForce = TimeInForce.GTC,
-                    quantity = BigDecimal("0.5"),
-                    quoteOrderQty = null,
-                    price = BigDecimal("100"),
-                    newClientOrderId = null,
-                    stopPrice = null,
-                    icebergQty = null,
-                    newOrderRespType = OrderResponseType.RESULT,
-                    recvWindow = null,
-                    timestamp = signedTimestamp(),
-                    securityContext = securityContext()
-                )
-            }
-        }.isOpexError(OpexError.InvalidRequestParam)
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("100"),
+            newClientOrderId = "result-client-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = OrderResponseType.RESULT,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
 
-        assertThat(matchingGatewayProxy.createOrderCallCount).isZero()
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("result-client-1")
+        assertThat(response.symbol).isEqualTo("ETHUSDT")
+        assertThat(response.clientOrderId).isEqualTo("result-client-1")
+        assertThat(response.orderId).isEqualTo(100)
+        assertThat(response.status).isEqualTo(OrderStatus.NEW)
+        assertThat(response.price).isEqualByComparingTo(BigDecimal("100"))
+        assertThat(response.origQty).isEqualByComparingTo(BigDecimal("0.5"))
+        assertThat(response.executedQty).isEqualByComparingTo(BigDecimal.ZERO)
+        assertThat(response.cummulativeQuoteQty).isEqualByComparingTo(BigDecimal.ZERO)
+        assertThat(response.timeInForce).isEqualTo(TimeInForce.GTC)
+        assertThat(response.type).isEqualTo(OrderType.LIMIT)
+        assertThat(response.side).isEqualTo(OrderSide.SELL)
+        assertThat(response.fills).isNull()
+    }
+
+    @Test
+    fun givenFullResponseType_whenCreateOrderRequested_thenSubmitOrderAndReturnProjectedResponse(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponses = mutableListOf(
+                null,
+                queryOrderResponse!!.copy(clientOrderId = "full-client-1")
+            )
+        }
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.SELL,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.GTC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("100"),
+            newClientOrderId = "full-client-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = OrderResponseType.FULL,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("full-client-1")
+        assertThat(response.symbol).isEqualTo("ETHUSDT")
+        assertThat(response.clientOrderId).isEqualTo("full-client-1")
+        assertThat(response.orderId).isEqualTo(100)
+        assertThat(response.status).isEqualTo(OrderStatus.NEW)
+        assertThat(response.fills).isNull()
     }
 
     @Test

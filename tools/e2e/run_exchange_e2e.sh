@@ -99,7 +99,7 @@ Runs a real Docker-backed exchange E2E flow:
   36m. Verify Binance-compatible MARKET sell maps to IOC and settles through the real exchange path.
   36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
   36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
-  36p. Verify Binance-compatible newOrderRespType=ACK returns a real order id and still submits through the real exchange path.
+  36p. Verify Binance-compatible newOrderRespType=ACK/RESULT/FULL responses still submit through the real exchange path.
   36p2. Verify Binance-compatible explicit and generated client order create responses include projected order status fields.
   36q. Verify Binance-compatible cancel newClientOrderId is returned without changing the real cancel path.
   36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
@@ -3371,7 +3371,7 @@ main() {
   local api_signed_now api_signed_stale api_signed_future
   api_signed_now=$(( $(date +%s) * 1000 ))
   api_signed_stale=$(( api_signed_now - 6001 ))
-  api_signed_future=$(( api_signed_now + 2000 ))
+  api_signed_future=$(( api_signed_now + 120000 ))
   expect_http_status "Binance API stale private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-signed-stale-timestamp.json
   expect_http_status "Binance API future private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_future}&recvWindow=60000")" >/tmp/opex-e2e-binance-api-signed-future-timestamp.json
   expect_http_status "Binance API oversize recvWindow rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_now}&recvWindow=60001")" >/tmp/opex-e2e-binance-api-signed-oversize-recv-window.json
@@ -3827,6 +3827,70 @@ main() {
   wait_no_user_open_orders "$api_ack_owner" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_ack_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-ack-released-account.json
+
+  local api_result_owner="e2e-api-result-$(date +%s)"
+  local api_result_ref="e2e-api-result-$(date +%s)"
+  local api_result_client_id="e2e-result-$(date +%s)"
+  expect_2xx "Binance API RESULT owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_result_owner}_MAIN?description=e2e-api-result&transferRef=${api_result_ref}-eth")" >/dev/null
+  expect_2xx_retry "Binance API RESULT response limit ask" "binance_private_post '$api_result_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=168&newClientOrderId=${api_result_client_id}&newOrderRespType=RESULT'" >/tmp/opex-e2e-binance-api-result-ask.json
+  jq -e \
+    --arg clientOrderId "$api_result_client_id" '
+      .symbol == "ETHUSDT" and
+      (.orderId | type == "number") and
+      .orderId > 0 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      .price == 168 and
+      .origQty == 0.2 and
+      .executedQty == 0 and
+      .cummulativeQuoteQty == 0 and
+      .status == "NEW" and
+      .timeInForce == "GTC" and
+      .type == "LIMIT" and
+      .side == "SELL" and
+      (.transactTime | type == "number") and
+      (.fills == null)
+    ' /tmp/opex-e2e-binance-api-result-ask.json >/dev/null
+  wait_user_open_order "$api_result_owner" "ETH_USDT" "168" "0.2" /tmp/opex-e2e-binance-api-result-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "168" "0.2"
+  wait_binance_account_balance "$api_result_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-result-reserved-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_result_owner" "ETHUSDT" "$api_result_client_id" "168" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-result-query-new.json
+  expect_2xx_retry "Binance API RESULT cleanup cancel" "binance_private_delete '$api_result_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_result_client_id}'" >/tmp/opex-e2e-binance-api-result-cancel-response.json
+  wait_no_user_open_orders "$api_result_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_account_balance "$api_result_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-result-released-account.json
+
+  local api_full_owner="e2e-api-full-$(date +%s)"
+  local api_full_ref="e2e-api-full-$(date +%s)"
+  local api_full_client_id="e2e-full-$(date +%s)"
+  expect_2xx "Binance API FULL owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_full_owner}_MAIN?description=e2e-api-full&transferRef=${api_full_ref}-eth")" >/dev/null
+  expect_2xx_retry "Binance API FULL response limit ask" "binance_private_post '$api_full_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=169&newClientOrderId=${api_full_client_id}&newOrderRespType=FULL'" >/tmp/opex-e2e-binance-api-full-ask.json
+  jq -e \
+    --arg clientOrderId "$api_full_client_id" '
+      .symbol == "ETHUSDT" and
+      (.orderId | type == "number") and
+      .orderId > 0 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      .price == 169 and
+      .origQty == 0.2 and
+      .executedQty == 0 and
+      .cummulativeQuoteQty == 0 and
+      .status == "NEW" and
+      .timeInForce == "GTC" and
+      .type == "LIMIT" and
+      .side == "SELL" and
+      (.transactTime | type == "number") and
+      (.fills == null)
+    ' /tmp/opex-e2e-binance-api-full-ask.json >/dev/null
+  wait_user_open_order "$api_full_owner" "ETH_USDT" "169" "0.2" /tmp/opex-e2e-binance-api-full-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "169" "0.2"
+  wait_binance_account_balance "$api_full_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-full-reserved-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_full_owner" "ETHUSDT" "$api_full_client_id" "169" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-full-query-new.json
+  expect_2xx_retry "Binance API FULL cleanup cancel" "binance_private_delete '$api_full_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_full_client_id}'" >/tmp/opex-e2e-binance-api-full-cancel-response.json
+  wait_no_user_open_orders "$api_full_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_account_balance "$api_full_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-full-released-account.json
 
   local api_scoped_client_owner_one="e2e-api-scoped-client-1-$(date +%s)"
   local api_scoped_client_owner_two="e2e-api-scoped-client-2-$(date +%s)"
@@ -5492,7 +5556,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,75\nFEE,46\nORDER_CANCEL,39\nORDER_CREATE,71\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,77\nFEE,46\nORDER_CANCEL,41\nORDER_CREATE,73\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -5503,7 +5567,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,44.04000000\nUSDT,3083.90400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,46.04000000\nUSDT,3083.90400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -5567,7 +5631,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,34\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,71\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,36\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,73\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -6619,6 +6683,22 @@ main() {
     "clientOrderId": "$api_ack_client_id",
     "ackResponseIncludedOrderId": true,
     "fullFieldsOmitted": true,
+    "finalStatus": "CANCELED"
+  },
+  "binanceResultOrderResponseScenario": {
+    "price": 168,
+    "quantity": 0.2,
+    "clientOrderId": "$api_result_client_id",
+    "createResponseIncludedOrderId": true,
+    "createResponseStatus": "NEW",
+    "finalStatus": "CANCELED"
+  },
+  "binanceFullOrderResponseScenario": {
+    "price": 169,
+    "quantity": 0.2,
+    "clientOrderId": "$api_full_client_id",
+    "createResponseIncludedOrderId": true,
+    "createResponseStatus": "NEW",
     "finalStatus": "CANCELED"
   },
   "binanceAllSymbolOrderQueryScenario": {

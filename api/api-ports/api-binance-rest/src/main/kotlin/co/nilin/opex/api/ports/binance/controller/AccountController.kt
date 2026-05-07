@@ -104,7 +104,7 @@ class AccountController(
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         validateNewOrderParams(type, side, price, quantity, timeInForce, stopPrice, quoteOrderQty)
         validateNewClientOrderId(newClientOrderId)
-        validateUnsupportedNewOrderParams(icebergQty, newOrderRespType)
+        validateUnsupportedNewOrderParams(icebergQty)
         val authentication = securityContext.jwtAuthentication()
         val effectiveClientOrderId = newClientOrderId ?: generateClientOrderId()
         rejectDuplicateOpenClientOrderId(Principal { authentication.name }, internalSymbol, newClientOrderId)
@@ -521,14 +521,9 @@ class AccountController(
         }
     }
 
-    private fun validateUnsupportedNewOrderParams(
-        icebergQty: BigDecimal?,
-        newOrderRespType: OrderResponseType?
-    ) {
+    private fun validateUnsupportedNewOrderParams(icebergQty: BigDecimal?) {
         if (icebergQty != null)
             throw OpexError.InvalidRequestParam.exception("Parameter 'icebergQty' is either missing or invalid")
-        if (newOrderRespType != null && newOrderRespType != OrderResponseType.ACK)
-            throw OpexError.InvalidRequestParam.exception("Parameter 'newOrderRespType' is either missing or invalid")
     }
 
     private fun validateNewClientOrderId(newClientOrderId: String?) {
