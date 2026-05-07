@@ -127,16 +127,12 @@ class AccountController(
             authentication.tokenValue()
         )
 
-        val projectedOrder = if (newClientOrderId == null) {
-            null
-        } else {
-            waitForSubmittedOrderProjection(
-                Principal { authentication.name },
-                internalSymbol,
-                effectiveClientOrderId,
-                submitTime
-            )
-        }
+        val projectedOrder = waitForSubmittedOrderProjection(
+            Principal { authentication.name },
+            internalSymbol,
+            effectiveClientOrderId,
+            submitTime
+        )
 
         if (newOrderRespType == OrderResponseType.ACK) {
             return NewOrderResponse(

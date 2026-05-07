@@ -100,7 +100,7 @@ Runs a real Docker-backed exchange E2E flow:
   36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
   36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
   36p. Verify Binance-compatible newOrderRespType=ACK returns a real order id and still submits through the real exchange path.
-  36p2. Verify Binance-compatible client order create responses include projected order status fields.
+  36p2. Verify Binance-compatible explicit and generated client order create responses include projected order status fields.
   36q. Verify Binance-compatible cancel newClientOrderId is returned without changing the real cancel path.
   36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
   36s. Verify Binance-compatible LIMIT IOC with no liquidity cancels and releases reserved funds.
@@ -3765,6 +3765,24 @@ main() {
     cat /tmp/opex-e2e-binance-api-generated-client-ask.json >&2
     exit 1
   fi
+  jq -e \
+    --arg clientOrderId "$api_generated_client_id" '
+      .symbol == "ETHUSDT" and
+      (.orderId | type == "number") and
+      .orderId > 0 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      .price == 167 and
+      .origQty == 0.2 and
+      .executedQty == 0 and
+      .cummulativeQuoteQty == 0 and
+      .status == "NEW" and
+      .timeInForce == "GTC" and
+      .type == "LIMIT" and
+      .side == "SELL" and
+      (.transactTime | type == "number") and
+      (.fills == null)
+    ' /tmp/opex-e2e-binance-api-generated-client-ask.json >/dev/null
   wait_user_open_order "$api_generated_client_owner" "ETH_USDT" "167" "0.2" /tmp/opex-e2e-binance-api-generated-client-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "167" "0.2"
   wait_binance_account_balance "$api_generated_client_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-generated-client-reserved-account.json
@@ -6590,6 +6608,8 @@ main() {
     "price": 167,
     "quantity": 0.2,
     "clientOrderId": "$api_generated_client_id",
+    "createResponseIncludedOrderId": true,
+    "createResponseStatus": "NEW",
     "openOrdersVerified": true,
     "finalStatus": "CANCELED"
   },

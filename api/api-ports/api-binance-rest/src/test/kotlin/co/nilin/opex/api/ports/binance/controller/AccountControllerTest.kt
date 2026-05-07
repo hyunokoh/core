@@ -721,7 +721,9 @@ private class AccountControllerTest {
         assertThat(response.clientOrderId).isNotBlank()
         assertThat(response.clientOrderId).hasSizeLessThanOrEqualTo(72)
         assertThat(response.clientOrderId).startsWith("x-")
-        assertThat(queryHandler.queryOrderCallCount).isZero()
+        assertThat(response.orderId).isEqualTo(100)
+        assertThat(response.status).isEqualTo(OrderStatus.NEW)
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo(response.clientOrderId)
     }
@@ -1129,6 +1131,8 @@ private class AccountControllerTest {
                 throw queryOrderFailures.removeAt(0)
             if (queryOrderResponses.isNotEmpty())
                 return queryOrderResponses.removeAt(0)
+            if (origClientOrderId != null && origClientOrderId.startsWith("x-"))
+                return queryOrderResponse?.copy(clientOrderId = origClientOrderId)
             return queryOrderResponse
         }
 
