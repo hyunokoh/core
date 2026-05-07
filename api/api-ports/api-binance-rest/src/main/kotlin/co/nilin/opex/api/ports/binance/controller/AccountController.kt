@@ -13,6 +13,7 @@ import io.swagger.annotations.ApiParam
 import io.swagger.annotations.ApiResponse
 import io.swagger.annotations.Example
 import io.swagger.annotations.ExampleProperty
+import kotlinx.coroutines.delay
 import org.springframework.http.MediaType
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.annotation.CurrentSecurityContext
@@ -36,6 +37,8 @@ class AccountController(
     private val defaultAccountQueryLimit = 500
     private val maxAccountQueryLimit = 1000
     private val maxClientOrderIdLength = 72
+    private val orderProjectionAttempts = 40
+    private val orderProjectionPollDelayMs = 50L
 
     /*
     Send in a new order.
@@ -110,6 +113,7 @@ class AccountController(
             else -> timeInForce?.asMatchConstraint()
         }
 
+        val submitTime = Date().time
         matchingGatewayProxy.createNewOrder(
             authentication.name,
             internalSymbol,
@@ -122,7 +126,38 @@ class AccountController(
             effectiveClientOrderId,
             authentication.tokenValue()
         )
-        return NewOrderResponse(
+
+        val projectedOrder = if (newClientOrderId == null) {
+            null
+        } else {
+            waitForSubmittedOrderProjection(
+                Principal { authentication.name },
+                internalSymbol,
+                effectiveClientOrderId,
+                submitTime
+            )
+        }
+
+        if (newOrderRespType == OrderResponseType.ACK) {
+            return NewOrderResponse(
+                symbol,
+                projectedOrder?.orderId ?: -1,
+                -1,
+                effectiveClientOrderId,
+                submitTime,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+            )
+        }
+
+        return projectedOrder?.asNewOrderResponse(symbol, submitTime) ?: NewOrderResponse(
             symbol,
             -1,
             -1,
@@ -612,6 +647,47 @@ class AccountController(
         Date.from(updateDate.atZone(ZoneId.systemDefault()).toInstant()),
         status.isWorking(),
         quoteQuantity
+    )
+
+    private suspend fun waitForSubmittedOrderProjection(
+        principal: Principal,
+        internalSymbol: String,
+        clientOrderId: String,
+        submitTime: Long
+    ): Order? {
+        repeat(orderProjectionAttempts) {
+            val order = try {
+                queryHandler.queryOrder(principal, internalSymbol, null, clientOrderId)
+            } catch (ex: WebClientResponseException) {
+                null
+            }
+            if (
+                order != null &&
+                order.clientOrderId == clientOrderId &&
+                order.createDate.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() >= submitTime - 1000
+            ) {
+                return order
+            }
+            delay(orderProjectionPollDelayMs)
+        }
+        return null
+    }
+
+    private fun Order.asNewOrderResponse(symbol: String, submitTime: Long) = NewOrderResponse(
+        symbol,
+        orderId ?: -1,
+        -1,
+        clientOrderId ?: "",
+        submitTime,
+        price,
+        quantity,
+        executedQuantity,
+        accumulativeQuoteQty,
+        status,
+        constraint.asTimeInForce(),
+        type.asOrderType(),
+        direction.asOrderSide(),
+        null
     )
 
 }

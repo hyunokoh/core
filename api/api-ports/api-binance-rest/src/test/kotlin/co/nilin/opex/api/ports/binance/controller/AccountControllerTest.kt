@@ -660,7 +660,10 @@ private class AccountControllerTest {
     @Test
     fun givenClientOrderId_whenCreateOrderRequested_thenSubmitExpectedMatchingOrder(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy().apply {
-            queryOrderResponse = null
+            queryOrderResponses = mutableListOf(
+                null,
+                queryOrderResponse!!.copy(clientOrderId = "client-1", direction = OrderDirection.BID)
+            )
         }
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(queryHandler = queryHandler, matchingGatewayProxy = matchingGatewayProxy)
@@ -683,7 +686,10 @@ private class AccountControllerTest {
         )
 
         assertThat(response.clientOrderId).isEqualTo("client-1")
-        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
+        assertThat(response.orderId).isEqualTo(100)
+        assertThat(response.status).isEqualTo(OrderStatus.NEW)
+        assertThat(response.side).isEqualTo(OrderSide.BUY)
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(2)
         assertThat(queryHandler.queryOrigClientOrderId).isEqualTo("client-1")
         assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("client-1")
@@ -754,7 +760,10 @@ private class AccountControllerTest {
     @Test
     fun givenClosedClientOrderId_whenCreateOrderRequested_thenSubmitOrder(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy().apply {
-            queryOrderResponse = queryOrderResponse!!.copy(status = OrderStatus.CANCELED)
+            queryOrderResponses = mutableListOf(
+                queryOrderResponse!!.copy(status = OrderStatus.CANCELED),
+                queryOrderResponse!!.copy(clientOrderId = "client-1", direction = OrderDirection.BID)
+            )
         }
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(queryHandler = queryHandler, matchingGatewayProxy = matchingGatewayProxy)
@@ -777,7 +786,9 @@ private class AccountControllerTest {
         )
 
         assertThat(response.clientOrderId).isEqualTo("client-1")
-        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
+        assertThat(response.orderId).isEqualTo(100)
+        assertThat(response.status).isEqualTo(OrderStatus.NEW)
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(2)
         assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("client-1")
     }
@@ -785,12 +796,17 @@ private class AccountControllerTest {
     @Test
     fun givenMissingClientOrderIdLookup_whenCreateOrderRequested_thenSubmitOrder(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy().apply {
-            queryOrderFailure = WebClientResponseException.create(
-                404,
-                "Not Found",
-                HttpHeaders.EMPTY,
-                ByteArray(0),
-                null
+            queryOrderFailures = mutableListOf(
+                WebClientResponseException.create(
+                    404,
+                    "Not Found",
+                    HttpHeaders.EMPTY,
+                    ByteArray(0),
+                    null
+                )
+            )
+            queryOrderResponses = mutableListOf(
+                queryOrderResponse!!.copy(clientOrderId = "client-missing", direction = OrderDirection.BID)
             )
         }
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
@@ -813,7 +829,7 @@ private class AccountControllerTest {
             securityContext = securityContext()
         )
 
-        assertThat(queryHandler.queryOrderCallCount).isEqualTo(1)
+        assertThat(queryHandler.queryOrderCallCount).isEqualTo(2)
         assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
         assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("client-missing")
     }
@@ -912,7 +928,12 @@ private class AccountControllerTest {
 
     @Test
     fun givenAckResponseType_whenCreateOrderRequested_thenSubmitOrderAndReturnAckResponse(): Unit = runBlocking {
-        val queryHandler = RecordingMarketUserDataProxy().apply { queryOrderResponse = null }
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponses = mutableListOf(
+                null,
+                queryOrderResponse!!.copy(clientOrderId = "ack-client-1")
+            )
+        }
         val matchingGatewayProxy = RecordingMatchingGatewayProxy()
         val controller = controller(queryHandler, matchingGatewayProxy)
 
@@ -937,7 +958,7 @@ private class AccountControllerTest {
         assertThat(matchingGatewayProxy.createOrderClientOrderId).isEqualTo("ack-client-1")
         assertThat(response.symbol).isEqualTo("ETHUSDT")
         assertThat(response.clientOrderId).isEqualTo("ack-client-1")
-        assertThat(response.orderId).isEqualTo(-1)
+        assertThat(response.orderId).isEqualTo(100)
         assertThat(response.transactTime).isPositive()
         assertThat(response.price).isNull()
         assertThat(response.status).isNull()
@@ -1091,7 +1112,8 @@ private class AccountControllerTest {
         var queryOrderId: Long? = null
         var queryOrigClientOrderId: String? = null
         var queryOrderResponse: Order? = order()
-        var queryOrderFailure: RuntimeException? = null
+        var queryOrderResponses: MutableList<Order?> = mutableListOf()
+        var queryOrderFailures: MutableList<RuntimeException> = mutableListOf()
 
         override suspend fun queryOrder(
             principal: Principal,
@@ -1103,7 +1125,10 @@ private class AccountControllerTest {
             queryOrderSymbol = symbol
             queryOrderId = orderId
             queryOrigClientOrderId = origClientOrderId
-            queryOrderFailure?.let { throw it }
+            if (queryOrderFailures.isNotEmpty())
+                throw queryOrderFailures.removeAt(0)
+            if (queryOrderResponses.isNotEmpty())
+                return queryOrderResponses.removeAt(0)
             return queryOrderResponse
         }
 

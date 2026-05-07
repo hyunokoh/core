@@ -99,7 +99,8 @@ Runs a real Docker-backed exchange E2E flow:
   36m. Verify Binance-compatible MARKET sell maps to IOC and settles through the real exchange path.
   36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
   36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
-  36p. Verify Binance-compatible newOrderRespType=ACK still submits through the real exchange path.
+  36p. Verify Binance-compatible newOrderRespType=ACK returns a real order id and still submits through the real exchange path.
+  36p2. Verify Binance-compatible client order create responses include projected order status fields.
   36q. Verify Binance-compatible cancel newClientOrderId is returned without changing the real cancel path.
   36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
   36s. Verify Binance-compatible LIMIT IOC with no liquidity cancels and releases reserved funds.
@@ -3715,6 +3716,24 @@ main() {
   local api_client_cancel_new_id="e2e-cancel-reply-$(date +%s)"
   expect_2xx "Binance API client cancel ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_client_cancel_owner}_MAIN?description=e2e-api-client-cancel&transferRef=${api_client_cancel_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API client-id cancel owner limit ask" "binance_private_post '$api_client_cancel_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=161&newClientOrderId=${api_client_cancel_id}'" >/tmp/opex-e2e-binance-api-client-cancel-ask.json
+  jq -e \
+    --arg clientOrderId "$api_client_cancel_id" '
+      .symbol == "ETHUSDT" and
+      (.orderId | type == "number") and
+      .orderId > 0 and
+      .orderListId == -1 and
+      .clientOrderId == $clientOrderId and
+      .price == 161 and
+      .origQty == 0.2 and
+      .executedQty == 0 and
+      .cummulativeQuoteQty == 0 and
+      .status == "NEW" and
+      .timeInForce == "GTC" and
+      .type == "LIMIT" and
+      .side == "SELL" and
+      (.transactTime | type == "number") and
+      (.fills == null)
+    ' /tmp/opex-e2e-binance-api-client-cancel-ask.json >/dev/null
   wait_user_open_order "$api_client_cancel_owner" "ETH_USDT" "161" "0.2" /tmp/opex-e2e-binance-api-client-cancel-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "161" "0.2"
   wait_binance_account_balance "$api_client_cancel_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-client-cancel-reserved-account.json
@@ -3770,7 +3789,8 @@ main() {
   jq -e \
     --arg clientOrderId "$api_ack_client_id" '
       .symbol == "ETHUSDT" and
-      .orderId == -1 and
+      (.orderId | type == "number") and
+      .orderId > 0 and
       .orderListId == -1 and
       .clientOrderId == $clientOrderId and
       (.transactTime | type == "number") and
@@ -6550,6 +6570,8 @@ main() {
     "owner": "$api_client_cancel_owner",
     "intruder": "${api_client_cancel_owner}-intruder",
     "clientOrderId": "$api_client_cancel_id",
+    "createResponseIncludedOrderId": true,
+    "createResponseStatus": "NEW",
     "lookupStatus": "HTTP_404",
     "cancelStatus": "HTTP_404",
     "ownerOrderStatusAfterIntruderCancel": "NEW",
@@ -6569,6 +6591,14 @@ main() {
     "quantity": 0.2,
     "clientOrderId": "$api_generated_client_id",
     "openOrdersVerified": true,
+    "finalStatus": "CANCELED"
+  },
+  "binanceAckOrderResponseScenario": {
+    "price": 170,
+    "quantity": 0.2,
+    "clientOrderId": "$api_ack_client_id",
+    "ackResponseIncludedOrderId": true,
+    "fullFieldsOmitted": true,
     "finalStatus": "CANCELED"
   },
   "binanceAllSymbolOrderQueryScenario": {
