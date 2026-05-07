@@ -5675,6 +5675,11 @@ main() {
       having count(*) > 1
     ) duplicate_transfer_refs;
   "
+  wait_query_eq "wallet v2 rejected transfer refs absent" "postgres-wallet" "0" "
+    select count(*)
+    from transaction
+    where transfer_ref in ('${transfer_ref}-negative', '${transfer_ref}-overbalance');
+  "
 
   local withdraw_owner="e2e-withdraw-$(date +%s)"
   local withdraw_ref="e2e-withdraw-$(date +%s)"
