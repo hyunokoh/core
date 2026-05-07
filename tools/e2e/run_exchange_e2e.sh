@@ -122,7 +122,7 @@ Runs a real Docker-backed exchange E2E flow:
   47. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
   48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet or transaction history.
   49. Verify wallet transfer success/rejection/idempotency through the real HTTP path and ledger.
-  50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, and user history.
+  50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, user history, and transaction history.
   51. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
   52. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
@@ -5842,6 +5842,27 @@ main() {
     sleep 1
   done
   printf '%s\n' "$withdraw_history_body" >/tmp/opex-e2e-withdraw-history.json
+  local withdraw_transaction_history_body
+  local withdraw_transaction_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until withdraw_transaction_history_body="$(expect_2xx "withdraw transaction history" "$(curl_json POST "http://127.0.0.1:8091/v2/transaction" '{"currency":"USDT","category":"WITHDRAW","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&
+    printf '%s\n' "$withdraw_transaction_history_body" | jq -e --arg owner "$withdraw_owner" '
+      length == 1
+      and .[0].userId == $owner
+      and .[0].currency == "USDT"
+      and .[0].category == "WITHDRAW"
+      and ((.[0].balance | tonumber) >= 5.999999)
+      and ((.[0].balance | tonumber) <= 6.000001)
+      and ((.[0].balanceChange | tonumber) >= -4.000001)
+      and ((.[0].balanceChange | tonumber) <= -3.999999)
+    ' >/dev/null; do
+    if (( SECONDS > withdraw_transaction_history_deadline )); then
+      echo "Timed out waiting for withdraw transaction history to show one accepted withdraw" >&2
+      printf '%s\n' "$withdraw_transaction_history_body" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  printf '%s\n' "$withdraw_transaction_history_body" >/tmp/opex-e2e-withdraw-transaction-history.json
 
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
