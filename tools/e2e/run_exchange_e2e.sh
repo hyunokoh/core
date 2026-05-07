@@ -72,6 +72,7 @@ Runs a real Docker-backed exchange E2E flow:
   25. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
   26. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   27. Verify wallet/accountant/market database invariants after settlement.
+  27b. Verify public API active-user counts match market order projections.
   28. Verify normalized accountant order definitions match market order definitions.
   29. Verify accountant order reservation/release actions match eventlog order lifecycle events.
   30. Verify accountant trade settlement transfers match market trade executions.
@@ -868,6 +869,22 @@ wait_query_eq() {
   until actual="$(psql_query "$service" "$query")" && [[ "$actual" == "$expected" ]]; do
     if (( SECONDS > deadline )); then
       assert_text_eq "$label" "$actual" "$expected"
+    fi
+    sleep 2
+  done
+}
+
+wait_active_users_api_matches_orders() {
+  local deadline=$((SECONDS + 120))
+  local expected body actual
+  until expected="$(psql_query "postgres-market" "select count(distinct uuid) from orders where create_date >= now() - interval '24 hours';")" &&
+    body="$(curl -fsS "http://127.0.0.1:8094/v1/landing/exchangeInfo?interval=24h")" &&
+    actual="$(jq -r '.activeUsers' <<<"$body")" &&
+    [[ "$actual" == "$expected" ]]; do
+    if (( SECONDS > deadline )); then
+      echo "active user API count expected $expected but got $actual" >&2
+      printf '%s\n' "$body" >&2
+      exit 1
     fi
     sleep 2
   done
@@ -5747,6 +5764,7 @@ main() {
     group by event_type, status
     order by event_type, status;
   "
+  wait_active_users_api_matches_orders
   wait_query_eq "accountant retry queue drained" "postgres-accountant" "0,0" "
     select
       count(*) filter (where is_resolved = false and has_given_up = false),

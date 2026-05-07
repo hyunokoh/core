@@ -179,10 +179,9 @@ class MarketQueryHandlerImpl(
 
     override suspend fun numberOfActiveUsers(interval: Interval): Long {
         return redisCacheHelper.getOrElse("activeUsers:${interval.label}", 1.hours()) {
-            //TODO remove times(10)
             orderRepository.countUsersWhoMadeOrder(interval.getLocalDateTime())
                 .singleOrNull()
-                ?.times(10)?.approximate() ?: 0L
+                ?: 0L
         }
     }
 

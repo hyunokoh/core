@@ -537,6 +537,37 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
         assertThat(mostTrades.tradeCount).isEqualByComparingTo(BigDecimal.valueOf(3))
     }
 
+    @Test
+    fun givenOrdersFromMultipleUsers_whenActiveUsersRequested_thenReturnExactDistinctUserCount(): Unit = runBlocking {
+        val now = LocalDateTime.now()
+        (1..12).forEach { index ->
+            seedOrder(
+                VALID.MAKER_ORDER_MODEL.copy(
+                    id = null,
+                    ouid = "active-user-$index-order",
+                    uuid = "active-user-$index",
+                    createDate = now.minusMinutes(index.toLong()),
+                    updateDate = now.minusMinutes(index.toLong())
+                ),
+                status = OrderStatus.FILLED
+            )
+        }
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "active-user-1-second-order",
+                uuid = "active-user-1",
+                createDate = now.minusMinutes(1),
+                updateDate = now.minusMinutes(1)
+            ),
+            status = OrderStatus.FILLED
+        )
+
+        val activeUsers = marketQueryHandler.numberOfActiveUsers(Interval.TwentyFourHours)
+
+        assertThat(activeUsers).isEqualTo(12)
+    }
+
     private suspend fun seedOrder(
         order: co.nilin.opex.market.ports.postgres.model.OrderModel = VALID.MAKER_ORDER_MODEL.copy(
             id = null,
