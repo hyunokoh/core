@@ -288,7 +288,7 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
             """
         WITH intervals AS (SELECT * FROM interval_generator((:startTime), (:endTime), :interval ::INTERVAL)), 
         first_trade AS (
-            SELECT DISTINCT ON (f.start_time) f.start_time, f.end_time, t.matched_price AS open_price FROM intervals f 
+            SELECT DISTINCT ON (f.start_time) f.start_time, f.end_time, t.matched_price AS open_price FROM intervals f
             LEFT JOIN trades t ON t.create_date >= f.start_time AND t.create_date < f.end_time AND t.symbol = :symbol
             ORDER BY f.start_time, t.create_date
         ), last_trade AS (
@@ -296,9 +296,9 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
             LEFT JOIN trades t ON t.create_date >= f.start_time AND t.create_date < f.end_time AND t.symbol = :symbol
             ORDER BY f.start_time, t.create_date DESC
         )
-        SELECT 
+        SELECT
             i.start_time AS open_time,
-            i.end_time AS close_time, 
+            i.end_time AS close_time,
             ft.open_price AS open,
             MAX(t.matched_price) AS high,
             MIN(t.matched_price) AS low,
@@ -323,6 +323,62 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
         """
     )
     suspend fun candleData(
+            @Param("symbol")
+            symbol: String,
+            @Param("interval")
+            interval: String,
+            @Param("startTime")
+            startTime: LocalDateTime,
+            @Param("endTime")
+            endTime: LocalDateTime,
+            @Param("limit")
+            limit: Int,
+    ): Flux<CandleInfoData>
+
+    @Query(
+            """
+        WITH intervals AS (
+            SELECT * FROM (
+                SELECT * FROM interval_generator((:startTime), (:endTime), :interval ::INTERVAL)
+                ORDER BY start_time DESC
+                LIMIT :limit
+            ) latest_intervals
+            ORDER BY start_time
+        ), first_trade AS (
+            SELECT DISTINCT ON (f.start_time) f.start_time, f.end_time, t.matched_price AS open_price FROM intervals f
+            LEFT JOIN trades t ON t.create_date >= f.start_time AND t.create_date < f.end_time AND t.symbol = :symbol
+            ORDER BY f.start_time, t.create_date
+        ), last_trade AS (
+            SELECT DISTINCT ON (f.start_time) f.start_time,  f.end_time,  t.matched_price AS close_price FROM intervals f
+            LEFT JOIN trades t ON t.create_date >= f.start_time AND t.create_date < f.end_time AND t.symbol = :symbol
+            ORDER BY f.start_time, t.create_date DESC
+        )
+        SELECT
+            i.start_time AS open_time,
+            i.end_time AS close_time,
+            ft.open_price AS open,
+            MAX(t.matched_price) AS high,
+            MIN(t.matched_price) AS low,
+            lt.close_price AS close,
+            SUM(t.matched_quantity) AS volume,
+            SUM(t.matched_price * t.matched_quantity) AS quote_asset_volume,
+            SUM(CASE WHEN taker_order.side = 'BID' THEN t.matched_quantity ELSE 0 END) AS taker_buy_base_asset_volume,
+            SUM(CASE WHEN taker_order.side = 'BID' THEN t.matched_price * t.matched_quantity ELSE 0 END) AS taker_buy_quote_asset_volume,
+            COUNT(t.id) AS trades
+        FROM intervals i
+        LEFT JOIN trades t
+        ON t.create_date >= i.start_time AND t.create_date < i.end_time AND t.symbol = :symbol
+        LEFT JOIN orders taker_order
+        ON t.taker_ouid = taker_order.ouid
+        LEFT JOIN first_trade ft
+        ON i.start_time = ft.start_time
+        LEFT JOIN last_trade lt
+        ON i.start_time = lt.start_time
+        GROUP BY i.start_time, i.end_time, ft.open_price, lt.close_price
+        ORDER BY i.start_time;
+        """
+    )
+    suspend fun latestCandleData(
             @Param("symbol")
             symbol: String,
             @Param("interval")

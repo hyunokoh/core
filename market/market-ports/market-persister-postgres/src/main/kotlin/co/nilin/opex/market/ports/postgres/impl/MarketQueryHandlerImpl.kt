@@ -148,7 +148,12 @@ class MarketQueryHandlerImpl(
                 LocalDateTime.ofInstant(this, ZoneId.systemDefault())
             }
 
-        return tradeRepository.candleData(symbol, interval, st, et, limit)
+        val candleInfo = if (startTime == null && endTime == null)
+            tradeRepository.latestCandleData(symbol, interval, st, et, limit)
+        else
+            tradeRepository.candleData(symbol, interval, st, et, limit)
+
+        return candleInfo
             .collectList()
             .awaitFirstOrElse { emptyList() }
             .map {
