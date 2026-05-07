@@ -12,5 +12,8 @@ data class CandleInfoData(
     val high: BigDecimal?,
     val low: BigDecimal?,
     val volume: BigDecimal?,
+    val quoteAssetVolume: BigDecimal?,
     val trades: Int,
+    val takerBuyBaseAssetVolume: BigDecimal?,
+    val takerBuyQuoteAssetVolume: BigDecimal?,
 )

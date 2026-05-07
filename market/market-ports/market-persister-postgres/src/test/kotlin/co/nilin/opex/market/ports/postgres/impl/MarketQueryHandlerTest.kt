@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.r2dbc.core.DatabaseClient
 import java.math.BigDecimal
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
     @Autowired
@@ -216,6 +217,74 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
         assertThat(allTickers).hasSize(1)
         assertThat(allTickers.first().lastPrice).isEqualByComparingTo(BigDecimal.valueOf(101))
         assertThat(allTickers.first().count).isEqualTo(2)
+    }
+
+    @Test
+    fun givenTradesAcrossIntervals_whenCandlesRequested_thenReturnLimitedOhlcAndVolumes(): Unit = runBlocking {
+        val now = LocalDateTime.now().withSecond(10).withNano(0)
+        val firstTradeTime = now.minusMinutes(2)
+        val secondTradeTime = now.minusMinutes(1)
+        val firstMakerOuid = "kline-maker-1"
+        val firstTakerOuid = "kline-taker-buy"
+        val secondMakerOuid = "kline-maker-2"
+        val secondTakerOuid = "kline-taker-sell"
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(id = null, ouid = firstMakerOuid, direction = OrderDirection.ASK),
+            status = OrderStatus.FILLED
+        )
+        seedOrder(
+            VALID.TAKER_ORDER_MODEL.copy(id = null, ouid = firstTakerOuid, direction = OrderDirection.BID),
+            status = OrderStatus.FILLED
+        )
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(id = null, ouid = secondMakerOuid, direction = OrderDirection.BID),
+            status = OrderStatus.FILLED
+        )
+        seedOrder(
+            VALID.TAKER_ORDER_MODEL.copy(id = null, ouid = secondTakerOuid, direction = OrderDirection.ASK),
+            status = OrderStatus.FILLED
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 5001,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(100),
+                matchedQuantity = BigDecimal.valueOf(2),
+                createDate = firstTradeTime,
+                makerOuid = firstMakerOuid,
+                takerOuid = firstTakerOuid
+            )
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 5002,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(110),
+                matchedQuantity = BigDecimal.valueOf(3),
+                createDate = secondTradeTime,
+                makerOuid = secondMakerOuid,
+                takerOuid = secondTakerOuid
+            )
+        )
+
+        val candles = marketQueryHandler.getCandleInfo(
+            VALID.ETH_USDT,
+            "1 minute",
+            firstTradeTime.toEpochMillis(),
+            now.toEpochMillis(),
+            1
+        )
+
+        assertThat(candles).hasSize(1)
+        assertThat(candles.first().open).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(candles.first().high).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(candles.first().low).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(candles.first().close).isEqualByComparingTo(BigDecimal.valueOf(100))
+        assertThat(candles.first().volume).isEqualByComparingTo(BigDecimal.valueOf(2))
+        assertThat(candles.first().quoteAssetVolume).isEqualByComparingTo(BigDecimal.valueOf(200))
+        assertThat(candles.first().trades).isEqualTo(1)
+        assertThat(candles.first().takerBuyBaseAssetVolume).isEqualByComparingTo(BigDecimal.valueOf(2))
+        assertThat(candles.first().takerBuyQuoteAssetVolume).isEqualByComparingTo(BigDecimal.valueOf(200))
     }
 
     @Test
@@ -441,7 +510,9 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
         symbol: String,
         matchedPrice: BigDecimal,
         matchedQuantity: BigDecimal,
-        createDate: LocalDateTime
+        createDate: LocalDateTime,
+        makerOuid: String = VALID.TRADE_MODEL.makerOuid,
+        takerOuid: String = VALID.TRADE_MODEL.takerOuid
     ) = TradeModel(
         null,
         tradeId,
@@ -457,10 +528,13 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
         VALID.TRADE_MODEL.takerCommissionAsset,
         VALID.TRADE_MODEL.makerCommissionAsset,
         createDate,
-        VALID.TRADE_MODEL.makerOuid,
-        VALID.TRADE_MODEL.takerOuid,
+        makerOuid,
+        takerOuid,
         VALID.TRADE_MODEL.makerUuid,
         VALID.TRADE_MODEL.takerUuid,
         createDate
     )
+
+    private fun LocalDateTime.toEpochMillis(): Long =
+        atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 }

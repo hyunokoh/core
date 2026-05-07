@@ -304,16 +304,22 @@ interface TradeRepository : ReactiveCrudRepository<TradeModel, Long> {
             MIN(t.matched_price) AS low,
             lt.close_price AS close,
             SUM(t.matched_quantity) AS volume,
+            SUM(t.matched_price * t.matched_quantity) AS quote_asset_volume,
+            SUM(CASE WHEN taker_order.side = 'BID' THEN t.matched_quantity ELSE 0 END) AS taker_buy_base_asset_volume,
+            SUM(CASE WHEN taker_order.side = 'BID' THEN t.matched_price * t.matched_quantity ELSE 0 END) AS taker_buy_quote_asset_volume,
             COUNT(t.id) AS trades
         FROM intervals i
         LEFT JOIN trades t
         ON t.create_date >= i.start_time AND t.create_date < i.end_time AND t.symbol = :symbol
+        LEFT JOIN orders taker_order
+        ON t.taker_ouid = taker_order.ouid
         LEFT JOIN first_trade ft
         ON i.start_time = ft.start_time
         LEFT JOIN last_trade lt
         ON i.start_time = lt.start_time
         GROUP BY i.start_time, i.end_time, ft.open_price, lt.close_price
-        ORDER BY i.start_time;
+        ORDER BY i.start_time
+        LIMIT :limit;
         """
     )
     suspend fun candleData(

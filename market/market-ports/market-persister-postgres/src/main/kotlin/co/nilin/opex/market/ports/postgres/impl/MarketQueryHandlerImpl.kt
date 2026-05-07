@@ -160,10 +160,10 @@ class MarketQueryHandlerImpl(
                     it.high ?: BigDecimal.ZERO,
                     it.low ?: BigDecimal.ZERO,
                     it.volume ?: BigDecimal.ZERO,
-                    BigDecimal.ZERO,
+                    it.quoteAssetVolume ?: BigDecimal.ZERO,
                     it.trades,
-                    BigDecimal.ZERO,
-                    BigDecimal.ZERO
+                    it.takerBuyBaseAssetVolume ?: BigDecimal.ZERO,
+                    it.takerBuyQuoteAssetVolume ?: BigDecimal.ZERO
                 )
             }
     }

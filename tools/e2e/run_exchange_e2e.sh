@@ -82,6 +82,7 @@ Runs a real Docker-backed exchange E2E flow:
   35. Verify Binance-compatible public REST exchangeInfo/depth/trades reflect the same exchange state.
   35b. Verify Binance-compatible price ticker reflects the latest executed trade.
   35c. Verify Binance-compatible 24h ticker reflects the latest executed trade statistics.
+  35d. Verify Binance-compatible klines reflect executed trade OHLC and volume statistics.
   36. Verify Binance-compatible private order submission/cancel/account/order/trade APIs reflect settled balances and executions.
   36b. Verify Binance-compatible openOrders/allOrders without a symbol returns the user's orders across markets.
   36c. Verify Binance-compatible myTrades fromId returns trades by inclusive exchange trade id.
@@ -1319,6 +1320,55 @@ wait_binance_24h_ticker() {
     ' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for Binance 24h ticker symbol=$symbol price=$price quantity=$quantity" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_klines_1m_candle() {
+  local symbol="$1"
+  local open="$2"
+  local high="$3"
+  local low="$4"
+  local close="$5"
+  local volume="$6"
+  local quote_volume="$7"
+  local trades="$8"
+  local taker_buy_base_volume="$9"
+  local taker_buy_quote_volume="${10}"
+  local output_file="${11}"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(curl -fsS "http://127.0.0.1:8094/v3/klines?symbol=${symbol}&interval=1m&limit=1")" &&
+    printf '%s\n' "$body" | jq -e \
+      --argjson open "$open" \
+      --argjson high "$high" \
+      --argjson low "$low" \
+      --argjson close "$close" \
+      --argjson volume "$volume" \
+      --argjson quote_volume "$quote_volume" \
+      --argjson trades "$trades" \
+      --argjson taker_buy_base_volume "$taker_buy_base_volume" \
+      --argjson taker_buy_quote_volume "$taker_buy_quote_volume" '
+      length == 1 and
+      (.[0][1] | tonumber) == $open and
+      (.[0][2] | tonumber) == $high and
+      (.[0][3] | tonumber) == $low and
+      (.[0][4] | tonumber) == $close and
+      (.[0][5] | tonumber) == $volume and
+      (.[0][7] | tonumber) == $quote_volume and
+      .[0][8] == $trades and
+      (.[0][9] | tonumber) == $taker_buy_base_volume and
+      (.[0][10] | tonumber) == $taker_buy_quote_volume and
+      .[0][0] > 0 and
+      .[0][6] > 0
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance klines symbol=$symbol" >&2
       echo "$body" >&2
       "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
       exit 1
@@ -3203,6 +3253,7 @@ main() {
   wait_binance_recent_trade_level "ETHUSDT" "100" "1" "100" /tmp/opex-e2e-binance-recent-trades.json
   wait_binance_price_ticker "ETHUSDT" "100" /tmp/opex-e2e-binance-price-ticker.json
   wait_binance_24h_ticker "ETHUSDT" "100" "1" /tmp/opex-e2e-binance-24h-ticker.json
+  wait_binance_klines_1m_candle "ETHUSDT" "100" "100" "100" "100" "1" "100" "1" "1" "100" /tmp/opex-e2e-binance-klines.json
 
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$seller" "USDT" "99" &&
@@ -6084,6 +6135,19 @@ main() {
     "lastPrice": 100,
     "volume": 1,
     "count": 1
+  },
+  "binanceKlines": {
+    "symbol": "ETHUSDT",
+    "interval": "1m",
+    "open": 100,
+    "high": 100,
+    "low": 100,
+    "close": 100,
+    "volume": 1,
+    "quoteVolume": 100,
+    "trades": 1,
+    "takerBuyBaseVolume": 1,
+    "takerBuyQuoteVolume": 100
   },
   "binanceMyTradesFromId": {
     "symbol": "ETHUSDT",
