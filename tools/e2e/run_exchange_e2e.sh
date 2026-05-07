@@ -101,6 +101,7 @@ Runs a real Docker-backed exchange E2E flow:
   36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
   36p. Verify Binance-compatible newOrderRespType=ACK still submits through the real exchange path.
   36q. Verify Binance-compatible cancel newClientOrderId is returned without changing the real cancel path.
+  36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -1520,6 +1521,28 @@ binance_private_get_status() {
     -w "%{http_code}" \
     -o "$response_file" \
     "http://127.0.0.1:8094${path}?${query}")"
+  printf '%s\n' "$status"
+  cat "$response_file"
+  rm -f "$response_file"
+}
+
+binance_private_get_raw_status() {
+  local owner="$1"
+  local path="$2"
+  local query="${3:-}"
+  local url="http://127.0.0.1:8094${path}"
+  if [[ -n "$query" ]]; then
+    url="${url}?${query}"
+  fi
+
+  local response_file
+  response_file="$(mktemp)"
+  local status
+  status="$(curl -sS -X GET \
+    -H "X-Opex-User: $owner" \
+    -w "%{http_code}" \
+    -o "$response_file" \
+    "$url")"
   printf '%s\n' "$status"
   cat "$response_file"
   rm -f "$response_file"
@@ -3337,6 +3360,15 @@ main() {
   "${COMPOSE[@]}" up -d --no-deps api
   wait_http "api" "http://127.0.0.1:8094/actuator/health"
   wait_binance_exchange_info_symbol "ETHUSDT" "ETH" "USDT"
+
+  local api_signed_owner="e2e-api-signed-$(date +%s)"
+  local api_signed_now api_signed_stale api_signed_future
+  api_signed_now=$(( $(date +%s) * 1000 ))
+  api_signed_stale=$(( api_signed_now - 6001 ))
+  api_signed_future=$(( api_signed_now + 2000 ))
+  expect_http_status "Binance API stale private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-signed-stale-timestamp.json
+  expect_http_status "Binance API future private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_future}&recvWindow=60000")" >/tmp/opex-e2e-binance-api-signed-future-timestamp.json
+  expect_http_status "Binance API oversize recvWindow rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_now}&recvWindow=60001")" >/tmp/opex-e2e-binance-api-signed-oversize-recv-window.json
 
   local seller="e2e-seller-$(date +%s)"
   local buyer="e2e-buyer-$(date +%s)"
@@ -6445,6 +6477,11 @@ main() {
     "symbols": ["ETHUSDT", "BTCUSDT"],
     "openOrdersWithoutSymbolVerified": true,
     "allOrdersWithoutSymbolFinalStatus": "CANCELED"
+  },
+  "binanceSignedRequestValidation": {
+    "staleTimestampStatus": "HTTP_400",
+    "futureTimestampStatus": "HTTP_400",
+    "oversizeRecvWindowStatus": "HTTP_400"
   },
   "matchingEngineRestartScenario": {
     "restingAskPrice": 111,
