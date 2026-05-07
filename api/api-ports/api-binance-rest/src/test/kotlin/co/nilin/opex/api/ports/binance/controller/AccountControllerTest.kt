@@ -918,6 +918,41 @@ private class AccountControllerTest {
         assertThat(matchingGatewayProxy.createOrderToken).isEqualTo("token-1")
     }
 
+    @Test
+    fun givenMarketOrder_whenCreateOrderRequested_thenSubmitIocMatchingOrder(): Unit = runBlocking {
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(matchingGatewayProxy = matchingGatewayProxy)
+
+        controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.SELL,
+            type = OrderType.MARKET,
+            timeInForce = null,
+            quantity = BigDecimal("0.2"),
+            quoteOrderQty = null,
+            price = null,
+            newClientOrderId = null,
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderUuid).isEqualTo("user-1")
+        assertThat(matchingGatewayProxy.createOrderPair).isEqualTo("ETH_USDT")
+        assertThat(matchingGatewayProxy.createOrderPrice).isEqualByComparingTo("0")
+        assertThat(matchingGatewayProxy.createOrderQuantity).isEqualByComparingTo("0.2")
+        assertThat(matchingGatewayProxy.createOrderDirection).isEqualTo(OrderDirection.ASK)
+        assertThat(matchingGatewayProxy.createOrderConstraint).isEqualTo(MatchConstraint.IOC)
+        assertThat(matchingGatewayProxy.createOrderType).isEqualTo(MatchingOrderType.MARKET_ORDER)
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).isNotBlank()
+        assertThat(matchingGatewayProxy.createOrderClientOrderId).startsWith("x-")
+        assertThat(matchingGatewayProxy.createOrderToken).isEqualTo("token-1")
+    }
+
     private fun controller(
         queryHandler: RecordingMarketUserDataProxy = RecordingMarketUserDataProxy(),
         matchingGatewayProxy: RecordingMatchingGatewayProxy = RecordingMatchingGatewayProxy(),

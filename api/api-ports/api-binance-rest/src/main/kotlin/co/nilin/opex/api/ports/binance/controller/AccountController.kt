@@ -105,6 +105,10 @@ class AccountController(
         val authentication = securityContext.jwtAuthentication()
         val effectiveClientOrderId = newClientOrderId ?: generateClientOrderId()
         rejectDuplicateOpenClientOrderId(Principal { authentication.name }, internalSymbol, newClientOrderId)
+        val effectiveMatchConstraint = when (type) {
+            OrderType.MARKET -> MatchConstraint.IOC
+            else -> timeInForce?.asMatchConstraint()
+        }
 
         matchingGatewayProxy.createNewOrder(
             authentication.name,
@@ -112,7 +116,7 @@ class AccountController(
             price ?: BigDecimal.ZERO, // Maybe make this nullable as well?
             quantity ?: BigDecimal.ZERO,
             side.asOrderDirection(),
-            timeInForce?.asMatchConstraint(),
+            effectiveMatchConstraint,
             type.asMatchingOrderType(),
             "*",
             effectiveClientOrderId,
