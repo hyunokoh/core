@@ -5631,6 +5631,18 @@ main() {
   assert_wallet_balance "duplicate-deposit owner credited once" "$duplicate_deposit_owner" "USDT" "5"
   expect_http_status "duplicate-deposit second USDT deposit" "400" "$(curl_json POST "http://127.0.0.1:8091/deposit/5_test-ethereum_USDT/${duplicate_deposit_owner}_MAIN?description=e2e-duplicate-deposit&transferRef=${duplicate_deposit_ref}")" >/tmp/opex-e2e-duplicate-deposit-reject.json
   assert_wallet_balance "duplicate-deposit owner unchanged after duplicate ref" "$duplicate_deposit_owner" "USDT" "5"
+  wait_query_eq "duplicate deposit ledger row credited once" "postgres-wallet" "1" "
+    select count(*)
+    from transaction t
+    join wallet dw on dw.id = t.dest_wallet
+    join wallet_owner dwo on dwo.id = dw.owner
+    where t.transfer_ref = '$duplicate_deposit_ref'
+      and t.transfer_category = 'DEPOSIT'
+      and dwo.uuid = '$duplicate_deposit_owner'
+      and dw.wallet_type = 'MAIN'
+      and dw.currency = 'USDT'
+      and abs(t.dest_amount - 5) <= 0.000001;
+  "
 
   local transfer_sender="e2e-transfer-sender-$(date +%s)"
   local transfer_receiver="e2e-transfer-receiver-$(date +%s)"
