@@ -121,9 +121,10 @@ Runs a real Docker-backed exchange E2E flow:
   46. Verify Matching Gateway rejects new orders while Kafka is down, then restart Kafka and verify a fresh trade settles.
   47. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
   48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet.
-  49. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
-  50. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
-  51. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
+  49. Verify wallet transfer success/rejection/idempotency through the real HTTP path and ledger.
+  50. Verify withdraw request/cancel/process/accept/reject transitions and duplicate accept rejection.
+  51. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
+  52. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
@@ -5631,6 +5632,50 @@ main() {
   expect_http_status "duplicate-deposit second USDT deposit" "400" "$(curl_json POST "http://127.0.0.1:8091/deposit/5_test-ethereum_USDT/${duplicate_deposit_owner}_MAIN?description=e2e-duplicate-deposit&transferRef=${duplicate_deposit_ref}")" >/tmp/opex-e2e-duplicate-deposit-reject.json
   assert_wallet_balance "duplicate-deposit owner unchanged after duplicate ref" "$duplicate_deposit_owner" "USDT" "5"
 
+  local transfer_sender="e2e-transfer-sender-$(date +%s)"
+  local transfer_receiver="e2e-transfer-receiver-$(date +%s)"
+  local transfer_ref="e2e-transfer-$(date +%s)"
+  local transfer_body
+  transfer_body="$(jq -nc --arg transferRef "$transfer_ref" '{description:"e2e wallet transfer", transferRef:$transferRef, transferCategory:"NORMAL"}')"
+  expect_2xx "transfer sender USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/12_test-ethereum_USDT/${transfer_sender}_MAIN?description=e2e-transfer&transferRef=${transfer_ref}-deposit")" >/dev/null
+  assert_wallet_balance "transfer sender initial USDT" "$transfer_sender" "USDT" "12"
+  expect_2xx "wallet v2 transfer success" "$(curl_json POST "http://127.0.0.1:8091/v2/transfer/3_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$transfer_body")" >/tmp/opex-e2e-wallet-transfer.json
+  assert_wallet_balance "transfer sender debited" "$transfer_sender" "USDT" "9"
+  assert_wallet_balance "transfer receiver credited" "$transfer_receiver" "USDT" "3"
+  expect_http_status "wallet v2 duplicate transfer ref rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/v2/transfer/3_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$transfer_body")" >/tmp/opex-e2e-wallet-transfer-duplicate-ref.json
+  expect_http_status "wallet v2 negative transfer rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/v2/transfer/-1_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$(jq -nc --arg transferRef "${transfer_ref}-negative" '{description:"e2e negative transfer", transferRef:$transferRef, transferCategory:"NORMAL"}')")" >/tmp/opex-e2e-wallet-transfer-negative.json
+  expect_http_status "wallet v2 overbalance transfer rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/v2/transfer/10_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$(jq -nc --arg transferRef "${transfer_ref}-overbalance" '{description:"e2e overbalance transfer", transferRef:$transferRef, transferCategory:"NORMAL"}')")" >/tmp/opex-e2e-wallet-transfer-overbalance.json
+  assert_wallet_balance "transfer sender unchanged after rejected transfers" "$transfer_sender" "USDT" "9"
+  assert_wallet_balance "transfer receiver unchanged after rejected transfers" "$transfer_receiver" "USDT" "3"
+  wait_query_eq "wallet v2 transfer ledger row" "postgres-wallet" "1" "
+    select count(*)
+    from transaction t
+    join wallet sw on sw.id = t.source_wallet
+    join wallet_owner swo on swo.id = sw.owner
+    join wallet dw on dw.id = t.dest_wallet
+    join wallet_owner dwo on dwo.id = dw.owner
+    where t.transfer_ref = '$transfer_ref'
+      and t.transfer_category = 'NORMAL'
+      and swo.uuid = '$transfer_sender'
+      and sw.wallet_type = 'MAIN'
+      and sw.currency = 'USDT'
+      and dwo.uuid = '$transfer_receiver'
+      and dw.wallet_type = 'MAIN'
+      and dw.currency = 'USDT'
+      and abs(t.source_amount - 3) <= 0.000001
+      and abs(t.dest_amount - 3) <= 0.000001;
+  "
+  wait_query_eq "wallet v2 transfer duplicate refs absent" "postgres-wallet" "0" "
+    select count(*)
+    from (
+      select transfer_ref
+      from transaction
+      where transfer_ref = '$transfer_ref'
+      group by transfer_ref
+      having count(*) > 1
+    ) duplicate_transfer_refs;
+  "
+
   local withdraw_owner="e2e-withdraw-$(date +%s)"
   local withdraw_ref="e2e-withdraw-$(date +%s)"
   expect_2xx "withdraw owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/10_test-ethereum_USDT/${withdraw_owner}_MAIN?description=e2e-withdraw&transferRef=${withdraw_ref}-usdt")" >/dev/null
@@ -5730,7 +5775,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,78\nFEE,46\nORDER_CANCEL,43\nORDER_CREATE,75\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,79\nFEE,46\nNORMAL,1\nORDER_CANCEL,43\nORDER_CREATE,75\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -5741,7 +5786,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,47.04000000\nUSDT,3083.90400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,47.04000000\nUSDT,3095.90400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -6555,7 +6600,7 @@ main() {
   wait_order_book_empty "BTC_USDT" "BID"
 
   echo "E2E exchange flow passed"
-  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner apiGeneratedClientOwner=$api_generated_client_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder malformedEditOwner=$malformed_edit_owner fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller editBidOwner=$edit_bid_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
+  echo "seller=$seller buyer=$buyer engineRestartSeller=$engine_restart_seller engineRestartBuyer=$engine_restart_buyer walletRestartSeller=$wallet_restart_seller walletRestartBuyer=$wallet_restart_buyer accountantRestartSeller=$accountant_restart_seller accountantRestartBuyer=$accountant_restart_buyer gatewayRestartSeller=$gateway_restart_seller gatewayRestartBuyer=$gateway_restart_buyer coreRestartSeller=$core_restart_seller coreRestartBuyer=$core_restart_buyer kafkaRestartSeller=$kafka_restart_seller kafkaRestartBuyer=$kafka_restart_buyer postgresRestartSeller=$postgres_restart_seller postgresRestartBuyer=$postgres_restart_buyer cancelOwner=$cancel_owner apiGeneratedClientOwner=$api_generated_client_owner partialSeller=$partial_seller partialBuyer=$partial_buyer iocOwner=$ioc_owner marketSeller=$market_seller marketBuyer=$market_buyer sweepSeller=$sweep_seller sweepHighBuyer=$sweep_high_buyer sweepLowBuyer=$sweep_low_buyer bidSweepBuyer=$bid_sweep_buyer bidSweepLowSeller=$bid_sweep_low_seller bidSweepHighSeller=$bid_sweep_high_seller prioritySeller=$priority_seller priorityHighBuyer=$priority_high_buyer priorityLowBuyer=$priority_low_buyer fifoSeller=$fifo_seller fifoFirstBuyer=$fifo_first_buyer fifoSecondBuyer=$fifo_second_buyer overreserveOwner=$overreserve_owner bidOverreserveOwner=$bid_overreserve_owner cancelAuthOwner=$cancel_auth_owner cancelAuthIntruder=$cancel_auth_intruder malformedEditOwner=$malformed_edit_owner fokOwner=$fok_owner selfTradeOwner=$self_trade_owner layeredSelfTradeOwner=$layered_self_trade_owner layeredExternalSeller=$layered_external_seller editBidOwner=$edit_bid_owner rejectOwner=$reject_owner bidRejectOwner=$bid_reject_owner invalidOwner=$invalid_owner duplicateDepositOwner=$duplicate_deposit_owner transferSender=$transfer_sender transferReceiver=$transfer_receiver withdrawOwner=$withdraw_owner btcSeller=$btc_seller btcBuyer=$btc_buyer solSeller=$sol_seller solBuyer=$sol_buyer dogeSeller=$doge_seller dogeBuyer=$doge_buyer tonSeller=$ton_seller tonBuyer=$ton_buyer concurrentSeller=$concurrent_seller concurrentBuyerOne=$concurrent_buyer_one concurrentBuyerTwo=$concurrent_buyer_two concurrentBuyerThree=$concurrent_buyer_three overfillSeller=$overfill_seller overfillResidualBuyer=$overfill_open_owner"
   cat > /tmp/opex-e2e-summary.json <<EOF
 {
   "status": "passed",
@@ -6611,6 +6656,8 @@ main() {
   "bidRejectOwner": "$bid_reject_owner",
   "invalidOwner": "$invalid_owner",
   "duplicateDepositOwner": "$duplicate_deposit_owner",
+  "transferSender": "$transfer_sender",
+  "transferReceiver": "$transfer_receiver",
   "withdrawOwner": "$withdraw_owner",
   "btcSeller": "$btc_seller",
   "btcBuyer": "$btc_buyer",
