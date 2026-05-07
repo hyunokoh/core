@@ -122,7 +122,7 @@ Runs a real Docker-backed exchange E2E flow:
   47. Restart Wallet/Accountant/Market Postgres datastores and verify a fresh trade still settles.
   48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet, transaction history, or legacy transaction API.
   49. Verify wallet transfer success/rejection/idempotency through the real HTTP path, ledger, and transaction API.
-  50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, user history, and transaction history.
+  50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, user history, transaction history, and legacy transaction API.
   51. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
   52. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
@@ -5933,6 +5933,65 @@ main() {
     sleep 1
   done
   printf '%s\n' "$withdraw_transaction_history_body" >/tmp/opex-e2e-withdraw-transaction-history.json
+
+  local withdraw_legacy_accept_history_body withdraw_legacy_cancel_history_body withdraw_legacy_reject_history_body
+  local withdraw_legacy_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until withdraw_legacy_accept_history_body="$(expect_2xx "withdraw legacy accept transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_ACCEPT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    printf '%s\n' "$withdraw_legacy_accept_history_body" | jq -e \
+      --arg owner "$withdraw_owner" \
+      --arg refPrefix "wallet:withdraw:${withdraw_owner}:DONE:" '
+      length == 1
+      and .[0].senderUuid == $owner
+      and .[0].receiverUuid != $owner
+      and .[0].currency == "USDT"
+      and .[0].category == "WITHDRAW_ACCEPT"
+      and .[0].srcWalletType == "CASHOUT"
+      and .[0].destWalletType == "MAIN"
+      and .[0].description == null
+      and (.[0].ref | startswith($refPrefix))
+      and .[0].withdraw == true
+      and ((.[0].amount | tonumber) >= 3.999999)
+      and ((.[0].amount | tonumber) <= 4.000001)
+    ' >/dev/null &&
+    withdraw_legacy_cancel_history_body="$(expect_2xx "withdraw legacy cancel transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_CANCEL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    printf '%s\n' "$withdraw_legacy_cancel_history_body" | jq -e \
+      --arg owner "$withdraw_owner" \
+      --arg refPrefix "wallet:withdraw:${withdraw_cancel_id}:CANCELED:" '
+      length == 1
+      and .[0].senderUuid == $owner
+      and .[0].receiverUuid == $owner
+      and .[0].currency == "USDT"
+      and .[0].category == "WITHDRAW_CANCEL"
+      and .[0].srcWalletType == "CASHOUT"
+      and .[0].destWalletType == "MAIN"
+      and .[0].description == null
+      and (.[0].ref | startswith($refPrefix))
+      and .[0].withdraw == false
+      and ((.[0].amount | tonumber) >= 2.999999)
+      and ((.[0].amount | tonumber) <= 3.000001)
+    ' >/dev/null &&
+    withdraw_legacy_reject_history_body="$(expect_2xx "withdraw legacy reject transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_REJECT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    printf '%s\n' "$withdraw_legacy_reject_history_body" | jq -e \
+      --arg owner "$withdraw_owner" \
+      --arg duplicateRefPrefix "wallet:withdraw:${withdraw_duplicate_ref_id}:REJECTED:" \
+      --arg rejectRefPrefix "wallet:withdraw:${withdraw_reject_id}:REJECTED:" '
+      length == 2
+      and all(.[]; .senderUuid == $owner and .receiverUuid == $owner and .currency == "USDT" and .category == "WITHDRAW_REJECT" and .srcWalletType == "CASHOUT" and .destWalletType == "MAIN" and .withdraw == false)
+      and any(.[]; .description == "e2e-duplicate-ref" and (.ref | startswith($duplicateRefPrefix)) and ((.amount | tonumber) >= 1.099999) and ((.amount | tonumber) <= 1.100001))
+      and any(.[]; .description == "e2e-reject" and (.ref | startswith($rejectRefPrefix)) and ((.amount | tonumber) >= 1.999999) and ((.amount | tonumber) <= 2.000001))
+    ' >/dev/null; do
+    if (( SECONDS > withdraw_legacy_history_deadline )); then
+      echo "Timed out waiting for withdraw legacy transaction history to reflect terminal ledger actions" >&2
+      printf 'accept history: %s\n' "$withdraw_legacy_accept_history_body" >&2
+      printf 'cancel history: %s\n' "$withdraw_legacy_cancel_history_body" >&2
+      printf 'reject history: %s\n' "$withdraw_legacy_reject_history_body" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  printf '%s\n' "$withdraw_legacy_accept_history_body" >/tmp/opex-e2e-withdraw-legacy-accept-history.json
+  printf '%s\n' "$withdraw_legacy_cancel_history_body" >/tmp/opex-e2e-withdraw-legacy-cancel-history.json
+  printf '%s\n' "$withdraw_legacy_reject_history_body" >/tmp/opex-e2e-withdraw-legacy-reject-history.json
 
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
