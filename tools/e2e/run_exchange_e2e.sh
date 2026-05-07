@@ -95,6 +95,7 @@ Runs a real Docker-backed exchange E2E flow:
   36k. Verify Binance-compatible filled orderId cancel is rejected and keeps balances unchanged.
   36l. Verify Binance-compatible partial fill orderId cancel releases only the remaining locked balance.
   36m. Verify Binance-compatible MARKET sell maps to IOC and settles through the real exchange path.
+  36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -1144,11 +1145,12 @@ wait_recent_trades_distribution() {
   local body
   until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/${symbol}/recent-trades?limit=20")" &&
     printf '%s\n' "$body" | jq -e '
-      length == 20 and
+      length == 21 and
       ([.[] | select(.price == 90) | .quantity] | add == 0.1) and
       ([.[] | select(.price == 100) | .quantity] | add == 1.4) and
       ([.[] | select(.price == 101) | .quantity] | add == 0.2) and
       ([.[] | select(.price == 102) | .quantity] | add == 0.2) and
+      ([.[] | select(.price == 103) | .quantity] | add == 0.2) and
       ([.[] | select(.price == 111) | .quantity] | add == 0.5) and
       ([.[] | select(.price == 112) | .quantity] | add == 0.4) and
       ([.[] | select(.price == 113) | .quantity] | add == 0.3) and
@@ -3343,6 +3345,39 @@ main() {
   wait_binance_private_order_status_by_order_id "$api_market_buyer" "ETHUSDT" "$api_market_bid_order_id" "102" "0.3" "CANCELED" "0.2" "20.4" "BUY" /tmp/opex-e2e-binance-api-market-buyer-query-canceled.json
   wait_binance_account_balance "$api_market_buyer" "USDT" "19.6" "0" /tmp/opex-e2e-binance-api-market-buyer-released-usdt-account.json
 
+  local api_market_buy_seller="e2e-api-market-buy-s-$(date +%s)"
+  local api_market_buy_buyer="e2e-api-market-buy-b-$(date +%s)"
+  local api_market_buy_ref="e2e-api-mkt-buy-$(date +%s)"
+  local api_market_buy_client_id="e2e-mkt-b-$(date +%s)"
+  expect_2xx "Binance API market-buy seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_market_buy_seller}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-eth")" >/dev/null
+  expect_2xx "Binance API market-buy buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${api_market_buy_buyer}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-usdt")" >/dev/null
+  expect_2xx_retry "Binance API market-buy maker ask" "binance_private_post '$api_market_buy_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.3&price=103'" >/tmp/opex-e2e-binance-api-market-buy-ask.json
+  wait_user_open_order "$api_market_buy_seller" "ETH_USDT" "103" "0.3" /tmp/opex-e2e-binance-api-market-buy-open-orders.json
+  local api_market_buy_ask_order_id
+  api_market_buy_ask_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-binance-api-market-buy-open-orders.json)"
+  if [[ -z "$api_market_buy_ask_order_id" || "$api_market_buy_ask_order_id" == "null" ]]; then
+    echo "Binance API market-buy maker ask did not include orderId" >&2
+    cat /tmp/opex-e2e-binance-api-market-buy-open-orders.json >&2
+    exit 1
+  fi
+  wait_order_book_level "ETH_USDT" "ASK" "103" "0.3"
+  wait_binance_account_balance "$api_market_buy_seller" "ETH" "0.7" "0.3" /tmp/opex-e2e-binance-api-market-buy-seller-reserved-eth.json
+  expect_2xx_retry "Binance API market buyer bid" "binance_private_post '$api_market_buy_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&price=103&newClientOrderId=${api_market_buy_client_id}'" >/tmp/opex-e2e-binance-api-market-buy-bid.json
+  wait_user_trade_projection "$api_market_buy_seller" "ETH_USDT" "103" "0.2" "20.6" "0.206" "USDT" false true false /tmp/opex-e2e-binance-api-market-buy-seller-trades.json
+  wait_user_trade_projection "$api_market_buy_buyer" "ETH_USDT" "103" "0.2" "20.6" "0.002" "ETH" true false false /tmp/opex-e2e-binance-api-market-buy-buyer-trades.json
+  wait_binance_private_order_status_by_client_order_id "$api_market_buy_buyer" "ETHUSDT" "$api_market_buy_client_id" "103" "0.2" "FILLED" "0.2" "20.6" "BUY" /tmp/opex-e2e-binance-api-market-buy-buyer-query-filled.json "MARKET"
+  wait_binance_private_order_status_by_order_id "$api_market_buy_seller" "ETHUSDT" "$api_market_buy_ask_order_id" "103" "0.3" "PARTIALLY_FILLED" "0.2" "20.6" "SELL" /tmp/opex-e2e-binance-api-market-buy-seller-query-partial.json
+  wait_order_book_level "ETH_USDT" "ASK" "103" "0.1"
+  wait_binance_account_balance "$api_market_buy_buyer" "ETH" "0.198" "0" /tmp/opex-e2e-binance-api-market-buy-buyer-eth-account.json
+  wait_binance_account_balance "$api_market_buy_buyer" "USDT" "19.4" "0" /tmp/opex-e2e-binance-api-market-buy-buyer-usdt-account.json
+  wait_binance_account_balance "$api_market_buy_seller" "ETH" "0.7" "0.1" /tmp/opex-e2e-binance-api-market-buy-seller-partial-eth-account.json
+  wait_binance_account_balance "$api_market_buy_seller" "USDT" "20.394" "0" /tmp/opex-e2e-binance-api-market-buy-seller-usdt-account.json
+  expect_2xx_retry "Binance API market-buy maker order-id cancel" "binance_private_delete '$api_market_buy_seller' '/v3/order' 'symbol=ETHUSDT&orderId=${api_market_buy_ask_order_id}'" >/tmp/opex-e2e-binance-api-market-buy-cancel-response.json
+  wait_no_user_open_orders "$api_market_buy_seller" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_private_order_status_by_order_id "$api_market_buy_seller" "ETHUSDT" "$api_market_buy_ask_order_id" "103" "0.3" "CANCELED" "0.2" "20.6" "SELL" /tmp/opex-e2e-binance-api-market-buy-seller-query-canceled.json
+  wait_binance_account_balance "$api_market_buy_seller" "ETH" "0.8" "0" /tmp/opex-e2e-binance-api-market-buy-seller-released-eth-account.json
+
   local api_cancel_owner="e2e-api-cancel-$(date +%s)"
   local api_cancel_ref="e2e-api-cancel-$(date +%s)"
   expect_2xx "Binance API cancel ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_cancel_owner}_MAIN?description=e2e-api-cancel&transferRef=${api_cancel_ref}-eth")" >/dev/null
@@ -5132,7 +5167,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,67\nFEE,40\nORDER_CANCEL,34\nORDER_CREATE,63\nORDER_FINALIZED,1\nTRADE,40\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,69\nFEE,42\nORDER_CANCEL,35\nORDER_CREATE,65\nORDER_FINALIZED,1\nTRADE,42\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -5143,7 +5178,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,39.04600000\nUSDT,2844.80000000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,40.04400000\nUSDT,2884.59400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -5207,7 +5242,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,29\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,63\nTradeEvent,PROCESSED,81\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,30\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,65\nTradeEvent,PROCESSED,85\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -5295,7 +5330,7 @@ main() {
   wait_wallet_fee_transactions_match_accountant_actions "wallet e2e fee transactions match accountant fee actions"
   wait_wallet_transactions_match_accountant_actions "wallet e2e transactions match accountant financial actions"
   wait_wallet_user_transactions_match_wallet_transactions "wallet e2e user transactions match wallet movements"
-  wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n101.00,0.20000000\n102.00,0.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000\n169.00,0.20000000' "
+  wait_query_eq "market persisted trade distribution" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n101.00,0.20000000\n102.00,0.20000000\n103.00,0.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000\n169.00,0.20000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
       to_char(sum(matched_quantity), 'FM9999999990.00000000')
@@ -5307,7 +5342,7 @@ main() {
   wait_query_eq "market open orders unchanged after duplicate richOrder replay" "postgres-market" "0" "
     select count(*) from open_orders;
   "
-  wait_query_eq "market trade distribution unchanged after duplicate richTrade replay" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n101.00,0.20000000\n102.00,0.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000\n169.00,0.20000000' "
+  wait_query_eq "market trade distribution unchanged after duplicate richTrade replay" "postgres-market" $'90.00,0.10000000\n100.00,1.40000000\n101.00,0.20000000\n102.00,0.20000000\n103.00,0.20000000\n111.00,0.50000000\n112.00,0.40000000\n113.00,0.30000000\n114.00,0.20000000\n115.00,0.20000000\n116.00,0.20000000\n117.00,0.20000000\n120.00,0.40000000\n125.00,0.20000000\n130.00,0.20000000\n140.00,0.40000000\n150.00,0.10000000\n169.00,0.20000000' "
     select
       to_char(matched_price, 'FM9999999990.00'),
       to_char(sum(matched_quantity), 'FM9999999990.00000000')
@@ -6087,6 +6122,22 @@ main() {
     "finalMakerStatus": "CANCELED",
     "marketOrderStatus": "FILLED"
   },
+  "binanceMarketBuyScenario": {
+    "symbol": "ETHUSDT",
+    "seller": "$api_market_buy_seller",
+    "buyer": "$api_market_buy_buyer",
+    "makerOrderId": $api_market_buy_ask_order_id,
+    "marketClientOrderId": "$api_market_buy_client_id",
+    "marketBidPriceCap": 103,
+    "makerOrigQty": 0.3,
+    "executedQty": 0.2,
+    "quoteQty": 20.6,
+    "sellerUsdtAfterFee": 20.394,
+    "buyerEthAfterFee": 0.198,
+    "remainingMakerQtyCanceled": 0.1,
+    "finalMakerStatus": "CANCELED",
+    "marketOrderStatus": "FILLED"
+  },
   "binanceMyTradesOrderIdIsolation": {
     "symbol": "ETHUSDT",
     "owner": "$api_order_buyer",
@@ -6409,12 +6460,13 @@ main() {
     "bidLevels": 0
   },
   "recentTradesScenario": {
-    "count": 20,
+    "count": 21,
     "quantitiesByPrice": {
       "90": 0.1,
       "100": 1.4,
       "101": 0.2,
       "102": 0.2,
+      "103": 0.2,
       "111": 0.5,
       "112": 0.4,
       "113": 0.3,
@@ -6432,12 +6484,12 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 67,
-      "FEE": 40,
-      "ORDER_CANCEL": 34,
-      "ORDER_CREATE": 63,
+      "DEPOSIT": 69,
+      "FEE": 42,
+      "ORDER_CANCEL": 35,
+      "ORDER_CREATE": 65,
       "ORDER_FINALIZED": 1,
-      "TRADE": 40,
+      "TRADE": 42,
       "WITHDRAW_ACCEPT": 1,
       "WITHDRAW_CANCEL": 1,
       "WITHDRAW_REJECT": 2,
@@ -6445,8 +6497,8 @@ main() {
     },
     "walletAggregateBalances": {
       "BTC": 0.002,
-      "ETH": 39.046,
-      "USDT": 2844.8
+      "ETH": 40.044,
+      "USDT": 2884.594
     },
     "walletWithdrawStatuses": {
       "CANCELED": 1,
@@ -6459,10 +6511,10 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 29,
+      "CancelOrderEvent": 30,
       "RejectOrderEvent": 2,
-      "SubmitOrderEvent": 63,
-      "TradeEvent": 81,
+      "SubmitOrderEvent": 65,
+      "TradeEvent": 85,
       "UpdatedOrderEvent": 3
     },
     "accountantRetryQueueDrained": true,
@@ -6472,20 +6524,20 @@ main() {
     "marketOpenOrders": 0,
     "marketInvalidTrades": 0,
     "marketDuplicateTradeEvents": 0,
-    "marketPersistedTrades": 20
+    "marketPersistedTrades": 21
   },
   "marketKafkaReplayIdempotencyScenario": {
     "replayedTopics": ["richOrder", "richTrade"],
     "poisonRecordsSkipped": true,
     "marketOpenOrdersAfterReplay": 0,
-    "marketPersistedTradesAfterReplay": 20,
+    "marketPersistedTradesAfterReplay": 21,
     "status": "passed"
   },
   "marketRestartScenario": {
     "status": "passed",
     "askLevelsAfterRestart": 0,
     "bidLevelsAfterRestart": 0,
-    "recentTradesAfterRestart": 20
+    "recentTradesAfterRestart": 21
   },
   "multiMarketScenario": {
     "pair": "BTC_USDT",

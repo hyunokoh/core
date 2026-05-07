@@ -99,7 +99,7 @@ class AccountController(
         validateSignedRequest(recvWindow, timestamp)
         validateRequiredSymbol(symbol)
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
-        validateNewOrderParams(type, price, quantity, timeInForce, stopPrice, quoteOrderQty)
+        validateNewOrderParams(type, side, price, quantity, timeInForce, stopPrice, quoteOrderQty)
         validateNewClientOrderId(newClientOrderId)
         validateUnsupportedNewOrderParams(icebergQty, newOrderRespType)
         val authentication = securityContext.jwtAuthentication()
@@ -457,6 +457,7 @@ class AccountController(
 
     private fun validateNewOrderParams(
         type: OrderType,
+        side: OrderSide,
         price: BigDecimal?,
         quantity: BigDecimal?,
         timeInForce: TimeInForce?,
@@ -480,6 +481,8 @@ class AccountController(
                     throw OpexError.InvalidRequestParam.exception("Parameter 'timeInForce' is either missing or invalid")
                 if (quoteOrderQty != null)
                     throw OpexError.InvalidRequestParam.exception("Parameter 'quoteOrderQty' is either missing or invalid")
+                if (side == OrderSide.BUY)
+                    checkDecimal(price, "price")
                 checkDecimal(quantity, "quantity")
             }
 
