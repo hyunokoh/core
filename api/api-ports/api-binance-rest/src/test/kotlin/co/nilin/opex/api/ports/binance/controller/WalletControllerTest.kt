@@ -573,6 +573,80 @@ private class WalletControllerTest {
     }
 
     @Test
+    fun givenSymbol_whenTradeFeeRequested_thenReturnMappedAccountantFee(): Unit = runBlocking {
+        val accountantProxy = RecordingAccountantProxy(
+            feeConfig = co.nilin.opex.api.core.inout.PairFeeResponse(
+                pair = "ETH_USDT",
+                direction = "*",
+                userLevel = "*",
+                makerFee = BigDecimal("0.001"),
+                takerFee = BigDecimal("0.002")
+            )
+        )
+        val controller = controller(accountantProxy = accountantProxy)
+
+        val fees = controller.getPairFees("ETH_USDT", null, signedTimestamp())
+
+        assertThat(fees).hasSize(1)
+        assertThat(fees[0].symbol).isEqualTo("ETH_USDT")
+        assertThat(fees[0].makerCommission).isEqualTo(0.001)
+        assertThat(fees[0].takerCommission).isEqualTo(0.002)
+        assertThat(accountantProxy.getFeeConfigSymbol).isEqualTo("ETH_USDT")
+        assertThat(accountantProxy.getFeeConfigsCallCount).isZero()
+    }
+
+    @Test
+    fun givenNoSymbol_whenTradeFeeRequested_thenReturnDistinctMappedAccountantFees(): Unit = runBlocking {
+        val accountantProxy = RecordingAccountantProxy(
+            feeConfigs = listOf(
+                co.nilin.opex.api.core.inout.PairFeeResponse(
+                    pair = "ETH_USDT",
+                    direction = "BID",
+                    userLevel = "*",
+                    makerFee = BigDecimal("0.001"),
+                    takerFee = BigDecimal("0.002")
+                ),
+                co.nilin.opex.api.core.inout.PairFeeResponse(
+                    pair = "ETH_USDT",
+                    direction = "ASK",
+                    userLevel = "*",
+                    makerFee = BigDecimal("0.001"),
+                    takerFee = BigDecimal("0.002")
+                ),
+                co.nilin.opex.api.core.inout.PairFeeResponse(
+                    pair = "BTC_USDT",
+                    direction = "*",
+                    userLevel = "*",
+                    makerFee = BigDecimal("0.003"),
+                    takerFee = BigDecimal("0.004")
+                )
+            )
+        )
+        val controller = controller(accountantProxy = accountantProxy)
+
+        val fees = controller.getPairFees(null, null, signedTimestamp())
+
+        assertThat(fees.map { it.symbol }).containsExactly("ETH_USDT", "BTC_USDT")
+        assertThat(fees.map { it.makerCommission }).containsExactly(0.001, 0.003)
+        assertThat(fees.map { it.takerCommission }).containsExactly(0.002, 0.004)
+        assertThat(accountantProxy.getFeeConfigsCallCount).isEqualTo(1)
+        assertThat(accountantProxy.getFeeConfigSymbol).isNull()
+    }
+
+    @Test
+    fun givenExpiredTimestamp_whenTradeFeeRequested_thenRejectBeforeAccountantCall(): Unit = runBlocking {
+        val accountantProxy = RecordingAccountantProxy()
+        val controller = controller(accountantProxy = accountantProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.getPairFees("ETH_USDT", null, signedTimestamp() - 6000) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(accountantProxy.getFeeConfigSymbol).isNull()
+        assertThat(accountantProxy.getFeeConfigsCallCount).isZero()
+    }
+
+    @Test
     fun givenLowercaseAsset_whenUserAssetsEvaluated_thenMatchesUppercaseBestPrice(): Unit = runBlocking {
         val walletProxy = RecordingWalletProxy(
             wallets = listOf(Wallet("eth", BigDecimal("2"), BigDecimal("0.5"), BigDecimal("0.25")))
@@ -688,12 +762,13 @@ private class WalletControllerTest {
     private fun controller(
         walletProxy: RecordingWalletProxy = RecordingWalletProxy(),
         blockchainGatewayProxy: RecordingBlockchainGatewayProxy = RecordingBlockchainGatewayProxy(),
-        marketDataProxy: RecordingMarketDataProxy = RecordingMarketDataProxy()
+        marketDataProxy: RecordingMarketDataProxy = RecordingMarketDataProxy(),
+        accountantProxy: RecordingAccountantProxy = RecordingAccountantProxy()
     ) = WalletController(
         walletProxy,
         RecordingSymbolMapper(),
         marketDataProxy,
-        RecordingAccountantProxy(),
+        accountantProxy,
         blockchainGatewayProxy
     )
 
@@ -840,19 +915,31 @@ private class WalletControllerTest {
         override suspend fun countTotalTrades(interval: Interval): Long = 0
     }
 
-    private class RecordingAccountantProxy : AccountantProxy {
-        override suspend fun getPairConfigs(): List<PairInfoResponse> = emptyList()
-
-        override suspend fun getFeeConfigs(): List<co.nilin.opex.api.core.inout.PairFeeResponse> = emptyList()
-
-        override suspend fun getFeeConfig(symbol: String): co.nilin.opex.api.core.inout.PairFeeResponse =
+    private class RecordingAccountantProxy(
+        private val feeConfigs: List<co.nilin.opex.api.core.inout.PairFeeResponse> = emptyList(),
+        private val feeConfig: co.nilin.opex.api.core.inout.PairFeeResponse =
             co.nilin.opex.api.core.inout.PairFeeResponse(
-                pair = symbol,
+                pair = "ETH_USDT",
                 direction = "*",
                 userLevel = "*",
                 makerFee = BigDecimal.ZERO,
                 takerFee = BigDecimal.ZERO
             )
+    ) : AccountantProxy {
+        var getFeeConfigsCallCount = 0
+        var getFeeConfigSymbol: String? = null
+
+        override suspend fun getPairConfigs(): List<PairInfoResponse> = emptyList()
+
+        override suspend fun getFeeConfigs(): List<co.nilin.opex.api.core.inout.PairFeeResponse> {
+            getFeeConfigsCallCount += 1
+            return feeConfigs
+        }
+
+        override suspend fun getFeeConfig(symbol: String): co.nilin.opex.api.core.inout.PairFeeResponse {
+            getFeeConfigSymbol = symbol
+            return feeConfig
+        }
     }
 
     private class RecordingBlockchainGatewayProxy(

@@ -108,6 +108,7 @@ Runs a real Docker-backed exchange E2E flow:
   36p2. Verify Binance-compatible explicit and generated client order create responses include projected order status fields.
   36q. Verify Binance-compatible cancel newClientOrderId is returned without changing the real cancel path.
   36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
+  36r2. Verify Binance-compatible tradeFee reflects real accountant fee configuration.
   36s. Verify Binance-compatible LIMIT IOC with no liquidity cancels and releases reserved funds.
   36t. Verify Binance-compatible LIMIT IOC partial fill cancels the remainder and releases reserved funds.
   36u. Verify Binance-compatible LIMIT IOC sell partial fill cancels the remainder and releases reserved funds.
@@ -4018,13 +4019,27 @@ main() {
   expect_http_status "Binance API stale private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-signed-stale-timestamp.json
   expect_http_status "Binance API future private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_future}&recvWindow=60000")" >/tmp/opex-e2e-binance-api-signed-future-timestamp.json
   expect_http_status "Binance API oversize recvWindow rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_now}&recvWindow=60001")" >/tmp/opex-e2e-binance-api-signed-oversize-recv-window.json
+  expect_http_status "Binance API trade fee stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/asset/tradeFee" "symbol=ETHUSDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-trade-fee-signed-stale-timestamp.json
   expect_http_status "Binance API user asset stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/asset/getUserAsset" "symbol=USDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-user-asset-signed-stale-timestamp.json
   expect_http_status "Binance API estimated value stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/asset/estimatedValue" "quoteAsset=USDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-estimated-value-signed-stale-timestamp.json
   assert_opex_error "Binance API stale private timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-stale-timestamp.json)"
   assert_opex_error "Binance API future private timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-future-timestamp.json)"
   assert_opex_error "Binance API oversize recvWindow error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-oversize-recv-window.json)"
+  assert_opex_error "Binance API trade fee stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-trade-fee-signed-stale-timestamp.json)"
   assert_opex_error "Binance API user asset stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-user-asset-signed-stale-timestamp.json)"
   assert_opex_error "Binance API estimated value stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-estimated-value-signed-stale-timestamp.json)"
+  expect_2xx "Binance API trade fee ETHUSDT" "$(binance_private_get_status "$api_signed_owner" "/v1/asset/tradeFee" "symbol=ETHUSDT")" >/tmp/opex-e2e-binance-api-trade-fee-ethusdt.json
+  jq -e '
+    length == 1 and
+    .[0].symbol == "ETHUSDT" and
+    .[0].makerCommission == 0.01 and
+    .[0].takerCommission == 0.01
+  ' /tmp/opex-e2e-binance-api-trade-fee-ethusdt.json >/dev/null
+  expect_2xx "Binance API trade fee all symbols" "$(binance_private_get_status "$api_signed_owner" "/v1/asset/tradeFee" "")" >/tmp/opex-e2e-binance-api-trade-fee-all.json
+  jq -e '
+    ([.[] | select(.symbol == "ETHUSDT" and .makerCommission == 0.01 and .takerCommission == 0.01)] | length == 1) and
+    ([.[] | select(.symbol == "BTCUSDT" and .makerCommission == 0.01 and .takerCommission == 0.01)] | length == 1)
+  ' /tmp/opex-e2e-binance-api-trade-fee-all.json >/dev/null
 
   local seller="e2e-seller-$(date +%s)"
   local buyer="e2e-buyer-$(date +%s)"
