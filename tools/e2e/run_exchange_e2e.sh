@@ -1769,6 +1769,40 @@ wait_binance_account_balance() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_user_asset_balance() {
+  local owner="$1"
+  local asset="$2"
+  local expected_free="$3"
+  local expected_locked="$4"
+  local expected_withdrawing="$5"
+  local output_file="$6"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v1/asset/getUserAsset" "symbol=${asset}")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg asset "$asset" \
+      --argjson expected_free "$expected_free" \
+      --argjson expected_locked "$expected_locked" \
+      --argjson expected_withdrawing "$expected_withdrawing" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        length == 1 and
+        .[0].asset == $asset and
+        nearly_equal((.[0].free | tonumber); $expected_free) and
+        nearly_equal((.[0].locked | tonumber); $expected_locked) and
+        nearly_equal((.[0].withdrawing | tonumber); $expected_withdrawing)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance user asset balance owner=$owner asset=$asset free=$expected_free locked=$expected_locked withdrawing=$expected_withdrawing" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api wallet accountant >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_binance_private_order_projection() {
   local owner="$1"
   local symbol="$2"
@@ -3588,6 +3622,7 @@ main() {
   wait_user_open_order "$api_order_seller" "ETH_USDT" "101" "0.2" /tmp/opex-e2e-binance-api-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "101" "0.2"
   wait_binance_account_balance "$api_order_seller" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-seller-reserved-account.json
+  wait_binance_user_asset_balance "$api_order_seller" "ETH" "0.8" "0.2" "0" /tmp/opex-e2e-binance-api-seller-reserved-asset.json
   expect_2xx_retry "Binance API buyer limit bid" "binance_private_post '$api_order_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=0.2&price=101'" >/tmp/opex-e2e-binance-api-bid.json
   wait_user_trade_projection "$api_order_seller" "ETH_USDT" "101" "0.2" "20.2" "0.202" "USDT" false true false /tmp/opex-e2e-binance-api-seller-trades.json
   wait_user_trade_projection "$api_order_buyer" "ETH_USDT" "101" "0.2" "20.2" "0.002" "ETH" true false false /tmp/opex-e2e-binance-api-buyer-trades.json
@@ -3595,6 +3630,10 @@ main() {
   wait_binance_account_balance "$api_order_seller" "USDT" "19.998" "0" /tmp/opex-e2e-binance-api-seller-usdt-account.json
   wait_binance_account_balance "$api_order_buyer" "ETH" "0.198" "0" /tmp/opex-e2e-binance-api-buyer-eth-account.json
   wait_binance_account_balance "$api_order_buyer" "USDT" "79.8" "0" /tmp/opex-e2e-binance-api-buyer-usdt-account.json
+  wait_binance_user_asset_balance "$api_order_seller" "ETH" "0.8" "0" "0" /tmp/opex-e2e-binance-api-seller-eth-asset.json
+  wait_binance_user_asset_balance "$api_order_seller" "USDT" "19.998" "0" "0" /tmp/opex-e2e-binance-api-seller-usdt-asset.json
+  wait_binance_user_asset_balance "$api_order_buyer" "ETH" "0.198" "0" "0" /tmp/opex-e2e-binance-api-buyer-eth-asset.json
+  wait_binance_user_asset_balance "$api_order_buyer" "USDT" "79.8" "0" "0" /tmp/opex-e2e-binance-api-buyer-usdt-asset.json
   wait_binance_private_order_projection "$api_order_seller" "ETHUSDT" "101" "0.2" "FILLED" "0.2" "20.2" "SELL" /tmp/opex-e2e-binance-api-seller-orders.json
   wait_binance_private_order_projection "$api_order_buyer" "ETHUSDT" "101" "0.2" "FILLED" "0.2" "20.2" "BUY" /tmp/opex-e2e-binance-api-buyer-orders.json
   wait_binance_private_trade_projection "$api_order_seller" "ETHUSDT" "101" "0.2" "20.2" "0.202" "USDT" false true /tmp/opex-e2e-binance-api-seller-my-trades.json
