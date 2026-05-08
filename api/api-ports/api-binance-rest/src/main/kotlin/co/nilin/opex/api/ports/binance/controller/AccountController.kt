@@ -373,9 +373,9 @@ class AccountController(
         @RequestParam(required = false)
         symbol: String?,
         @RequestParam(required = false)
-        startTime: Date?,
+        startTime: Long?,
         @RequestParam(required = false)
-        endTime: Date?,
+        endTime: Long?,
         @ApiParam(value = "Default 500; max 1000.")
         @RequestParam(required = false)
         limit: Int?, //Default 500; max 1000.
@@ -390,7 +390,7 @@ class AccountController(
         validateAccountTimeRange(startTime, endTime)
         val internalSymbol = symbol?.let { symbolMapper.toInternalSymbol(it) ?: throw OpexError.SymbolNotFound.exception() }
         val validLimit = validAccountQueryLimit(limit)
-        return queryHandler.allOrders(principal, internalSymbol, startTime, endTime, validLimit).map {
+        return queryHandler.allOrders(principal, internalSymbol, startTime?.let(::Date), endTime?.let(::Date), validLimit).map {
             it.asQueryOrderResponse().apply { this.symbol = responseSymbol(symbol, it.symbol) }
         }
     }
@@ -420,9 +420,9 @@ class AccountController(
         @RequestParam
         symbol: String?,
         @RequestParam(required = false)
-        startTime: Date?,
+        startTime: Long?,
         @RequestParam(required = false)
-        endTime: Date?,
+        endTime: Long?,
         @ApiParam(value = "TradeId to fetch from. Default gets most recent trades.")
         @RequestParam(required = false)
         fromId: Long?,//TradeId to fetch from. Default gets most recent trades.
@@ -445,7 +445,15 @@ class AccountController(
         val internalSymbol = symbolMapper.toInternalSymbol(symbol) ?: throw OpexError.SymbolNotFound.exception()
         val validLimit = validAccountQueryLimit(limit)
 
-        return queryHandler.allTrades(principal, internalSymbol, fromId, startTime, endTime, validLimit, orderId)
+        return queryHandler.allTrades(
+            principal,
+            internalSymbol,
+            fromId,
+            startTime?.let(::Date),
+            endTime?.let(::Date),
+            validLimit,
+            orderId
+        )
             .map {
                 TradeResponse(
                     symbol ?: "",
@@ -612,12 +620,12 @@ class AccountController(
         return limit
     }
 
-    private fun validateAccountTimeRange(startTime: Date?, endTime: Date?) {
-        if (startTime != null && startTime.time <= 0)
+    private fun validateAccountTimeRange(startTime: Long?, endTime: Long?) {
+        if (startTime != null && startTime <= 0)
             throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
-        if (endTime != null && endTime.time <= 0)
+        if (endTime != null && endTime <= 0)
             throw OpexError.InvalidRequestParam.exception("Parameter 'endTime' is either missing or invalid")
-        if (startTime != null && endTime != null && startTime.after(endTime))
+        if (startTime != null && endTime != null && startTime > endTime)
             throw OpexError.InvalidRequestParam.exception("Parameter 'startTime' is either missing or invalid")
     }
 

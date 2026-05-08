@@ -91,6 +91,7 @@ Runs a real Docker-backed exchange E2E flow:
   36d. Verify Binance-compatible myTrades orderId returns trades for that user order.
   36e. Verify Binance-compatible myTrades orderId is not confused with exchange trade id.
   36f. Verify Binance-compatible myTrades orderId does not leak another user's trades.
+  36f2. Verify Binance-compatible allOrders/myTrades startTime/endTime use epoch-millisecond ranges.
   36g. Verify Binance-compatible order lookup by orderId rejects another user's order.
   36h. Verify Binance-compatible origClientOrderId lookup/cancel cannot affect another user's order.
   36i. Verify Binance-compatible orderId cancel cannot affect another user's order.
@@ -2370,6 +2371,92 @@ wait_binance_private_trades_empty_for_order_id() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_all_orders_time_range_includes_order() {
+  local owner="$1"
+  local symbol="$2"
+  local order_id="$3"
+  local output_file="$4"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/allOrders" "symbol=${symbol}&startTime=1&endTime=4102444800000&limit=20")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol "$symbol" \
+      --argjson order_id "$order_id" '
+        [.[] | select(.symbol == $symbol and .orderId == $order_id)] | length == 1
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance allOrders time range owner=$owner symbol=$symbol orderId=$order_id" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_all_orders_future_time_range_empty() {
+  local owner="$1"
+  local symbol="$2"
+  local output_file="$3"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/allOrders" "symbol=${symbol}&startTime=4102444800000&endTime=4102444801000&limit=20")" &&
+    printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for empty Binance allOrders future time range owner=$owner symbol=$symbol" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_my_trades_time_range_includes_trade() {
+  local owner="$1"
+  local symbol="$2"
+  local trade_id="$3"
+  local output_file="$4"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/myTrades" "symbol=${symbol}&startTime=1&endTime=4102444800000&limit=20")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg symbol "$symbol" \
+      --argjson trade_id "$trade_id" '
+        [.[] | select(.symbol == $symbol and .id == $trade_id)] | length == 1
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance myTrades time range owner=$owner symbol=$symbol tradeId=$trade_id" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_my_trades_future_time_range_empty() {
+  local owner="$1"
+  local symbol="$2"
+  local output_file="$3"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/myTrades" "symbol=${symbol}&startTime=4102444800000&endTime=4102444801000&limit=20")" &&
+    printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for empty Binance myTrades future time range owner=$owner symbol=$symbol" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_order_status() {
   local owner="$1"
   local ouid="$2"
@@ -3681,6 +3768,10 @@ main() {
   fi
   wait_binance_private_trade_projection_from_id "$seller" "ETHUSDT" "$seller_binance_trade_id" "100" "1" "100" "1" "USDT" false true /tmp/opex-e2e-binance-seller-my-trades-from-id.json
   wait_binance_private_trade_projection_for_order_id "$seller" "ETHUSDT" "$seller_binance_order_id" "$seller_binance_trade_id" "100" "1" "100" "1" "USDT" false true /tmp/opex-e2e-binance-seller-my-trades-order-id.json
+  wait_binance_all_orders_time_range_includes_order "$seller" "ETHUSDT" "$seller_binance_order_id" /tmp/opex-e2e-binance-seller-all-orders-time-range.json
+  wait_binance_all_orders_future_time_range_empty "$seller" "ETHUSDT" /tmp/opex-e2e-binance-seller-all-orders-future-time-range.json
+  wait_binance_my_trades_time_range_includes_trade "$seller" "ETHUSDT" "$seller_binance_trade_id" /tmp/opex-e2e-binance-seller-my-trades-time-range.json
+  wait_binance_my_trades_future_time_range_empty "$seller" "ETHUSDT" /tmp/opex-e2e-binance-seller-my-trades-future-time-range.json
   wait_binance_private_trade_projection "$buyer" "ETHUSDT" "100" "1" "100" "0.01" "ETH" true false /tmp/opex-e2e-binance-buyer-my-trades.json
 
   local api_order_seller="e2e-api-order-seller-$(date +%s)"

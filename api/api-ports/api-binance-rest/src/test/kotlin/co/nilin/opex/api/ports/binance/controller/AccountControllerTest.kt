@@ -109,6 +109,17 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenEpochTimeRange_whenAllOrdersRequested_thenPassesDateRangeToProxy(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        controller.fetchAllOrders(Principal { "user-1" }, "ETHUSDT", 1000, 2000, null, null, signedTimestamp())
+
+        assertThat(queryHandler.allOrdersStartTime).isEqualTo(Date(1000))
+        assertThat(queryHandler.allOrdersEndTime).isEqualTo(Date(2000))
+    }
+
+    @Test
     fun givenTooLargeLimit_whenAllOrdersRequested_thenRejectBeforeProxyCall(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy()
         val controller = controller(queryHandler)
@@ -142,8 +153,8 @@ private class AccountControllerTest {
                 controller.fetchAllOrders(
                     Principal { "user-1" },
                     "ETHUSDT",
-                    Date(2000),
-                    Date(1000),
+                    2000,
+                    1000,
                     null,
                     null,
                     signedTimestamp()
@@ -246,7 +257,7 @@ private class AccountControllerTest {
                 controller.fetchAllTrades(
                     Principal { "user-1" },
                     "ETHUSDT",
-                    Date(-1),
+                    -1,
                     null,
                     null,
                     null,
@@ -268,6 +279,17 @@ private class AccountControllerTest {
 
         assertThat(queryHandler.allTradesSymbol).isEqualTo("ETH_USDT")
         assertThat(queryHandler.allTradesLimit).isEqualTo(500)
+    }
+
+    @Test
+    fun givenEpochTimeRange_whenMyTradesRequested_thenPassesDateRangeToProxy(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy()
+        val controller = controller(queryHandler)
+
+        controller.fetchAllTrades(Principal { "user-1" }, "ETHUSDT", 1000, 2000, null, null, null, signedTimestamp())
+
+        assertThat(queryHandler.allTradesStartTime).isEqualTo(Date(1000))
+        assertThat(queryHandler.allTradesEndTime).isEqualTo(Date(2000))
     }
 
     @Test
@@ -1434,8 +1456,12 @@ private class AccountControllerTest {
         var openOrdersLimit: Int? = null
         var allOrdersSymbol: String? = "not-called"
         var allOrdersLimit: Int? = null
+        var allOrdersStartTime: Date? = null
+        var allOrdersEndTime: Date? = null
         var allTradesSymbol: String? = "not-called"
         var allTradesLimit: Int? = null
+        var allTradesStartTime: Date? = null
+        var allTradesEndTime: Date? = null
         var allTradesOrderId: Long? = null
         var queryOrderCallCount = 0
         var queryOrderSymbol: String? = null
@@ -1480,6 +1506,8 @@ private class AccountControllerTest {
         ): List<Order> {
             allOrdersSymbol = symbol
             allOrdersLimit = limit
+            allOrdersStartTime = startTime
+            allOrdersEndTime = endTime
             return listOf(order())
         }
 
@@ -1494,6 +1522,8 @@ private class AccountControllerTest {
         ): List<Trade> {
             allTradesSymbol = symbol
             allTradesLimit = limit
+            allTradesStartTime = startTime
+            allTradesEndTime = endTime
             allTradesOrderId = orderId
             if (allTradesResponses.isNotEmpty())
                 return allTradesResponses.removeAt(0)
