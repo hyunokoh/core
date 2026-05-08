@@ -514,7 +514,7 @@ private class WalletControllerTest {
         val controller = controller(walletProxy = walletProxy)
 
         assertThatThrownBy {
-            runBlocking { controller.getUserAssets(securityContext(), " ", null, null) }
+            runBlocking { controller.getUserAssets(securityContext(), " ", null, null, null, signedTimestamp()) }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(walletProxy.getWalletCallCount).isZero()
@@ -527,7 +527,7 @@ private class WalletControllerTest {
         val controller = controller(walletProxy = walletProxy)
 
         assertThatThrownBy {
-            runBlocking { controller.getUserAssets(securityContext(), null, " ", null) }
+            runBlocking { controller.getUserAssets(securityContext(), null, " ", null, null, signedTimestamp()) }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(walletProxy.getWalletsCallCount).isZero()
@@ -539,7 +539,34 @@ private class WalletControllerTest {
         val controller = controller(walletProxy = walletProxy)
 
         assertThatThrownBy {
-            runBlocking { controller.assetsEstimatedValue(securityContext(), " ") }
+            runBlocking { controller.assetsEstimatedValue(securityContext(), " ", null, signedTimestamp()) }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWalletsCallCount).isZero()
+    }
+
+    @Test
+    fun givenExpiredTimestamp_whenUserAssetsRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking {
+                controller.getUserAssets(securityContext(), null, "USDT", true, null, signedTimestamp() - 6000)
+            }
+        }.isOpexError(OpexError.InvalidRequestParam)
+
+        assertThat(walletProxy.getWalletCallCount).isZero()
+        assertThat(walletProxy.getWalletsCallCount).isZero()
+    }
+
+    @Test
+    fun givenExpiredTimestamp_whenEstimatedValueRequested_thenRejectBeforeWalletCall(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy()
+        val controller = controller(walletProxy = walletProxy)
+
+        assertThatThrownBy {
+            runBlocking { controller.assetsEstimatedValue(securityContext(), "USDT", null, signedTimestamp() - 6000) }
         }.isOpexError(OpexError.InvalidRequestParam)
 
         assertThat(walletProxy.getWalletsCallCount).isZero()
@@ -555,7 +582,7 @@ private class WalletControllerTest {
         )
         val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
 
-        val assets = controller.getUserAssets(securityContext(), null, "USDT", true)
+        val assets = controller.getUserAssets(securityContext(), null, "USDT", true, null, signedTimestamp())
 
         assertThat(assets).hasSize(1)
         assertThat(assets[0].valuation).isEqualByComparingTo("100")
@@ -575,7 +602,7 @@ private class WalletControllerTest {
         )
         val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
 
-        val assets = controller.getUserAssets(securityContext(), null, "USDT", true)
+        val assets = controller.getUserAssets(securityContext(), null, "USDT", true, null, signedTimestamp())
 
         assertThat(assets).hasSize(1)
         assertThat(assets[0].valuation).isEqualByComparingTo("100")
@@ -592,7 +619,7 @@ private class WalletControllerTest {
         val marketDataProxy = RecordingMarketDataProxy()
         val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
 
-        val assets = controller.getUserAssets(securityContext(), null, "USDT", true)
+        val assets = controller.getUserAssets(securityContext(), null, "USDT", true, null, signedTimestamp())
 
         assertThat(assets).hasSize(1)
         assertThat(assets[0].asset).isEqualTo("USDT")
@@ -616,7 +643,7 @@ private class WalletControllerTest {
         )
         val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
 
-        val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT")
+        val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT", null, signedTimestamp())
 
         assertThat(estimatedValue.value).isEqualByComparingTo("288")
         assertThat(estimatedValue.zeroValueAssets).isEmpty()
@@ -630,7 +657,7 @@ private class WalletControllerTest {
         val marketDataProxy = RecordingMarketDataProxy()
         val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
 
-        val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT")
+        val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT", null, signedTimestamp())
 
         assertThat(estimatedValue.value).isEqualByComparingTo("40")
         assertThat(estimatedValue.evaluatedWith).isEqualTo("USDT")
@@ -652,7 +679,7 @@ private class WalletControllerTest {
         )
         val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
 
-        val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT")
+        val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT", null, signedTimestamp())
 
         assertThat(estimatedValue.value).isEqualByComparingTo("288")
         assertThat(estimatedValue.zeroValueAssets).isEmpty()

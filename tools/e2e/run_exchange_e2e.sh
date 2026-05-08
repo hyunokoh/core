@@ -4018,9 +4018,13 @@ main() {
   expect_http_status "Binance API stale private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-signed-stale-timestamp.json
   expect_http_status "Binance API future private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_future}&recvWindow=60000")" >/tmp/opex-e2e-binance-api-signed-future-timestamp.json
   expect_http_status "Binance API oversize recvWindow rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_now}&recvWindow=60001")" >/tmp/opex-e2e-binance-api-signed-oversize-recv-window.json
+  expect_http_status "Binance API user asset stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/asset/getUserAsset" "symbol=USDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-user-asset-signed-stale-timestamp.json
+  expect_http_status "Binance API estimated value stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/asset/estimatedValue" "quoteAsset=USDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-estimated-value-signed-stale-timestamp.json
   assert_opex_error "Binance API stale private timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-stale-timestamp.json)"
   assert_opex_error "Binance API future private timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-future-timestamp.json)"
   assert_opex_error "Binance API oversize recvWindow error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-oversize-recv-window.json)"
+  assert_opex_error "Binance API user asset stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-user-asset-signed-stale-timestamp.json)"
+  assert_opex_error "Binance API estimated value stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-estimated-value-signed-stale-timestamp.json)"
 
   local seller="e2e-seller-$(date +%s)"
   local buyer="e2e-buyer-$(date +%s)"

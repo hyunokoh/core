@@ -212,10 +212,15 @@ class WalletController(
         @RequestParam(required = false)
         quoteAsset: String?,
         @RequestParam(required = false)
-        calculateEvaluation: Boolean?
+        calculateEvaluation: Boolean?,
+        @RequestParam(required = false)
+        recvWindow: Long?,
+        @RequestParam
+        timestamp: Long
     ): List<AssetResponse> {
         validateOptionalAssetParam(symbol, "symbol")
         validateOptionalAssetParam(quoteAsset, "quoteAsset")
+        validateSignedRequest(recvWindow, timestamp)
         val auth = securityContext.jwtAuthentication()
         val result = arrayListOf<AssetResponse>()
 
@@ -251,9 +256,14 @@ class WalletController(
         @CurrentSecurityContext
         securityContext: SecurityContext,
         @RequestParam
-        quoteAsset: String
+        quoteAsset: String,
+        @RequestParam(required = false)
+        recvWindow: Long?,
+        @RequestParam
+        timestamp: Long
     ): AssetsEstimatedValue {
         validateRequiredAssetParam(quoteAsset, "quoteAsset")
+        validateSignedRequest(recvWindow, timestamp)
         val auth = securityContext.jwtAuthentication()
         val wallets = walletProxy.getWallets(auth.name, auth.tokenValue())
         val rates = valuationPrices(wallets.map { it.asset }, quoteAsset)
