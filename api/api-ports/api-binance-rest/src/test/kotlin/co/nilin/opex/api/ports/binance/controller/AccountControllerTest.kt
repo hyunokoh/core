@@ -1279,6 +1279,95 @@ private class AccountControllerTest {
     }
 
     @Test
+    fun givenPartiallyFilledIocLimitBuy_whenFullResponseRequested_thenWaitsForCanceledProjection(): Unit = runBlocking {
+        val queryHandler = RecordingMarketUserDataProxy().apply {
+            queryOrderResponses = mutableListOf(
+                null,
+                queryOrderResponse!!.copy(
+                    clientOrderId = "ioc-limit-buy-partial-1",
+                    orderId = 105,
+                    direction = OrderDirection.BID,
+                    constraint = MatchConstraint.IOC,
+                    type = MatchingOrderType.LIMIT_ORDER,
+                    price = BigDecimal("172"),
+                    quantity = BigDecimal("0.5"),
+                    executedQuantity = BigDecimal("0.2"),
+                    accumulativeQuoteQty = BigDecimal("34.4"),
+                    status = OrderStatus.PARTIALLY_FILLED
+                ),
+                queryOrderResponse!!.copy(
+                    clientOrderId = "ioc-limit-buy-partial-1",
+                    orderId = 105,
+                    direction = OrderDirection.BID,
+                    constraint = MatchConstraint.IOC,
+                    type = MatchingOrderType.LIMIT_ORDER,
+                    price = BigDecimal("172"),
+                    quantity = BigDecimal("0.5"),
+                    executedQuantity = BigDecimal("0.2"),
+                    accumulativeQuoteQty = BigDecimal("34.4"),
+                    status = OrderStatus.CANCELED
+                )
+            )
+            allTradesResponses = mutableListOf(
+                listOf(
+                    trade(
+                        orderId = 105,
+                        price = BigDecimal("172"),
+                        quantity = BigDecimal("0.2"),
+                        quoteQuantity = BigDecimal("34.4"),
+                        commission = BigDecimal("0.002"),
+                        commissionAsset = "ETH",
+                        isBuyer = true,
+                        isMaker = false
+                    )
+                )
+            )
+        }
+        val matchingGatewayProxy = RecordingMatchingGatewayProxy()
+        val controller = controller(queryHandler, matchingGatewayProxy)
+
+        val response = controller.createNewOrder(
+            symbol = "ETHUSDT",
+            side = OrderSide.BUY,
+            type = OrderType.LIMIT,
+            timeInForce = TimeInForce.IOC,
+            quantity = BigDecimal("0.5"),
+            quoteOrderQty = null,
+            price = BigDecimal("172"),
+            newClientOrderId = "ioc-limit-buy-partial-1",
+            stopPrice = null,
+            icebergQty = null,
+            newOrderRespType = OrderResponseType.FULL,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(matchingGatewayProxy.createOrderCallCount).isEqualTo(1)
+        assertThat(matchingGatewayProxy.createOrderDirection).isEqualTo(OrderDirection.BID)
+        assertThat(matchingGatewayProxy.createOrderConstraint).isEqualTo(MatchConstraint.IOC)
+        assertThat(matchingGatewayProxy.createOrderType).isEqualTo(MatchingOrderType.LIMIT_ORDER)
+        assertThat(response.orderId).isEqualTo(105)
+        assertThat(response.status).isEqualTo(OrderStatus.CANCELED)
+        assertThat(response.price).isEqualByComparingTo(BigDecimal("172"))
+        assertThat(response.origQty).isEqualByComparingTo(BigDecimal("0.5"))
+        assertThat(response.executedQty).isEqualByComparingTo(BigDecimal("0.2"))
+        assertThat(response.cummulativeQuoteQty).isEqualByComparingTo(BigDecimal("34.4"))
+        assertThat(response.timeInForce).isEqualTo(TimeInForce.IOC)
+        assertThat(response.type).isEqualTo(OrderType.LIMIT)
+        assertThat(response.side).isEqualTo(OrderSide.BUY)
+        assertThat(response.fills).containsExactly(
+            co.nilin.opex.api.ports.binance.data.FillsData(
+                BigDecimal("172"),
+                BigDecimal("0.2"),
+                BigDecimal("0.002"),
+                "ETH"
+            )
+        )
+        assertThat(queryHandler.allTradesOrderId).isEqualTo(105)
+    }
+
+    @Test
     fun givenAckResponseType_whenCreateOrderRequested_thenSubmitOrderAndReturnAckResponse(): Unit = runBlocking {
         val queryHandler = RecordingMarketUserDataProxy().apply {
             queryOrderResponses = mutableListOf(

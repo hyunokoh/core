@@ -38,6 +38,7 @@ class AccountController(
     private val maxAccountQueryLimit = 1000
     private val maxClientOrderIdLength = 72
     private val orderProjectionAttempts = 40
+    private val immediateOrderProjectionAttempts = 200
     private val orderProjectionPollDelayMs = 50L
 
     /*
@@ -681,7 +682,7 @@ class AccountController(
         clientOrderId: String,
         submitTime: Long
     ): Order? {
-        repeat(orderProjectionAttempts) {
+        repeat(immediateOrderProjectionAttempts) {
             val order = try {
                 queryHandler.queryOrder(principal, internalSymbol, null, clientOrderId)
             } catch (ex: WebClientResponseException) {
@@ -706,8 +707,9 @@ class AccountController(
         submitTime: Long,
         fallbackOrder: Order
     ): Order {
-        if (fallbackOrder.executedQuantity > BigDecimal.ZERO || fallbackOrder.status != OrderStatus.NEW)
-            return fallbackOrder
+        var latestOrder = fallbackOrder
+        if (latestOrder.isImmediateExecutionSettled())
+            return latestOrder
 
         repeat(orderProjectionAttempts) {
             val order = try {
@@ -719,14 +721,23 @@ class AccountController(
                 order != null &&
                 order.clientOrderId == clientOrderId &&
                 order.createDate.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() >= submitTime - 1000 &&
-                (order.executedQuantity > BigDecimal.ZERO || order.status != OrderStatus.NEW)
+                order.isImmediateExecutionSettled()
             ) {
                 return order
             }
+            if (
+                order != null &&
+                order.clientOrderId == clientOrderId &&
+                order.createDate.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() >= submitTime - 1000
+            ) {
+                latestOrder = order
+            }
             delay(orderProjectionPollDelayMs)
         }
-        return fallbackOrder
+        return latestOrder
     }
+
+    private fun Order.isImmediateExecutionSettled(): Boolean = !status.isWorking()
 
     private suspend fun orderFills(principal: Principal, internalSymbol: String, order: Order): List<FillsData> {
         val orderId = order.orderId ?: return emptyList()

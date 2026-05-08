@@ -4463,6 +4463,25 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "172" "0.2"
   wait_binance_account_balance "$api_ioc_partial_seller" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-ioc-partial-seller-reserved-eth.json
   expect_2xx_retry "Binance API IOC partial taker bid" "binance_private_post '$api_ioc_partial_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=IOC&quantity=0.5&price=172'" >/tmp/opex-e2e-binance-api-ioc-partial-bid.json
+  jq -e '
+    .symbol == "ETHUSDT" and
+    (.orderId | type == "number") and
+    .orderListId == -1 and
+    (.clientOrderId | type == "string") and
+    .price == 172 and
+    .origQty == 0.5 and
+    .executedQty == 0.2 and
+    .cummulativeQuoteQty == 34.4 and
+    .status == "CANCELED" and
+    .timeInForce == "IOC" and
+    .type == "LIMIT" and
+    .side == "BUY" and
+    (.fills | length == 1) and
+    .fills[0].price == 172 and
+    .fills[0].qty == 0.2 and
+    .fills[0].commission == 0.002 and
+    .fills[0].commissionAsset == "ETH"
+  ' /tmp/opex-e2e-binance-api-ioc-partial-bid.json >/dev/null
   wait_user_trade_projection "$api_ioc_partial_seller" "ETH_USDT" "172" "0.2" "34.4" "0.344" "USDT" false true false /tmp/opex-e2e-binance-api-ioc-partial-seller-trades.json
   wait_user_trade_projection "$api_ioc_partial_buyer" "ETH_USDT" "172" "0.2" "34.4" "0.002" "ETH" true false false /tmp/opex-e2e-binance-api-ioc-partial-buyer-trades.json
   wait_no_user_open_orders "$api_ioc_partial_seller" "ETH_USDT"
@@ -4486,6 +4505,25 @@ main() {
   wait_order_book_level "ETH_USDT" "BID" "173" "0.2"
   wait_binance_account_balance "$api_ioc_partial_sell_buyer" "USDT" "65.4" "34.6" /tmp/opex-e2e-binance-api-ioc-partial-sell-buyer-reserved-usdt.json
   expect_2xx_retry "Binance API IOC partial-sell taker ask" "binance_private_post '$api_ioc_partial_sell_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=IOC&quantity=0.5&price=173'" >/tmp/opex-e2e-binance-api-ioc-partial-sell-ask.json
+  jq -e '
+    .symbol == "ETHUSDT" and
+    (.orderId | type == "number") and
+    .orderListId == -1 and
+    (.clientOrderId | type == "string") and
+    .price == 173 and
+    .origQty == 0.5 and
+    .executedQty == 0.2 and
+    .cummulativeQuoteQty == 34.6 and
+    .status == "CANCELED" and
+    .timeInForce == "IOC" and
+    .type == "LIMIT" and
+    .side == "SELL" and
+    (.fills | length == 1) and
+    .fills[0].price == 173 and
+    .fills[0].qty == 0.2 and
+    .fills[0].commission == 0.346 and
+    .fills[0].commissionAsset == "USDT"
+  ' /tmp/opex-e2e-binance-api-ioc-partial-sell-ask.json >/dev/null
   wait_user_trade_projection "$api_ioc_partial_sell_seller" "ETH_USDT" "173" "0.2" "34.6" "0.346" "USDT" false false true /tmp/opex-e2e-binance-api-ioc-partial-sell-seller-trades.json
   wait_user_trade_projection "$api_ioc_partial_sell_buyer" "ETH_USDT" "173" "0.2" "34.6" "0.002" "ETH" true true true /tmp/opex-e2e-binance-api-ioc-partial-sell-buyer-trades.json
   wait_no_user_open_orders "$api_ioc_partial_sell_seller" "ETH_USDT"
