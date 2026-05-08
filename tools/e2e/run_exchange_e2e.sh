@@ -3971,6 +3971,9 @@ main() {
   expect_http_status "Binance API stale private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-signed-stale-timestamp.json
   expect_http_status "Binance API future private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_future}&recvWindow=60000")" >/tmp/opex-e2e-binance-api-signed-future-timestamp.json
   expect_http_status "Binance API oversize recvWindow rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_now}&recvWindow=60001")" >/tmp/opex-e2e-binance-api-signed-oversize-recv-window.json
+  assert_opex_error "Binance API stale private timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-stale-timestamp.json)"
+  assert_opex_error "Binance API future private timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-future-timestamp.json)"
+  assert_opex_error "Binance API oversize recvWindow error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-oversize-recv-window.json)"
 
   local seller="e2e-seller-$(date +%s)"
   local buyer="e2e-buyer-$(date +%s)"
@@ -4112,11 +4115,13 @@ main() {
   fi
   wait_binance_private_trade_projection_for_order_id "$api_order_seller" "ETHUSDT" "$api_order_seller_binance_order_id" "$api_order_seller_binance_trade_id" "101" "0.2" "20.2" "0.202" "USDT" false true /tmp/opex-e2e-binance-api-seller-my-trades-order-id.json
   expect_http_status "Binance API filled order-id cancel rejected" "403" "$(binance_private_delete "$api_order_seller" "/v3/order" "symbol=ETHUSDT&orderId=${api_order_seller_binance_order_id}")" >/tmp/opex-e2e-binance-api-filled-order-id-cancel.json
+  assert_opex_error "Binance API filled order-id cancel error" "CancelOrderNotAllowed" 7006 "$(cat /tmp/opex-e2e-binance-api-filled-order-id-cancel.json)"
   wait_binance_private_order_status_by_order_id "$api_order_seller" "ETHUSDT" "$api_order_seller_binance_order_id" "101" "0.2" "FILLED" "0.2" "20.2" "SELL" /tmp/opex-e2e-binance-api-filled-order-id-query-after-cancel-reject.json
   wait_binance_account_balance "$api_order_seller" "ETH" "0.8" "0" /tmp/opex-e2e-binance-api-filled-order-id-eth-account-after-cancel-reject.json
   wait_binance_account_balance "$api_order_seller" "USDT" "19.998" "0" /tmp/opex-e2e-binance-api-filled-order-id-usdt-account-after-cancel-reject.json
   wait_binance_private_trades_empty_for_order_id "$api_order_buyer" "ETHUSDT" "$api_order_seller_binance_order_id" /tmp/opex-e2e-binance-api-buyer-seller-order-id-my-trades.json
   expect_http_status "Binance API buyer seller order lookup forbidden" "403" "$(binance_private_get_status "$api_order_buyer" "/v3/order" "symbol=ETHUSDT&orderId=${api_order_seller_binance_order_id}")" >/tmp/opex-e2e-binance-api-buyer-seller-order-id-query.json
+  assert_opex_error "Binance API buyer seller order lookup error" "Forbidden" 1004 "$(cat /tmp/opex-e2e-binance-api-buyer-seller-order-id-query.json)"
 
   local api_self_trade_owner="e2e-api-self-trade-$(date +%s)"
   local api_self_trade_ref="e2e-api-stp-$(date +%s)"
@@ -4310,6 +4315,7 @@ main() {
   expect_2xx "Binance API market-buy seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_market_buy_seller}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-eth")" >/dev/null
   expect_2xx "Binance API market-buy buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${api_market_buy_buyer}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-usdt")" >/dev/null
   expect_http_status "Binance API market-buy without price cap rejected" "400" "$(binance_private_post "$api_market_buy_buyer" "/v3/order" "symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&newClientOrderId=${api_market_buy_client_id}-no-cap")" >/tmp/opex-e2e-binance-api-market-buy-no-cap-reject.json
+  assert_opex_error "Binance API market-buy without price cap error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-market-buy-no-cap-reject.json)"
   wait_no_user_open_orders "$api_market_buy_buyer" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
@@ -4461,6 +4467,7 @@ main() {
   fi
   wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-new.json
   expect_http_status "Binance API intruder order-id cancel forbidden" "403" "$(binance_private_delete "${api_cancel_owner}-intruder" "/v3/order" "symbol=ETHUSDT&orderId=${api_cancel_order_id}")" >/tmp/opex-e2e-binance-api-cancel-intruder-order-id-cancel.json
+  assert_opex_error "Binance API intruder order-id cancel error" "Forbidden" 1004 "$(cat /tmp/opex-e2e-binance-api-cancel-intruder-order-id-cancel.json)"
   wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-still-new-after-intruder.json
   wait_order_book_level "ETH_USDT" "ASK" "160" "0.3"
   wait_binance_account_balance "$api_cancel_owner" "ETH" "0.7" "0.3" /tmp/opex-e2e-binance-api-cancel-still-reserved-account.json
@@ -4756,6 +4763,7 @@ main() {
   wait_binance_account_balance "$api_duplicate_client_owner" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-duplicate-client-reserved-account.json
   wait_binance_private_order_status_by_client_order_id "$api_duplicate_client_owner" "ETHUSDT" "$api_duplicate_client_id" "164" "0.2" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-duplicate-client-query-new.json
   expect_http_status "Binance API duplicate open client order id" "400" "$(binance_private_post "$api_duplicate_client_owner" "/v3/order" "symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=165&newClientOrderId=${api_duplicate_client_id}")" >/tmp/opex-e2e-binance-api-duplicate-client-reject.json
+  assert_opex_error "Binance API duplicate open client order id error" "BadRequest" 1002 "$(cat /tmp/opex-e2e-binance-api-duplicate-client-reject.json)"
   wait_user_open_order "$api_duplicate_client_owner" "ETH_USDT" "164" "0.2" /tmp/opex-e2e-binance-api-duplicate-client-still-open-orders.json
   assert_no_user_order_by_price "$api_duplicate_client_owner" "ETH_USDT" "165" "0.2"
   wait_order_book_empty_at_price "ETH_USDT" "ASK" "165"
