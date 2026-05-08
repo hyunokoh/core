@@ -33,7 +33,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Duplicate cancel is safe: resubmitting a cancel for an already canceled order does not release funds twice.
 - An unsupported FOK order does not remain in user-visible market order state and releases its reserved ETH.
 - Binance-compatible private `/v3/order` same-account crossing orders are rejected by self-trade prevention through the REST path, with no self-trade row and released quote reservation.
-- Binance-compatible private `/v3/order` underfunded limit ask/bid requests are rejected before creating order projections or mutating locked balances.
+- Binance-compatible private `/v3/order` underfunded limit ask/bid requests are rejected with `SubmitOrderForbiddenByAccountant` before creating order projections or mutating locked balances.
 - Self-trade prevention rejects same-account order edits that would cross the user's own resting liquidity, preserving the original open orders and locked balances.
 - Underfunded ask and bid orders are rejected and never appear in market order state.
 - Invalid order parameters such as zero quantity, invalid price, malformed pair, or price/quantity precision mismatch are rejected before reaching market state.

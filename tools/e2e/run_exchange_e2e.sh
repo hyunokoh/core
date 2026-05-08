@@ -623,6 +623,19 @@ expect_http_status() {
   printf '%s\n' "$body"
 }
 
+assert_opex_error() {
+  local label="$1"
+  local expected_error="$2"
+  local expected_code="$3"
+  local body="$4"
+  if ! printf '%s\n' "$body" | jq -e --arg error "$expected_error" --argjson code "$expected_code" \
+    '.error == $error and .code == $code' >/dev/null; then
+    echo "$label expected Opex error $expected_error/$expected_code" >&2
+    echo "$body" >&2
+    exit 1
+  fi
+}
+
 json_number() {
   local field="$1"
   sed -E "s/.*\"${field}\":([^,}]+).*/\\1/"
@@ -4185,6 +4198,8 @@ main() {
   wait_binance_account_balance "$api_underfunded_owner" "USDT" "50" "0" /tmp/opex-e2e-binance-api-underfunded-initial-usdt-account.json
   expect_http_status "Binance API underfunded limit ask rejected" "400" "$(binance_private_post "$api_underfunded_owner" "/v3/order" "symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=1&price=105&newClientOrderId=${api_underfunded_ask_client_id}")" >/tmp/opex-e2e-binance-api-underfunded-ask.json
   expect_http_status "Binance API underfunded limit bid rejected" "400" "$(binance_private_post "$api_underfunded_owner" "/v3/order" "symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=1&price=105&newClientOrderId=${api_underfunded_bid_client_id}")" >/tmp/opex-e2e-binance-api-underfunded-bid.json
+  assert_opex_error "Binance API underfunded limit ask error" "SubmitOrderForbiddenByAccountant" 4001 "$(cat /tmp/opex-e2e-binance-api-underfunded-ask.json)"
+  assert_opex_error "Binance API underfunded limit bid error" "SubmitOrderForbiddenByAccountant" 4001 "$(cat /tmp/opex-e2e-binance-api-underfunded-bid.json)"
   wait_binance_private_no_open_orders "$api_underfunded_owner" "ETHUSDT" /tmp/opex-e2e-binance-api-underfunded-open-orders.json
   wait_binance_private_no_all_orders "$api_underfunded_owner" "ETHUSDT" /tmp/opex-e2e-binance-api-underfunded-all-orders.json
   assert_no_user_orders "$api_underfunded_owner" "ETH_USDT"
