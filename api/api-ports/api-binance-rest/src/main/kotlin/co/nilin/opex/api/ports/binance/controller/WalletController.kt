@@ -19,8 +19,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.math.BigDecimal
-import java.time.Instant
-import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.*
 
@@ -391,13 +389,13 @@ class WalletController(
             "REJECTED" -> 2
             else -> -1
         }
+        val createTime = createDate.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val acceptTime = acceptDate?.atZone(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
 
         return WithdrawResponse(
             destAddress ?: "0x0",
             amount,
-            LocalDateTime.ofInstant(Instant.ofEpochMilli(createDate), ZoneId.systemDefault())
-                .toString()
-                .replace("T", " "),
+            createDate.toString().replace("T", " "),
             destSymbol ?: "",
             withdrawId?.toString() ?: "",
             "",
@@ -407,7 +405,7 @@ class WalletController(
             appliedFee.toString(),
             3,
             destTransactionRef ?: withdrawId.toString(),
-            if (binanceStatus == 1 && acceptDate != null) acceptDate!! else createDate
+            if (binanceStatus == 1 && acceptTime != null) acceptTime else createTime
         )
     }
 }

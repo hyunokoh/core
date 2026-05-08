@@ -63,6 +63,15 @@ services:
   bc-gateway:
     profiles:
       - full-stack
+    depends_on: !override
+      - kafka-1
+      - consul
+      - vault
+      - wallet
+      - postgres-bc-gateway
+    environment:
+      - KAFKA_IP_PORT=kafka-1:29092
+      - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
   redis:
     ports: !override
       - "127.0.0.1:16379:6379"

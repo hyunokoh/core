@@ -606,8 +606,8 @@ private class WalletControllerTest {
         destTransactionRef = "tx-$withdrawId",
         statusReason = null,
         status = status,
-        createDate = 1000,
-        acceptDate = 2000
+        createDate = LocalDateTime.of(2026, 1, 1, 0, 0, 1),
+        acceptDate = LocalDateTime.of(2026, 1, 1, 0, 0, 2)
     )
 
     private class RecordingWalletProxy(

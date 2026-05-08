@@ -110,10 +110,11 @@ class WalletProxyImpl(private val webClient: WebClient) : WalletProxy {
         logger.info("fetching withdraw transaction history for $uuid")
         return withContext(ProxyDispatchers.wallet) {
             webClient.post()
-                .uri("$baseUrl/withdraw/history/$uuid")
+                .uri("$baseUrl/withdraw/history")
                 .accept(MediaType.APPLICATION_JSON)
+                .header("X-Opex-User", uuid)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer $token")
-                .body(Mono.just(TransactionRequest(coin, startTime, endTime, limit, offset, ascendingByTime)))
+                .body(Mono.just(WithdrawHistoryRequest(coin, startTime, endTime, limit, offset, ascendingByTime)))
                 .retrieve()
                 .onStatus({ t -> t.isError }, { it.createException() })
                 .bodyToFlux<WithdrawHistoryResponse>()
@@ -124,3 +125,12 @@ class WalletProxyImpl(private val webClient: WebClient) : WalletProxy {
 
 
 }
+
+private data class WithdrawHistoryRequest(
+    val currency: String?,
+    val startTime: Long? = null,
+    val endTime: Long? = null,
+    val limit: Int,
+    val offset: Int,
+    val ascendingByTime: Boolean? = false
+)

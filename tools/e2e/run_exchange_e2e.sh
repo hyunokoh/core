@@ -124,6 +124,7 @@ Runs a real Docker-backed exchange E2E flow:
   48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet, transaction history, or legacy transaction API.
   49. Verify wallet transfer success/rejection/idempotency through the real HTTP path, ledger, and transaction API.
   50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, user history, transaction history, and legacy transaction API.
+  50b. Verify Binance-compatible deposit/withdraw history APIs reflect bc-gateway deposits and wallet withdraw terminal states.
   51. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
   52. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
@@ -1710,6 +1711,31 @@ binance_private_post() {
   rm -f "$response_file"
 }
 
+binance_private_post_json() {
+  local owner="$1"
+  local path="$2"
+  local body="${3:-{}}"
+  local timestamp
+  timestamp=$(( $(date +%s) * 1000 ))
+
+  local signed_body
+  signed_body="$(jq -c --argjson timestamp "$timestamp" '. + {timestamp: $timestamp, recvWindow: 60000}' <<<"$body")"
+
+  local response_file
+  response_file="$(mktemp)"
+  local status
+  status="$(curl -sS -X POST \
+    -H "X-Opex-User: $owner" \
+    -H "Content-Type: application/json" \
+    -w "%{http_code}" \
+    -o "$response_file" \
+    -d "$signed_body" \
+    "http://127.0.0.1:8094${path}")"
+  printf '%s\n' "$status"
+  cat "$response_file"
+  rm -f "$response_file"
+}
+
 binance_private_delete() {
   local owner="$1"
   local path="$2"
@@ -1736,6 +1762,163 @@ binance_private_delete() {
   printf '%s\n' "$status"
   cat "$response_file"
   rm -f "$response_file"
+}
+
+deposit_via_bc_gateway() {
+  local owner="$1"
+  local currency="$2"
+  local amount="$3"
+  local tx_hash="$4"
+  local token_address="$5"
+  local raw_amount="$6"
+  local address="0xe2e${tx_hash//[^[:alnum:]]/}"
+  address="${address:0:42}"
+  local csv_file
+  csv_file="$(mktemp)"
+  printf '%s,,ethereum\n' "$address" > "$csv_file"
+
+  curl -fsS -X PUT -F "file=@${csv_file}" "http://127.0.0.1:8095/v1/address" >/dev/null
+  rm -f "$csv_file"
+
+  local assigned_body
+  assigned_body="$(curl -fsS -X POST \
+    -H "Content-Type: application/json" \
+    -d "{\"uuid\":\"${owner}\",\"currency\":\"${currency}\",\"chain\":\"test-ethereum\"}" \
+    "http://127.0.0.1:8095/v1/address/assign")"
+  local assigned_address
+  assigned_address="$(jq -r --arg fallback "$address" '.addresses[0].address // $fallback' <<<"$assigned_body")"
+
+  local transfer_body
+  transfer_body="$(jq -n \
+    --arg txHash "$tx_hash" \
+    --arg address "$assigned_address" \
+    --arg tokenAddress "$token_address" \
+    --argjson amount "$raw_amount" \
+    '[{
+      txHash: $txHash,
+      blockNumber: 1,
+      receiver: {address: $address, memo: null},
+      isTokenTransfer: true,
+      amount: $amount,
+      chain: "test-ethereum",
+      tokenAddress: $tokenAddress
+    }]')"
+  expect_2xx "bc-gateway wallet-sync deposit" "$(curl_json PUT "http://127.0.0.1:8095/wallet-sync/test-ethereum" "$transfer_body")" >/dev/null
+  assert_wallet_balance "bc-gateway ${currency} deposit" "$owner" "$currency" "$amount"
+}
+
+wait_binance_deposit_history() {
+  local owner="$1"
+  local coin="$2"
+  local tx_hash="$3"
+  local amount="$4"
+  local output_file="$5"
+  local body
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until body="$(binance_private_get "$owner" "/v1/capital/deposit/hisrec" "coin=${coin}&status=1&startTime=1&endTime=4102444800000&limit=20&offset=0")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg coin "$coin" \
+      --arg txHash "$tx_hash" \
+      --arg network "test-ethereum" \
+      --argjson amount "$amount" '
+      any(.[];
+        .coin == $coin
+        and .txId == $txHash
+        and .network == $network
+        and .status == 1
+        and .transferType == 1
+        and .unlockConfirm == "1/1"
+        and .confirmTimes == "1/1"
+        and ((.amount | tonumber) == $amount)
+        and (.address | type == "string" and length > 0)
+        and (.insertTime | type == "number")
+        and (.time | type == "number")
+      )
+    ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance deposit history coin=$coin txHash=$tx_hash" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api bc-gateway wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+assert_binance_withdraw_history_body() {
+  local body="$1"
+  local coin="$2"
+  local cancel_id="$3"
+  local accept_id="$4"
+  local duplicate_ref_id="$5"
+  local reject_id="$6"
+  local chain_ref="$7"
+  printf '%s\n' "$body" | jq -e \
+    --arg coin "$coin" \
+    --arg chainRef "$chain_ref" \
+    --argjson cancelId "$cancel_id" \
+    --argjson acceptId "$accept_id" \
+    --argjson duplicateRefId "$duplicate_ref_id" \
+    --argjson rejectId "$reject_id" '
+    def by_id($id): .id == ($id | tostring);
+    length == 4
+    and all(.[]; .coin == $coin and .network == "test-ethereum" and .transferType == 1 and .confirmNo == 3 and (.time | type == "number"))
+    and any(.[]; by_id($cancelId) and .status == -1 and .address == "0xwithdrawcancel" and ((.amount | tonumber) == 2.9) and .transactionFee == "0.1")
+    and any(.[]; by_id($acceptId) and .status == 1 and .address == "0xwithdrawaccept" and .txId == $chainRef and ((.amount | tonumber) == 3.9) and .transactionFee == "0.1")
+    and any(.[]; by_id($duplicateRefId) and .status == 2 and .address == "0xwithdrawduplicateref" and ((.amount | tonumber) == 1.0) and .transactionFee == "0.1")
+    and any(.[]; by_id($rejectId) and .status == 2 and .address == "0xwithdrawreject" and ((.amount | tonumber) == 1.9) and .transactionFee == "0.1")
+  ' >/dev/null
+}
+
+wait_binance_withdraw_history() {
+  local owner="$1"
+  local coin="$2"
+  local cancel_id="$3"
+  local accept_id="$4"
+  local duplicate_ref_id="$5"
+  local reject_id="$6"
+  local chain_ref="$7"
+  local output_file="$8"
+  local body
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until body="$(binance_private_get "$owner" "/v1/capital/withdraw/history" "coin=${coin}&limit=20&offset=0&startTime=1&endTime=4102444800000")" &&
+    assert_binance_withdraw_history_body "$body" "$coin" "$cancel_id" "$accept_id" "$duplicate_ref_id" "$reject_id" "$chain_ref"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance withdraw history coin=$coin owner=$owner" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_withdraw_history_v2() {
+  local owner="$1"
+  local coin="$2"
+  local cancel_id="$3"
+  local accept_id="$4"
+  local duplicate_ref_id="$5"
+  local reject_id="$6"
+  local chain_ref="$7"
+  local output_file="$8"
+  local request
+  request="$(jq -n --arg coin "$coin" '{coin: $coin, limit: 20, offset: 0, startTime: 1, endTime: 4102444800000}')"
+  local body
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until body="$(expect_2xx "Binance withdraw history v2" "$(binance_private_post_json "$owner" "/v2/capital/withdraw/history" "$request")")" &&
+    assert_binance_withdraw_history_body "$body" "$coin" "$cancel_id" "$accept_id" "$duplicate_ref_id" "$reject_id" "$chain_ref"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance withdraw history v2 coin=$coin owner=$owner" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
 }
 
 wait_binance_account_balance() {
@@ -3676,6 +3859,9 @@ main() {
   wait_log "market" "market richTrade consumer" "richTrade-0"
   wait_log "market" "market richOrder consumer" "richOrder-0"
   sleep 10
+
+  "${COMPOSE[@]}" up -d postgres-bc-gateway bc-gateway
+  wait_http "bc-gateway" "http://127.0.0.1:8095/actuator/health"
 
   "${COMPOSE[@]}" up -d --no-deps api
   wait_http "api" "http://127.0.0.1:8094/actuator/health"
@@ -6048,9 +6234,10 @@ main() {
 
   local withdraw_owner="e2e-withdraw-$(date +%s)"
   local withdraw_ref="e2e-withdraw-$(date +%s)"
-  expect_2xx "withdraw owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/10_test-ethereum_USDT/${withdraw_owner}_MAIN?description=e2e-withdraw&transferRef=${withdraw_ref}-usdt")" >/dev/null
+  deposit_via_bc_gateway "$withdraw_owner" "USDT" "10" "${withdraw_ref}-usdt" "0x110a13FC3efE6A245B50102D2d79B3E76125Ae83" "10000000"
   assert_wallet_balance "withdraw owner initial USDT" "$withdraw_owner" "USDT" "10"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "10" "0" "0" /tmp/opex-e2e-withdraw-initial-asset.json
+  wait_binance_deposit_history "$withdraw_owner" "USDT" "${withdraw_ref}-usdt" "10" /tmp/opex-e2e-binance-deposit-history.json
 
   local withdraw_below_minimum_body='{"currency":"USDT","amount":0.5,"destSymbol":"USDT","destAddress":"0xwithdrawbelowminimum","destNetwork":"test-ethereum","destNote":"below-minimum","description":"e2e withdraw below minimum"}'
   local withdraw_net_below_minimum_body='{"currency":"USDT","amount":1.05,"destSymbol":"USDT","destAddress":"0xwithdrawnetbelowminimum","destNetwork":"test-ethereum","destNote":"net-below-minimum","description":"e2e withdraw net below minimum"}'
@@ -6191,6 +6378,8 @@ main() {
     sleep 1
   done
   printf '%s\n' "$withdraw_history_body" >/tmp/opex-e2e-withdraw-history.json
+  wait_binance_withdraw_history "$withdraw_owner" "USDT" "$withdraw_cancel_id" "$withdraw_accept_id" "$withdraw_duplicate_ref_id" "$withdraw_reject_id" "${withdraw_ref}-chain" /tmp/opex-e2e-binance-withdraw-history.json
+  wait_binance_withdraw_history_v2 "$withdraw_owner" "USDT" "$withdraw_cancel_id" "$withdraw_accept_id" "$withdraw_duplicate_ref_id" "$withdraw_reject_id" "${withdraw_ref}-chain" /tmp/opex-e2e-binance-withdraw-history-v2.json
   local withdraw_transaction_history_body
   local withdraw_transaction_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until withdraw_transaction_history_body="$(expect_2xx "withdraw transaction history" "$(curl_json POST "http://127.0.0.1:8091/v2/transaction" '{"currency":"USDT","category":"WITHDRAW","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&
