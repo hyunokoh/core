@@ -32,6 +32,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Cancel authorization is enforced asynchronously: an intruder cancel submit may be accepted by the gateway, but the engine rejects it and the owner's open order remains reserved.
 - Duplicate cancel is safe: resubmitting a cancel for an already canceled order does not release funds twice.
 - An unsupported FOK order does not remain in user-visible market order state and releases its reserved ETH.
+- Self-trade prevention rejects same-account order edits that would cross the user's own resting liquidity, preserving the original open orders and locked balances.
 - Underfunded ask and bid orders are rejected and never appear in market order state.
 - Invalid order parameters such as zero quantity, invalid price, malformed pair, or price/quantity precision mismatch are rejected before reaching market state.
 - Duplicate deposit `transferRef` values are rejected and do not double-credit the receiver wallet.
@@ -99,7 +100,7 @@ For the default `1 ETH @ 100 USDT` flow, the final balances are:
 - TON seller ends with `0 TON`, `9.9 USDT`; TON buyer ends with `1.98 TON`, `10 USDT` after a `2 TON @ 5 USDT` trade on the secondary engine shard.
 - Final public order book state has `0` ask levels and `0` bid levels.
 - Final public recent-trades state has `16` trades with aggregate quantities: `90 -> 0.1`, `100 -> 1.2`, `111 -> 0.5`, `112 -> 0.4`, `113 -> 0.3`, `114 -> 0.2`, `115 -> 0.2`, `116 -> 0.2`, `117 -> 0.2`, `120 -> 0.4`, `125 -> 0.2`, `130 -> 0.2`, `140 -> 0.4`, `150 -> 0.1`.
-- Final database state has zero E2E `EXCHANGE` wallet balances, wallet transaction counts of `45 DEPOSIT`, `41 ORDER_CREATE`, `15 ORDER_CANCEL`, `32 TRADE`, `32 FEE`, and `1 ORDER_FINALIZED`, processed Accountant financial action counts of `41 SubmitOrderEvent`, `15 RejectOrderEvent`, and `65 TradeEvent`, no pending/given-up Accountant retries, zero Market `open_orders`, internally consistent Market trade rows, and the same persisted trade distribution as the public recent-trades API.
+- Final database state has zero E2E `EXCHANGE` wallet balances, wallet transaction counts of `79 DEPOSIT`, `77 ORDER_CREATE`, `45 ORDER_CANCEL`, `46 TRADE`, `46 FEE`, and `1 ORDER_FINALIZED`, processed Accountant financial action counts of `77 SubmitOrderEvent`, `40 CancelOrderEvent`, `2 RejectOrderEvent`, `93 TradeEvent`, and `3 UpdatedOrderEvent`, no pending/given-up Accountant retries, zero Market `open_orders`, internally consistent Market trade rows, and the same persisted trade distribution as the public recent-trades API.
 - After a Market restart, public ask/bid books remain empty and the recent-trades API still exposes the expected `16` persisted trades.
 - BTC-specific final database state has wallet transaction counts of `10 DEPOSIT`, `10 ORDER_CREATE`, `1 ORDER_CANCEL`, `12 TRADE`, and `12 FEE`; processed Accountant action counts of `10 SubmitOrderEvent`, `24 TradeEvent`, and `1 RejectOrderEvent`; zero residual BTC/USDT `EXCHANGE` balances; and `6` persisted BTC trades totaling `0.006 BTC`.
 

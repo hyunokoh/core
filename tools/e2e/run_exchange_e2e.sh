@@ -67,6 +67,7 @@ Runs a real Docker-backed exchange E2E flow:
   21. Verify an unsupported FOK order is rejected at the gateway before it reaches market state.
   22. Verify same-account crossing orders are rejected by self-trade prevention and release reserved funds.
   22b. Verify self-trade prevention rejects before any partial external fill when own liquidity is behind the best price.
+  22c. Verify same-account crossing order edits are rejected by self-trade prevention without mutating open orders or balances.
   23. Verify underfunded ask/bid orders are rejected before they reach market state.
   24. Verify invalid order parameters are rejected before they reach market state.
   25. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
@@ -5786,6 +5787,79 @@ main() {
     sleep 2
   done
 
+  local self_trade_edit_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  local self_trade_edit_ask='{"uuid":null,"pair":"ETH_USDT","price":110,"quantity":0.3,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
+  expect_2xx_retry "self-trade edit resting bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$self_trade_edit_bid' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-bid.json
+  expect_2xx_retry "self-trade edit resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$self_trade_edit_ask' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-ask.json
+  wait_user_open_order "$self_trade_owner" "ETH_USDT" "100" "0.2" /tmp/opex-e2e-self-trade-edit-bid-open-orders.json
+  wait_user_open_order "$self_trade_owner" "ETH_USDT" "110" "0.3" /tmp/opex-e2e-self-trade-edit-ask-open-orders.json
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$self_trade_owner" "ETH" "0.7" &&
+    try_wallet_balance "$self_trade_owner" "USDT" "80"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for self-trade edit pre-edit reservations" >&2
+      assert_wallet_balance "self-trade edit owner ETH reserved before rejected edit" "$self_trade_owner" "ETH" "0.7" >&2 || true
+      assert_wallet_balance "self-trade edit owner USDT reserved before rejected edit" "$self_trade_owner" "USDT" "80" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  local self_trade_edit_bid_ouid self_trade_edit_bid_order_id self_trade_edit_ask_ouid self_trade_edit_ask_order_id self_trade_edit_request
+  self_trade_edit_bid_ouid="$(jq -r '[.[] | select(.price == 100 and .quantity == 0.2)][0].ouid' /tmp/opex-e2e-self-trade-edit-bid-open-orders.json)"
+  self_trade_edit_bid_order_id="$(jq -r '[.[] | select(.price == 100 and .quantity == 0.2)][0].orderId' /tmp/opex-e2e-self-trade-edit-bid-open-orders.json)"
+  self_trade_edit_ask_ouid="$(jq -r '[.[] | select(.price == 110 and .quantity == 0.3)][0].ouid' /tmp/opex-e2e-self-trade-edit-ask-open-orders.json)"
+  self_trade_edit_ask_order_id="$(jq -r '[.[] | select(.price == 110 and .quantity == 0.3)][0].orderId' /tmp/opex-e2e-self-trade-edit-ask-open-orders.json)"
+  self_trade_edit_request="$(jq -nc --arg ouid "$self_trade_edit_ask_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_edit_ask_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:100, quantity:0.2}')"
+  expect_2xx_retry "self-trade edit crossing ask rejected async" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$self_trade_edit_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-response.json
+  wait_query_eq "self-trade edit reject eventlog audit" "postgres-eventlog" "SELF_TRADE_PREVENTION,EDIT_ORDER,ASK,1,0" "
+    select event_json::jsonb ->> 'reason',
+           event_json::jsonb ->> 'requestedOperation',
+           event_json::jsonb ->> 'direction',
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'RejectOrderEvent'
+      and uuid = '$self_trade_owner'
+      and event_json::jsonb ->> 'requestedOperation' = 'EDIT_ORDER'
+    group by event_json::jsonb ->> 'reason',
+             event_json::jsonb ->> 'requestedOperation',
+             event_json::jsonb ->> 'direction';
+  "
+  wait_user_open_order "$self_trade_owner" "ETH_USDT" "100" "0.2" /tmp/opex-e2e-self-trade-edit-bid-still-open-orders.json
+  wait_user_open_order "$self_trade_owner" "ETH_USDT" "110" "0.3" /tmp/opex-e2e-self-trade-edit-ask-still-open-orders.json
+  wait_order_projection "$self_trade_owner" "$self_trade_edit_bid_ouid" "NEW" "0" "0"
+  wait_order_projection "$self_trade_owner" "$self_trade_edit_ask_ouid" "NEW" "0" "0"
+  wait_query_eq "self-trade edit prevention emitted no trade" "postgres-market" "0" "
+    select count(*)
+    from trades
+    where symbol = 'ETH_USDT'
+      and maker_uuid = '$self_trade_owner'
+      and taker_uuid = '$self_trade_owner';
+  "
+  assert_wallet_balance "self-trade edit owner ETH unchanged after rejected edit" "$self_trade_owner" "ETH" "0.7"
+  assert_wallet_balance "self-trade edit owner USDT unchanged after rejected edit" "$self_trade_owner" "USDT" "80"
+  local self_trade_edit_bid_cancel_request self_trade_edit_ask_cancel_request
+  self_trade_edit_bid_cancel_request="$(jq -nc --arg ouid "$self_trade_edit_bid_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_edit_bid_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  self_trade_edit_ask_cancel_request="$(jq -nc --arg ouid "$self_trade_edit_ask_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_edit_ask_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
+  expect_2xx_retry "cancel self-trade edit resting bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$self_trade_edit_bid_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-bid-cancel.json
+  expect_2xx_retry "cancel self-trade edit resting ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$self_trade_edit_ask_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-ask-cancel.json
+  wait_no_user_open_orders "$self_trade_owner" "ETH_USDT"
+  wait_order_projection "$self_trade_owner" "$self_trade_edit_bid_ouid" "CANCELED" "0" "0"
+  wait_order_projection "$self_trade_owner" "$self_trade_edit_ask_ouid" "CANCELED" "0" "0"
+  deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until try_wallet_balance "$self_trade_owner" "ETH" "1" &&
+    try_wallet_balance "$self_trade_owner" "USDT" "100"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for self-trade edit cleanup release" >&2
+      assert_wallet_balance "self-trade edit owner ETH released after cleanup" "$self_trade_owner" "ETH" "1" >&2 || true
+      assert_wallet_balance "self-trade edit owner USDT released after cleanup" "$self_trade_owner" "USDT" "100" >&2 || true
+      "${COMPOSE[@]}" logs --tail=200 accountant wallet market matching-engine matching-gateway eventlog >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
   local layered_self_trade_owner="e2e-layered-self-trade-$(date +%s)"
   local layered_external_seller="e2e-layered-stp-maker-$(date +%s)"
   local layered_self_trade_ref="e2e-layered-self-trade-$(date +%s)"
@@ -6538,7 +6612,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,79\nFEE,46\nNORMAL,1\nORDER_CANCEL,43\nORDER_CREATE,75\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,79\nFEE,46\nNORMAL,1\nORDER_CANCEL,45\nORDER_CREATE,77\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -6613,7 +6687,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,38\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,75\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,40\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,77\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -7987,8 +8061,8 @@ main() {
     "walletTransactionCategories": {
       "DEPOSIT": 78,
       "FEE": 46,
-      "ORDER_CANCEL": 43,
-      "ORDER_CREATE": 75,
+      "ORDER_CANCEL": 45,
+      "ORDER_CREATE": 77,
       "ORDER_FINALIZED": 1,
       "TRADE": 46,
       "WITHDRAW_ACCEPT": 1,
@@ -8012,9 +8086,9 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 38,
+      "CancelOrderEvent": 40,
       "RejectOrderEvent": 2,
-      "SubmitOrderEvent": 75,
+      "SubmitOrderEvent": 77,
       "TradeEvent": 93,
       "UpdatedOrderEvent": 3
     },
