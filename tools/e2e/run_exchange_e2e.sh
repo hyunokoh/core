@@ -124,7 +124,7 @@ Runs a real Docker-backed exchange E2E flow:
   48. Verify duplicate deposit transfer references are rejected without double-crediting the wallet, transaction history, or legacy transaction API.
   49. Verify wallet transfer success/rejection/idempotency through the real HTTP path, ledger, and transaction API.
   50. Verify withdraw request/cancel/process/accept/reject transitions, duplicate accept rejection, user history, transaction history, and legacy transaction API.
-  50b. Verify Binance-compatible deposit/withdraw history APIs reflect bc-gateway deposits and wallet withdraw terminal states.
+  50b. Verify Binance-compatible deposit/withdraw history APIs reflect bc-gateway deposits, wallet withdraw terminal states, and status filters.
   51. Replay real order create/cancel Kafka records and verify matching/accounting remain idempotent.
   52. Replay real richOrder/richTrade Kafka records and verify market projections remain idempotent.
 
@@ -1912,6 +1912,67 @@ wait_binance_withdraw_history_v2() {
     assert_binance_withdraw_history_body "$body" "$coin" "$cancel_id" "$accept_id" "$duplicate_ref_id" "$reject_id" "$chain_ref"; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for Binance withdraw history v2 coin=$coin owner=$owner" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+assert_binance_withdraw_history_status_filter_body() {
+  local body="$1"
+  local expected_status="$2"
+  local expected_count="$3"
+  local expected_id="$4"
+  printf '%s\n' "$body" | jq -e \
+    --argjson expectedStatus "$expected_status" \
+    --argjson expectedCount "$expected_count" \
+    --arg expectedId "$expected_id" '
+    length == $expectedCount
+    and all(.[]; .status == $expectedStatus)
+    and any(.[]; .id == $expectedId)
+  ' >/dev/null
+}
+
+wait_binance_withdraw_history_status_filter() {
+  local owner="$1"
+  local coin="$2"
+  local status="$3"
+  local expected_count="$4"
+  local expected_id="$5"
+  local output_file="$6"
+  local body
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until body="$(binance_private_get "$owner" "/v1/capital/withdraw/history" "coin=${coin}&status=${status}&limit=20&offset=0&startTime=1&endTime=4102444800000")" &&
+    assert_binance_withdraw_history_status_filter_body "$body" "$status" "$expected_count" "$expected_id"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance withdraw history status filter coin=$coin owner=$owner status=$status" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api wallet >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_withdraw_history_status_filter_v2() {
+  local owner="$1"
+  local coin="$2"
+  local status="$3"
+  local expected_count="$4"
+  local expected_id="$5"
+  local output_file="$6"
+  local request
+  request="$(jq -n --arg coin "$coin" --argjson status "$status" '{coin: $coin, status: $status, limit: 20, offset: 0, startTime: 1, endTime: 4102444800000}')"
+  local body
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  until body="$(expect_2xx "Binance withdraw history v2 status filter" "$(binance_private_post_json "$owner" "/v2/capital/withdraw/history" "$request")")" &&
+    assert_binance_withdraw_history_status_filter_body "$body" "$status" "$expected_count" "$expected_id"; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance withdraw history v2 status filter coin=$coin owner=$owner status=$status" >&2
       echo "$body" >&2
       "${COMPOSE[@]}" logs --tail=200 api wallet >&2 || true
       exit 1
@@ -6380,6 +6441,12 @@ main() {
   printf '%s\n' "$withdraw_history_body" >/tmp/opex-e2e-withdraw-history.json
   wait_binance_withdraw_history "$withdraw_owner" "USDT" "$withdraw_cancel_id" "$withdraw_accept_id" "$withdraw_duplicate_ref_id" "$withdraw_reject_id" "${withdraw_ref}-chain" /tmp/opex-e2e-binance-withdraw-history.json
   wait_binance_withdraw_history_v2 "$withdraw_owner" "USDT" "$withdraw_cancel_id" "$withdraw_accept_id" "$withdraw_duplicate_ref_id" "$withdraw_reject_id" "${withdraw_ref}-chain" /tmp/opex-e2e-binance-withdraw-history-v2.json
+  wait_binance_withdraw_history_status_filter "$withdraw_owner" "USDT" -1 1 "$withdraw_cancel_id" /tmp/opex-e2e-binance-withdraw-history-status-canceled.json
+  wait_binance_withdraw_history_status_filter "$withdraw_owner" "USDT" 1 1 "$withdraw_accept_id" /tmp/opex-e2e-binance-withdraw-history-status-done.json
+  wait_binance_withdraw_history_status_filter "$withdraw_owner" "USDT" 2 2 "$withdraw_reject_id" /tmp/opex-e2e-binance-withdraw-history-status-rejected.json
+  wait_binance_withdraw_history_status_filter_v2 "$withdraw_owner" "USDT" -1 1 "$withdraw_cancel_id" /tmp/opex-e2e-binance-withdraw-history-v2-status-canceled.json
+  wait_binance_withdraw_history_status_filter_v2 "$withdraw_owner" "USDT" 1 1 "$withdraw_accept_id" /tmp/opex-e2e-binance-withdraw-history-v2-status-done.json
+  wait_binance_withdraw_history_status_filter_v2 "$withdraw_owner" "USDT" 2 2 "$withdraw_reject_id" /tmp/opex-e2e-binance-withdraw-history-v2-status-rejected.json
   local withdraw_transaction_history_body
   local withdraw_transaction_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until withdraw_transaction_history_body="$(expect_2xx "withdraw transaction history" "$(curl_json POST "http://127.0.0.1:8091/v2/transaction" '{"currency":"USDT","category":"WITHDRAW","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&

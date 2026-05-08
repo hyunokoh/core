@@ -217,7 +217,7 @@ private class WalletControllerTest {
         val request = WithDrawRequest(
             coin = "USDT",
             withdrawOrderId = null,
-            withdrawStatus = -1,
+            withdrawStatus = -2,
             offset = null,
             limit = null,
             startTime = null,
@@ -288,7 +288,8 @@ private class WalletControllerTest {
         val walletProxy = RecordingWalletProxy(
             withdraws = listOf(
                 withdrawHistory(withdrawId = 10, status = "DONE"),
-                withdrawHistory(withdrawId = 11, status = "REJECTED")
+                withdrawHistory(withdrawId = 11, status = "REJECTED"),
+                withdrawHistory(withdrawId = 12, status = "CANCELED")
             )
         )
         val controller = controller(walletProxy = walletProxy)
@@ -310,6 +311,35 @@ private class WalletControllerTest {
         assertThat(response).hasSize(1)
         assertThat(response[0].id).isEqualTo("10")
         assertThat(response[0].status).isEqualTo(1)
+    }
+
+    @Test
+    fun givenCanceledStatus_whenWithdrawHistoryRequested_thenFiltersReturnedRows(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            withdraws = listOf(
+                withdrawHistory(withdrawId = 10, status = "DONE"),
+                withdrawHistory(withdrawId = 11, status = "CANCELED")
+            )
+        )
+        val controller = controller(walletProxy = walletProxy)
+
+        val response = controller.getWithdrawTransactions(
+            coin = "USDT",
+            withdrawOrderId = null,
+            withdrawStatus = -1,
+            offset = null,
+            limit = null,
+            startTime = null,
+            endTime = null,
+            ascendingByTime = null,
+            recvWindow = null,
+            timestamp = signedTimestamp(),
+            securityContext = securityContext()
+        )
+
+        assertThat(response).hasSize(1)
+        assertThat(response[0].id).isEqualTo("11")
+        assertThat(response[0].status).isEqualTo(-1)
     }
 
     @Test
@@ -340,7 +370,8 @@ private class WalletControllerTest {
         val walletProxy = RecordingWalletProxy(
             withdraws = listOf(
                 withdrawHistory(withdrawId = 20, status = "CREATED"),
-                withdrawHistory(withdrawId = 21, status = "DONE")
+                withdrawHistory(withdrawId = 21, status = "DONE"),
+                withdrawHistory(withdrawId = 22, status = "CANCELED")
             )
         )
         val controller = controller(walletProxy = walletProxy)
@@ -362,6 +393,35 @@ private class WalletControllerTest {
         assertThat(response).hasSize(1)
         assertThat(response[0].id).isEqualTo("21")
         assertThat(response[0].status).isEqualTo(1)
+    }
+
+    @Test
+    fun givenCanceledStatus_whenWithdrawHistoryV2Requested_thenFiltersReturnedRows(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            withdraws = listOf(
+                withdrawHistory(withdrawId = 20, status = "DONE"),
+                withdrawHistory(withdrawId = 21, status = "CANCELED")
+            )
+        )
+        val controller = controller(walletProxy = walletProxy)
+        val request = WithDrawRequest(
+            coin = "USDT",
+            withdrawOrderId = null,
+            withdrawStatus = -1,
+            offset = null,
+            limit = null,
+            startTime = null,
+            endTime = null,
+            ascendingByTime = null,
+            recvWindow = null,
+            timestamp = signedTimestamp()
+        )
+
+        val response = controller.getWithdrawTransactionsV2(request, securityContext())
+
+        assertThat(response).hasSize(1)
+        assertThat(response[0].id).isEqualTo("21")
+        assertThat(response[0].status).isEqualTo(-1)
     }
 
     @Test

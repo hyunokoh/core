@@ -368,7 +368,7 @@ class WalletController(
     }
 
     private fun validateWithdrawHistoryStatus(status: Int?) {
-        if (status != null && status !in 0..2)
+        if (status != null && status !in -1..2)
             throw OpexError.InvalidRequestParam.exception("Parameter 'status' is either missing or invalid")
     }
 
