@@ -104,7 +104,7 @@ Runs a real Docker-backed exchange E2E flow:
   36n0. Verify Binance-compatible price-capped MARKET buy with no liquidity cancels immediately and releases funds.
   36n. Verify Binance-compatible price-capped MARKET buy maps to IOC and settles through the real exchange path.
   36o. Verify Binance-compatible MARKET buy without a price cap is rejected before balances or book state change.
-  36p. Verify Binance-compatible newOrderRespType=ACK/RESULT/FULL responses still submit through the real exchange path.
+  36p. Verify Binance-compatible newOrderRespType=ACK/RESULT/FULL responses submit, reserve, cancel, and project through the real exchange path.
   36p2. Verify Binance-compatible explicit and generated client order create responses include projected order status fields.
   36q. Verify Binance-compatible cancel newClientOrderId is returned without changing the real cancel path.
   36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
@@ -4638,6 +4638,7 @@ main() {
   wait_no_user_open_orders "$api_ack_owner" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_ack_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-ack-released-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_ack_owner" "ETHUSDT" "$api_ack_client_id" "170" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-ack-query-canceled.json
 
   local api_result_owner="e2e-api-result-$(date +%s)"
   local api_result_ref="e2e-api-result-$(date +%s)"
@@ -4670,6 +4671,7 @@ main() {
   wait_no_user_open_orders "$api_result_owner" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_result_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-result-released-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_result_owner" "ETHUSDT" "$api_result_client_id" "168" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-result-query-canceled.json
 
   local api_full_owner="e2e-api-full-$(date +%s)"
   local api_full_ref="e2e-api-full-$(date +%s)"
@@ -4703,6 +4705,7 @@ main() {
   wait_no_user_open_orders "$api_full_owner" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_full_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-full-released-account.json
+  wait_binance_private_order_status_by_client_order_id "$api_full_owner" "ETHUSDT" "$api_full_client_id" "169" "0.2" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-full-query-canceled.json
 
   local api_scoped_client_owner_one="e2e-api-scoped-client-1-$(date +%s)"
   local api_scoped_client_owner_two="e2e-api-scoped-client-2-$(date +%s)"

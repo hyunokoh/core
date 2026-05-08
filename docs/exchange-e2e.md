@@ -39,6 +39,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Invalid order parameters such as zero quantity, invalid price, malformed pair, or price/quantity precision mismatch are rejected before reaching market state.
 - Duplicate deposit `transferRef` values are rejected and do not double-credit the receiver wallet.
 - Withdraw requests cover invalid request rejection, owner-only cancel authorization, `CREATED -> CANCELED`, `CREATED -> PROCESSING -> DONE`, `CREATED -> PROCESSING -> REJECTED`, and rejection of terminal-state reprocessing without balance mutation.
+- Binance-compatible `newOrderRespType=ACK/RESULT/FULL` limit orders submit through the real order path, reserve funds, cancel cleanly, release funds, and remain queryable as `CANCELED`.
 - The public `ETH_USDT` ask and bid order books are empty after all open-order scenarios are cleaned up.
 - The public `ETH_USDT` recent-trades feed contains exactly the expected trade count and price/quantity distribution.
 - Wallet, Accountant, and Market Postgres tables contain the expected persisted settlement invariants after all API checks pass, including internally consistent Market trade projections.
