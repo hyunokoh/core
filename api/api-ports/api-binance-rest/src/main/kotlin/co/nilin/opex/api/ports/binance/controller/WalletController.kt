@@ -234,12 +234,9 @@ class WalletController(
         if (quoteAsset == null)
             return result
 
-        val prices = marketDataProxy.getBestPriceForSymbols(
-            result.map { "${it.asset.uppercase()}_${quoteAsset.uppercase()}" }
-        ).associateBy { it.symbol.split("_")[0].uppercase() }
+        val prices = valuationPrices(result.map { it.asset }, quoteAsset)
 
-        result.associateWith { prices[it.asset.uppercase()] }
-            .forEach { (asset, price) -> asset.valuation = price?.bidPrice ?: BigDecimal.ZERO }
+        result.forEach { it.valuation = prices[it.asset.uppercase()] ?: BigDecimal.ZERO }
 
         if (calculateEvaluation == true)
             result.forEach {
@@ -261,19 +258,17 @@ class WalletController(
         validateRequiredAssetParam(quoteAsset, "quoteAsset")
         val auth = securityContext.jwtAuthentication()
         val wallets = walletProxy.getWallets(auth.name, auth.tokenValue())
-        val rates = marketDataProxy.getBestPriceForSymbols(
-            wallets.map { "${it.asset.uppercase()}_${quoteAsset.uppercase()}" }
-        ).associateBy { it.symbol.split("_")[0].uppercase() }
+        val rates = valuationPrices(wallets.map { it.asset }, quoteAsset)
 
         var value = BigDecimal.ZERO
         val zeroAssets = arrayListOf<String>()
         wallets.filter { !it.asset.equals(quoteAsset, true) }
-            .associateWith { rates[it.asset.uppercase()] }
+            .associateWith { rates[it.asset.uppercase()] ?: BigDecimal.ZERO }
             .forEach { (asset, price) ->
-                if (price == null || (price.bidPrice ?: BigDecimal.ZERO) == BigDecimal.ZERO)
+                if (price == BigDecimal.ZERO)
                     zeroAssets.add(asset.asset)
                 else
-                    value += asset.totalAmount().multiply(price.bidPrice)
+                    value += asset.totalAmount().multiply(price)
             }
 
         // Add quote asset balance with rate of 1
@@ -282,6 +277,37 @@ class WalletController(
     }
 
     private fun Wallet.totalAmount(): BigDecimal = balance + locked + withdraw
+
+    private suspend fun valuationPrices(assets: List<String>, quoteAsset: String): Map<String, BigDecimal> {
+        val quote = quoteAsset.uppercase()
+        val symbolsByAsset = assets
+            .map { it.uppercase() }
+            .distinct()
+            .filter { it != quote }
+            .associateWith { "${it}_$quote" }
+
+        val bestPrices = marketDataProxy.getBestPriceForSymbols(symbolsByAsset.values.toList())
+            .associateBy { it.symbol.uppercase() }
+
+        val prices = mutableMapOf<String, BigDecimal>()
+        prices[quote] = BigDecimal.ONE
+
+        symbolsByAsset.forEach { (asset, symbol) ->
+            prices[asset] = bestPrices[symbol]?.bidPrice
+                ?.takeIf { it > BigDecimal.ZERO }
+                ?: lastTradePrice(symbol)
+                ?: BigDecimal.ZERO
+        }
+
+        return prices
+    }
+
+    private suspend fun lastTradePrice(symbol: String): BigDecimal? =
+        marketDataProxy.lastPrice(symbol)
+            .firstOrNull { it.symbol.equals(symbol, true) }
+            ?.price
+            ?.toBigDecimalOrNull()
+            ?.takeIf { it > BigDecimal.ZERO }
 
     private fun matchDepositsAndDetails(
         deposits: List<TransactionHistoryResponse>,

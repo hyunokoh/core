@@ -1803,6 +1803,72 @@ wait_binance_user_asset_balance() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_user_asset_valuation() {
+  local owner="$1"
+  local asset="$2"
+  local quote_asset="$3"
+  local expected_free="$4"
+  local expected_locked="$5"
+  local expected_withdrawing="$6"
+  local expected_valuation="$7"
+  local output_file="$8"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v1/asset/getUserAsset" "symbol=${asset}&quoteAsset=${quote_asset}&calculateEvaluation=true")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg asset "$asset" \
+      --argjson expected_free "$expected_free" \
+      --argjson expected_locked "$expected_locked" \
+      --argjson expected_withdrawing "$expected_withdrawing" \
+      --argjson expected_valuation "$expected_valuation" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+        length == 1 and
+        .[0].asset == $asset and
+        nearly_equal((.[0].free | tonumber); $expected_free) and
+        nearly_equal((.[0].locked | tonumber); $expected_locked) and
+        nearly_equal((.[0].withdrawing | tonumber); $expected_withdrawing) and
+        nearly_equal((.[0].valuation | tonumber); $expected_valuation)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance user asset valuation owner=$owner asset=$asset quote=$quote_asset free=$expected_free locked=$expected_locked withdrawing=$expected_withdrawing valuation=$expected_valuation" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api wallet market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
+wait_binance_assets_estimated_value() {
+  local owner="$1"
+  local quote_asset="$2"
+  local expected_value="$3"
+  local output_file="$4"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v1/asset/estimatedValue" "quoteAsset=${quote_asset}")" &&
+    printf '%s\n' "$body" | jq -e \
+      --arg quote_asset "$quote_asset" \
+      --argjson expected_value "$expected_value" '
+        def nearly_equal($actual; $expected):
+          (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+          .evaluatedWith == $quote_asset and
+        nearly_equal((.value | tonumber); $expected_value) and
+        ((.zeroValueAssets // []) | length == 0)
+      ' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance assets estimated value owner=$owner quote=$quote_asset value=$expected_value" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api wallet market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_binance_private_order_projection() {
   local owner="$1"
   local symbol="$2"
@@ -3579,6 +3645,10 @@ main() {
   done
   wait_binance_account_balance "$seller" "USDT" "99" "0" /tmp/opex-e2e-binance-seller-account.json
   wait_binance_account_balance "$buyer" "ETH" "0.99" "0" /tmp/opex-e2e-binance-buyer-account.json
+  wait_binance_user_asset_valuation "$seller" "ETH" "USDT" "100" "0" "0" "100" /tmp/opex-e2e-binance-seller-eth-valuation.json
+  wait_binance_user_asset_valuation "$buyer" "ETH" "USDT" "99" "0" "0" "100" /tmp/opex-e2e-binance-buyer-eth-valuation.json
+  wait_binance_assets_estimated_value "$seller" "USDT" "199" /tmp/opex-e2e-binance-seller-estimated-value.json
+  wait_binance_assets_estimated_value "$buyer" "USDT" "999" /tmp/opex-e2e-binance-buyer-estimated-value.json
   wait_binance_private_order_projection "$seller" "ETHUSDT" "100" "1" "FILLED" "1" "100" "SELL" /tmp/opex-e2e-binance-seller-orders.json
   wait_binance_private_order_projection "$buyer" "ETHUSDT" "100" "1" "FILLED" "1" "100" "BUY" /tmp/opex-e2e-binance-buyer-orders.json
   local seller_binance_order_id
