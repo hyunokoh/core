@@ -4116,6 +4116,8 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "101" "0.2"
   wait_binance_account_balance "$api_order_seller" "ETH" "0.8" "0.2" /tmp/opex-e2e-binance-api-seller-reserved-account.json
   wait_binance_user_asset_balance "$api_order_seller" "ETH" "0.8" "0.2" "0" /tmp/opex-e2e-binance-api-seller-reserved-asset.json
+  wait_binance_user_asset_valuation "$api_order_seller" "ETH" "USDT" "80" "20" "0" "100" /tmp/opex-e2e-binance-api-seller-reserved-eth-valuation.json
+  wait_binance_assets_estimated_value "$api_order_seller" "USDT" "100" /tmp/opex-e2e-binance-api-seller-reserved-estimated-value.json
   expect_2xx_retry "Binance API buyer limit bid" "binance_private_post '$api_order_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=0.2&price=101'" >/tmp/opex-e2e-binance-api-bid.json
   wait_user_trade_projection "$api_order_seller" "ETH_USDT" "101" "0.2" "20.2" "0.202" "USDT" false true false /tmp/opex-e2e-binance-api-seller-trades.json
   wait_user_trade_projection "$api_order_buyer" "ETH_USDT" "101" "0.2" "20.2" "0.002" "ETH" true false false /tmp/opex-e2e-binance-api-buyer-trades.json
@@ -4317,6 +4319,8 @@ main() {
   fi
   wait_order_book_level "ETH_USDT" "BID" "102" "0.3"
   wait_binance_account_balance "$api_market_buyer" "USDT" "9.4" "30.6" /tmp/opex-e2e-binance-api-market-buyer-reserved-usdt.json
+  wait_binance_user_asset_valuation "$api_market_buyer" "USDT" "USDT" "9.4" "30.6" "0" "1" /tmp/opex-e2e-binance-api-market-buyer-reserved-usdt-valuation.json
+  wait_binance_assets_estimated_value "$api_market_buyer" "USDT" "40" /tmp/opex-e2e-binance-api-market-buyer-reserved-estimated-value.json
   expect_2xx_retry "Binance API market seller ask" "binance_private_post '$api_market_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=MARKET&quantity=0.2&newClientOrderId=${api_market_seller_client_id}'" >/tmp/opex-e2e-binance-api-market-ask.json
   jq -e \
     --arg clientOrderId "$api_market_seller_client_id" '

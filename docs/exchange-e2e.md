@@ -36,6 +36,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Binance-compatible private `/v3/order` underfunded limit ask/bid requests are rejected with `SubmitOrderForbiddenByAccountant` before creating order projections or mutating locked balances.
 - Binance-compatible private REST rejections assert stable Opex error codes for invalid signed request windows, forbidden cross-owner access, cancel-not-allowed, missing market-buy price caps, duplicate open client order IDs, and underfunded orders.
 - Binance-compatible private cancel responses assert the canceled order's original quantity, executed quantity, cumulative quote quantity, client IDs, side, and type for order-id, client-id, generated-client-id, ACK/RESULT/FULL cleanup, scoped-client, and partially filled cancels.
+- Binance-compatible asset valuation endpoints include locked exchange balances for both base and quote assets while orders are open.
 - Binance-compatible LIMIT IOC partial-fill create responses are consistent with final order projections and return canceled residual state plus fill fee details for buy and sell sides.
 - Self-trade prevention rejects same-account order edits that would cross the user's own resting liquidity, preserving the original open orders and locked balances.
 - Underfunded ask and bid orders are rejected and never appear in market order state.

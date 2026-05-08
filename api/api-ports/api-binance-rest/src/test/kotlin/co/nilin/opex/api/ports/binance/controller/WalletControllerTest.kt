@@ -585,6 +585,25 @@ private class WalletControllerTest {
     }
 
     @Test
+    fun givenOnlyQuoteAsset_whenUserAssetsEvaluated_thenDoesNotQueryMarketBestPrices(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            wallets = listOf(Wallet("USDT", BigDecimal("9.4"), BigDecimal("30.6"), BigDecimal.ZERO))
+        )
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
+
+        val assets = controller.getUserAssets(securityContext(), null, "USDT", true)
+
+        assertThat(assets).hasSize(1)
+        assertThat(assets[0].asset).isEqualTo("USDT")
+        assertThat(assets[0].valuation).isEqualByComparingTo("1")
+        assertThat(assets[0].free).isEqualByComparingTo("9.4")
+        assertThat(assets[0].locked).isEqualByComparingTo("30.6")
+        assertThat(assets[0].withdrawing).isEqualByComparingTo("0")
+        assertThat(marketDataProxy.getBestPriceForSymbolsCallCount).isZero()
+    }
+
+    @Test
     fun givenLowercaseAsset_whenEstimatedValueRequested_thenMatchesUppercaseBestPrice(): Unit = runBlocking {
         val walletProxy = RecordingWalletProxy(
             wallets = listOf(
@@ -601,6 +620,22 @@ private class WalletControllerTest {
 
         assertThat(estimatedValue.value).isEqualByComparingTo("288")
         assertThat(estimatedValue.zeroValueAssets).isEmpty()
+    }
+
+    @Test
+    fun givenOnlyQuoteAsset_whenEstimatedValueRequested_thenDoesNotQueryMarketBestPrices(): Unit = runBlocking {
+        val walletProxy = RecordingWalletProxy(
+            wallets = listOf(Wallet("USDT", BigDecimal("9.4"), BigDecimal("30.6"), BigDecimal.ZERO))
+        )
+        val marketDataProxy = RecordingMarketDataProxy()
+        val controller = controller(walletProxy = walletProxy, marketDataProxy = marketDataProxy)
+
+        val estimatedValue = controller.assetsEstimatedValue(securityContext(), "USDT")
+
+        assertThat(estimatedValue.value).isEqualByComparingTo("40")
+        assertThat(estimatedValue.evaluatedWith).isEqualTo("USDT")
+        assertThat(estimatedValue.zeroValueAssets).isEmpty()
+        assertThat(marketDataProxy.getBestPriceForSymbolsCallCount).isZero()
     }
 
     @Test
@@ -736,6 +771,8 @@ private class WalletControllerTest {
         private val bestPrices: List<BestPrice> = emptyList(),
         private val lastPrices: List<PriceTicker> = emptyList()
     ) : MarketDataProxy {
+        var getBestPriceForSymbolsCallCount = 0
+
         override suspend fun getTradeTickerData(interval: Interval): List<PriceChange> = emptyList()
 
         override suspend fun getTradeTickerDataBySymbol(symbol: String, interval: Interval): PriceChange =
@@ -752,7 +789,10 @@ private class WalletControllerTest {
         override suspend fun lastPrice(symbol: String?): List<PriceTicker> =
             lastPrices.filter { symbol == null || it.symbol.equals(symbol, true) }
 
-        override suspend fun getBestPriceForSymbols(symbols: List<String>): List<BestPrice> = bestPrices
+        override suspend fun getBestPriceForSymbols(symbols: List<String>): List<BestPrice> {
+            getBestPriceForSymbolsCallCount += 1
+            return bestPrices
+        }
 
         override suspend fun getCandleInfo(
             symbol: String,

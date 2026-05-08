@@ -284,6 +284,9 @@ class WalletController(
             .filter { it != quote }
             .associateWith { "${it}_$quote" }
 
+        if (symbolsByAsset.isEmpty())
+            return mapOf(quote to BigDecimal.ONE)
+
         val bestPrices = marketDataProxy.getBestPriceForSymbols(symbolsByAsset.values.toList())
             .associateBy { it.symbol.uppercase() }
 
