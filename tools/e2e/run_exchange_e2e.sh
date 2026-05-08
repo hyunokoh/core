@@ -109,6 +109,7 @@ Runs a real Docker-backed exchange E2E flow:
   36q. Verify Binance-compatible cancel newClientOrderId is returned without changing the real cancel path.
   36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
   36r2. Verify Binance-compatible tradeFee reflects real accountant fee configuration.
+  36r3. Verify Binance-compatible wallet history endpoints reject invalid signed request windows.
   36s. Verify Binance-compatible LIMIT IOC with no liquidity cancels and releases reserved funds.
   36t. Verify Binance-compatible LIMIT IOC partial fill cancels the remainder and releases reserved funds.
   36u. Verify Binance-compatible LIMIT IOC sell partial fill cancels the remainder and releases reserved funds.
@@ -4020,12 +4021,16 @@ main() {
   expect_http_status "Binance API future private timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_future}&recvWindow=60000")" >/tmp/opex-e2e-binance-api-signed-future-timestamp.json
   expect_http_status "Binance API oversize recvWindow rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v3/account" "timestamp=${api_signed_now}&recvWindow=60001")" >/tmp/opex-e2e-binance-api-signed-oversize-recv-window.json
   expect_http_status "Binance API trade fee stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/asset/tradeFee" "symbol=ETHUSDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-trade-fee-signed-stale-timestamp.json
+  expect_http_status "Binance API deposit history stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/capital/deposit/hisrec" "coin=USDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-deposit-history-signed-stale-timestamp.json
+  expect_http_status "Binance API withdraw history stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/capital/withdraw/history" "coin=USDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-withdraw-history-signed-stale-timestamp.json
   expect_http_status "Binance API user asset stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/asset/getUserAsset" "symbol=USDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-user-asset-signed-stale-timestamp.json
   expect_http_status "Binance API estimated value stale timestamp rejected" "400" "$(binance_private_get_raw_status "$api_signed_owner" "/v1/asset/estimatedValue" "quoteAsset=USDT&timestamp=${api_signed_stale}&recvWindow=5000")" >/tmp/opex-e2e-binance-api-estimated-value-signed-stale-timestamp.json
   assert_opex_error "Binance API stale private timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-stale-timestamp.json)"
   assert_opex_error "Binance API future private timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-future-timestamp.json)"
   assert_opex_error "Binance API oversize recvWindow error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-signed-oversize-recv-window.json)"
   assert_opex_error "Binance API trade fee stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-trade-fee-signed-stale-timestamp.json)"
+  assert_opex_error "Binance API deposit history stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-deposit-history-signed-stale-timestamp.json)"
+  assert_opex_error "Binance API withdraw history stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-withdraw-history-signed-stale-timestamp.json)"
   assert_opex_error "Binance API user asset stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-user-asset-signed-stale-timestamp.json)"
   assert_opex_error "Binance API estimated value stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-estimated-value-signed-stale-timestamp.json)"
   expect_2xx "Binance API trade fee ETHUSDT" "$(binance_private_get_status "$api_signed_owner" "/v1/asset/tradeFee" "symbol=ETHUSDT")" >/tmp/opex-e2e-binance-api-trade-fee-ethusdt.json

@@ -35,6 +35,7 @@ Use `--package` after code changes so Docker images copy fresh service jars, and
 - Binance-compatible private `/v3/order` same-account crossing orders are rejected by self-trade prevention through the REST path, with no self-trade row and released quote reservation.
 - Binance-compatible private `/v3/order` underfunded limit ask/bid requests are rejected with `SubmitOrderForbiddenByAccountant` before creating order projections or mutating locked balances.
 - Binance-compatible private REST rejections assert stable Opex error codes for invalid signed request windows across account and asset valuation endpoints, forbidden cross-owner access, cancel-not-allowed, missing market-buy price caps, duplicate open client order IDs, and underfunded orders.
+- Binance-compatible wallet history endpoints reject stale signed request windows before reading deposit or withdraw history.
 - Binance-compatible private cancel responses assert the canceled order's original quantity, executed quantity, cumulative quote quantity, client IDs, side, and type for order-id, client-id, generated-client-id, ACK/RESULT/FULL cleanup, scoped-client, and partially filled cancels.
 - Binance-compatible private trade fee endpoints return the accountant-configured maker/taker fee schedule for a requested symbol and for all symbols.
 - Binance-compatible asset valuation endpoints include locked exchange balances for both base and quote assets while orders are open.
