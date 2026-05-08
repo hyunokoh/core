@@ -111,6 +111,7 @@ Runs a real Docker-backed exchange E2E flow:
   36s. Verify Binance-compatible LIMIT IOC with no liquidity cancels and releases reserved funds.
   36t. Verify Binance-compatible LIMIT IOC partial fill cancels the remainder and releases reserved funds.
   36u. Verify Binance-compatible LIMIT IOC sell partial fill cancels the remainder and releases reserved funds.
+  36v. Verify Binance-compatible same-account crossing orders are rejected by self-trade prevention and release reserved funds.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -868,7 +869,7 @@ wait_query_eq() {
   local service="$2"
   local expected="$3"
   local query="$4"
-  local deadline=$((SECONDS + 120))
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local actual
   until actual="$(psql_query "$service" "$query")" && [[ "$actual" == "$expected" ]]; do
     if (( SECONDS > deadline )); then
@@ -4084,6 +4085,76 @@ main() {
   wait_binance_private_trades_empty_for_order_id "$api_order_buyer" "ETHUSDT" "$api_order_seller_binance_order_id" /tmp/opex-e2e-binance-api-buyer-seller-order-id-my-trades.json
   expect_http_status "Binance API buyer seller order lookup forbidden" "403" "$(binance_private_get_status "$api_order_buyer" "/v3/order" "symbol=ETHUSDT&orderId=${api_order_seller_binance_order_id}")" >/tmp/opex-e2e-binance-api-buyer-seller-order-id-query.json
 
+  local api_self_trade_owner="e2e-api-self-trade-$(date +%s)"
+  local api_self_trade_ref="e2e-api-stp-$(date +%s)"
+  local api_self_trade_ask_client_id="e2e-api-stp-ask-$(date +%s)"
+  local api_self_trade_bid_client_id="e2e-api-stp-bid-$(date +%s)"
+  expect_2xx "Binance API self-trade owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_self_trade_owner}_MAIN?description=e2e-api-self-trade&transferRef=${api_self_trade_ref}-eth")" >/dev/null
+  expect_2xx "Binance API self-trade owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_self_trade_owner}_MAIN?description=e2e-api-self-trade&transferRef=${api_self_trade_ref}-usdt")" >/dev/null
+  expect_2xx_retry "Binance API self-trade resting ask" "binance_private_post '$api_self_trade_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.4&price=104&newClientOrderId=${api_self_trade_ask_client_id}'" >/tmp/opex-e2e-binance-api-self-trade-ask.json
+  wait_user_open_order "$api_self_trade_owner" "ETH_USDT" "104" "0.4" /tmp/opex-e2e-binance-api-self-trade-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "104" "0.4"
+  wait_binance_account_balance "$api_self_trade_owner" "ETH" "0.6" "0.4" /tmp/opex-e2e-binance-api-self-trade-ask-eth-account.json
+  wait_binance_account_balance "$api_self_trade_owner" "USDT" "100" "0" /tmp/opex-e2e-binance-api-self-trade-ask-usdt-account.json
+
+  local api_self_trade_ask_order_id
+  api_self_trade_ask_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-binance-api-self-trade-open-orders.json)"
+  if [[ -z "$api_self_trade_ask_order_id" || "$api_self_trade_ask_order_id" == "null" ]]; then
+    echo "Binance API self-trade resting ask did not include orderId" >&2
+    cat /tmp/opex-e2e-binance-api-self-trade-open-orders.json >&2
+    exit 1
+  fi
+  wait_binance_private_order_status_by_order_id "$api_self_trade_owner" "ETHUSDT" "$api_self_trade_ask_order_id" "104" "0.4" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-self-trade-ask-query-new.json
+
+  expect_2xx_retry "Binance API self-trade crossing bid rejected async" "binance_private_post '$api_self_trade_owner' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=0.2&price=104&newClientOrderId=${api_self_trade_bid_client_id}'" >/tmp/opex-e2e-binance-api-self-trade-bid.json
+  wait_query_eq "Binance API self-trade bid reject financial action" "postgres-accountant" "1" "
+    select count(*)
+    from fi_actions
+    where event_type = 'RejectOrderEvent'
+      and category_name = 'ORDER_CANCEL'
+      and sender = '${api_self_trade_owner}'
+      and receiver = '${api_self_trade_owner}'
+      and symbol = 'USDT'
+      and amount = 20.80000000
+      and status = 'PROCESSED';
+  "
+  wait_query_eq "Binance API self-trade reject eventlog audit" "postgres-eventlog" "SELF_TRADE_PREVENTION,PLACE_ORDER,BID,1,0" "
+    select event_json::jsonb ->> 'reason',
+           event_json::jsonb ->> 'requestedOperation',
+           event_json::jsonb ->> 'direction',
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'RejectOrderEvent'
+      and uuid = '$api_self_trade_owner'
+    group by event_json::jsonb ->> 'reason',
+             event_json::jsonb ->> 'requestedOperation',
+             event_json::jsonb ->> 'direction';
+  "
+  wait_user_open_order "$api_self_trade_owner" "ETH_USDT" "104" "0.4" /tmp/opex-e2e-binance-api-self-trade-still-open-orders.json
+  assert_no_user_order_by_price "$api_self_trade_owner" "ETH_USDT" "104" "0.2"
+  wait_binance_private_order_status_by_order_id "$api_self_trade_owner" "ETHUSDT" "$api_self_trade_ask_order_id" "104" "0.4" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-self-trade-ask-query-still-new.json
+  wait_query_eq "Binance API self-trade prevention emitted no trade" "postgres-market" "0" "
+    select count(*)
+    from trades
+    where symbol = 'ETH_USDT'
+      and maker_uuid = '$api_self_trade_owner'
+      and taker_uuid = '$api_self_trade_owner';
+  "
+  wait_binance_account_balance "$api_self_trade_owner" "ETH" "0.6" "0.4" /tmp/opex-e2e-binance-api-self-trade-eth-account-after-reject.json
+  wait_binance_account_balance "$api_self_trade_owner" "USDT" "100" "0" /tmp/opex-e2e-binance-api-self-trade-usdt-account-after-reject.json
+
+  expect_2xx_retry "Binance API self-trade cleanup ask cancel" "binance_private_delete '$api_self_trade_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_self_trade_ask_client_id}'" >/tmp/opex-e2e-binance-api-self-trade-cancel.json
+  jq -e \
+    --argjson orderId "$api_self_trade_ask_order_id" \
+    '.symbol == "ETHUSDT" and .orderId == $orderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
+    /tmp/opex-e2e-binance-api-self-trade-cancel.json >/dev/null
+  wait_no_user_open_orders "$api_self_trade_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_private_order_status_by_order_id "$api_self_trade_owner" "ETHUSDT" "$api_self_trade_ask_order_id" "104" "0.4" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-self-trade-ask-query-canceled.json
+  wait_binance_account_balance "$api_self_trade_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-self-trade-eth-account-released.json
+  wait_binance_account_balance "$api_self_trade_owner" "USDT" "100" "0" /tmp/opex-e2e-binance-api-self-trade-usdt-account-released.json
+
   local api_market_no_liq_seller="e2e-api-market-no-liq-s-$(date +%s)"
   local api_market_no_liq_ref="e2e-api-mkt-no-liq-$(date +%s)"
   local api_market_no_liq_client_id="e2e-mkt-no-liq-s-$(date +%s)"
@@ -6612,7 +6683,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,79\nFEE,46\nNORMAL,1\nORDER_CANCEL,45\nORDER_CREATE,77\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,81\nFEE,46\nNORMAL,1\nORDER_CANCEL,47\nORDER_CREATE,79\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -6623,7 +6694,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,47.04000000\nUSDT,3095.90400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,48.04000000\nUSDT,3195.90400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -6687,7 +6758,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,40\nRejectOrderEvent,PROCESSED,2\nSubmitOrderEvent,PROCESSED,77\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,41\nRejectOrderEvent,PROCESSED,3\nSubmitOrderEvent,PROCESSED,79\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -8059,10 +8130,10 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 78,
+      "DEPOSIT": 81,
       "FEE": 46,
-      "ORDER_CANCEL": 45,
-      "ORDER_CREATE": 77,
+      "ORDER_CANCEL": 47,
+      "ORDER_CREATE": 79,
       "ORDER_FINALIZED": 1,
       "TRADE": 46,
       "WITHDRAW_ACCEPT": 1,
@@ -8072,8 +8143,8 @@ main() {
     },
     "walletAggregateBalances": {
       "BTC": 0.002,
-      "ETH": 47.04,
-      "USDT": 3083.904
+      "ETH": 48.04,
+      "USDT": 3195.904
     },
     "walletWithdrawStatuses": {
       "CANCELED": 1,
@@ -8086,9 +8157,9 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 40,
-      "RejectOrderEvent": 2,
-      "SubmitOrderEvent": 77,
+      "CancelOrderEvent": 41,
+      "RejectOrderEvent": 3,
+      "SubmitOrderEvent": 79,
       "TradeEvent": 93,
       "UpdatedOrderEvent": 3
     },
