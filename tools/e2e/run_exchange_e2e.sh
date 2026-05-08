@@ -112,6 +112,7 @@ Runs a real Docker-backed exchange E2E flow:
   36t. Verify Binance-compatible LIMIT IOC partial fill cancels the remainder and releases reserved funds.
   36u. Verify Binance-compatible LIMIT IOC sell partial fill cancels the remainder and releases reserved funds.
   36v. Verify Binance-compatible same-account crossing orders are rejected by self-trade prevention and release reserved funds.
+  36w. Verify Binance-compatible underfunded LIMIT orders are rejected before balances or order projections change.
   37. Verify no negative balances, duplicate ledger refs, unprocessed accounting actions, or structurally invalid market trades remain.
   38. Restart Market and verify public market state is still available from persisted data.
   39. Verify BTC_USDT can trade independently from the ETH_USDT market.
@@ -2229,6 +2230,25 @@ wait_binance_private_no_open_orders() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+wait_binance_private_no_all_orders() {
+  local owner="$1"
+  local symbol="$2"
+  local output_file="$3"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local body
+  until body="$(binance_private_get "$owner" "/v3/allOrders" "symbol=${symbol}&limit=20")" &&
+    printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for Binance no allOrders owner=$owner symbol=$symbol" >&2
+      echo "$body" >&2
+      "${COMPOSE[@]}" logs --tail=200 api market >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$body" > "$output_file"
+}
+
 wait_binance_private_open_orders_across_symbols() {
   local owner="$1"
   local symbol_one="$2"
@@ -4154,6 +4174,30 @@ main() {
   wait_binance_private_order_status_by_order_id "$api_self_trade_owner" "ETHUSDT" "$api_self_trade_ask_order_id" "104" "0.4" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-self-trade-ask-query-canceled.json
   wait_binance_account_balance "$api_self_trade_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-self-trade-eth-account-released.json
   wait_binance_account_balance "$api_self_trade_owner" "USDT" "100" "0" /tmp/opex-e2e-binance-api-self-trade-usdt-account-released.json
+
+  local api_underfunded_owner="e2e-api-underfunded-$(date +%s)"
+  local api_underfunded_ref="e2e-api-underfunded-$(date +%s)"
+  local api_underfunded_ask_client_id="e2e-api-underfunded-ask-$(date +%s)"
+  local api_underfunded_bid_client_id="e2e-api-underfunded-bid-$(date +%s)"
+  expect_2xx "Binance API underfunded owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.5_test-ethereum_ETH/${api_underfunded_owner}_MAIN?description=e2e-api-underfunded&transferRef=${api_underfunded_ref}-eth")" >/dev/null
+  expect_2xx "Binance API underfunded owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/50_test-ethereum_USDT/${api_underfunded_owner}_MAIN?description=e2e-api-underfunded&transferRef=${api_underfunded_ref}-usdt")" >/dev/null
+  wait_binance_account_balance "$api_underfunded_owner" "ETH" "0.5" "0" /tmp/opex-e2e-binance-api-underfunded-initial-eth-account.json
+  wait_binance_account_balance "$api_underfunded_owner" "USDT" "50" "0" /tmp/opex-e2e-binance-api-underfunded-initial-usdt-account.json
+  expect_http_status "Binance API underfunded limit ask rejected" "400" "$(binance_private_post "$api_underfunded_owner" "/v3/order" "symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=1&price=105&newClientOrderId=${api_underfunded_ask_client_id}")" >/tmp/opex-e2e-binance-api-underfunded-ask.json
+  expect_http_status "Binance API underfunded limit bid rejected" "400" "$(binance_private_post "$api_underfunded_owner" "/v3/order" "symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=1&price=105&newClientOrderId=${api_underfunded_bid_client_id}")" >/tmp/opex-e2e-binance-api-underfunded-bid.json
+  wait_binance_private_no_open_orders "$api_underfunded_owner" "ETHUSDT" /tmp/opex-e2e-binance-api-underfunded-open-orders.json
+  wait_binance_private_no_all_orders "$api_underfunded_owner" "ETHUSDT" /tmp/opex-e2e-binance-api-underfunded-all-orders.json
+  assert_no_user_orders "$api_underfunded_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_order_book_empty "ETH_USDT" "BID"
+  wait_query_eq "Binance API underfunded orders emitted no eventlog orders" "postgres-eventlog" "0" "
+    select count(*)
+    from opex_events
+    where uuid = '$api_underfunded_owner'
+      and event in ('CreateOrderEvent', 'RejectOrderEvent', 'CancelOrderEvent', 'TradeEvent', 'UpdatedOrderEvent');
+  "
+  wait_binance_account_balance "$api_underfunded_owner" "ETH" "0.5" "0" /tmp/opex-e2e-binance-api-underfunded-eth-account.json
+  wait_binance_account_balance "$api_underfunded_owner" "USDT" "50" "0" /tmp/opex-e2e-binance-api-underfunded-usdt-account.json
 
   local api_market_no_liq_seller="e2e-api-market-no-liq-s-$(date +%s)"
   local api_market_no_liq_ref="e2e-api-mkt-no-liq-$(date +%s)"
@@ -6683,7 +6727,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,81\nFEE,46\nNORMAL,1\nORDER_CANCEL,47\nORDER_CREATE,79\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,83\nFEE,46\nNORMAL,1\nORDER_CANCEL,47\nORDER_CREATE,79\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -6694,7 +6738,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,48.04000000\nUSDT,3195.90400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,48.54000000\nUSDT,3245.90400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -8130,7 +8174,7 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 81,
+      "DEPOSIT": 83,
       "FEE": 46,
       "ORDER_CANCEL": 47,
       "ORDER_CREATE": 79,
@@ -8143,8 +8187,8 @@ main() {
     },
     "walletAggregateBalances": {
       "BTC": 0.002,
-      "ETH": 48.04,
-      "USDT": 3195.904
+      "ETH": 48.54,
+      "USDT": 3245.904
     },
     "walletWithdrawStatuses": {
       "CANCELED": 1,
