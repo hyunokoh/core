@@ -1,7 +1,6 @@
 package co.nilin.opex.market.ports.postgres.impl
 
 import co.nilin.opex.common.utils.Interval
-import co.nilin.opex.common.utils.hours
 import co.nilin.opex.common.utils.minutes
 import co.nilin.opex.market.core.inout.*
 import co.nilin.opex.market.core.spi.MarketQueryHandler
@@ -19,7 +18,6 @@ import kotlinx.coroutines.reactive.awaitFirstOrElse
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.stereotype.Component
-import java.lang.StringBuilder
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDateTime
@@ -178,35 +176,23 @@ class MarketQueryHandlerImpl(
     }
 
     override suspend fun numberOfActiveUsers(interval: Interval): Long {
-        return redisCacheHelper.getOrElse("activeUsers:${interval.label}", 1.hours()) {
-            orderRepository.countUsersWhoMadeOrder(interval.getLocalDateTime())
-                .singleOrNull()
-                ?: 0L
-        }
+        return orderRepository.countUsersWhoMadeOrder(interval.getLocalDateTime())
+            .singleOrNull()
+            ?: 0L
     }
 
     override suspend fun numberOfTrades(interval: Interval, pair: String?): Long {
         return if (pair != null)
-            redisCacheHelper.getOrElse("tradeCount:$pair:${interval.label}", 1.hours()) {
-                tradeRepository.countBySymbolNewerThan(interval.getLocalDateTime(), pair).singleOrNull()?.approximate()
-                    ?: 0
-            }
-        else
-            redisCacheHelper.getOrElse("tradeCount:${interval.label}", 1.hours()) {
-                tradeRepository.countNewerThan(interval.getLocalDateTime()).singleOrNull()?.approximate() ?: 0
-            }
+            tradeRepository.countBySymbolNewerThan(interval.getLocalDateTime(), pair).singleOrNull()
+                ?: 0
+        else tradeRepository.countNewerThan(interval.getLocalDateTime()).singleOrNull() ?: 0
     }
 
     override suspend fun numberOfOrders(interval: Interval, pair: String?): Long {
         return if (pair != null)
-            redisCacheHelper.getOrElse("orderCount:$pair:${interval.label}", 1.hours()) {
-                orderRepository.countBySymbolNewerThan(interval.getLocalDateTime(), pair).singleOrNull()?.approximate()
-                    ?: 0
-            }
-        else
-            redisCacheHelper.getOrElse("orderCount:${interval.label}", 1.hours()) {
-                orderRepository.countNewerThan(interval.getLocalDateTime()).singleOrNull()?.approximate() ?: 0
-            }
+            orderRepository.countBySymbolNewerThan(interval.getLocalDateTime(), pair).singleOrNull()
+                ?: 0
+        else orderRepository.countNewerThan(interval.getLocalDateTime()).singleOrNull() ?: 0
     }
 
     override suspend fun mostIncreasePrice(interval: Interval, limit: Int): List<PriceStat> {
@@ -257,13 +243,4 @@ class MarketQueryHandlerImpl(
         count ?: 0
     )
 
-    private fun Long.approximate(): Long {
-        if (this < 10)
-            return this
-
-        val str = toString()
-        val builder = StringBuilder(str.substring(0, 1))
-        repeat(str.length - 1) { builder.append("0") }
-        return builder.toString().toLong()
-    }
 }

@@ -72,7 +72,7 @@ Runs a real Docker-backed exchange E2E flow:
   25. Verify the public order book is empty after all E2E open-order scenarios are cleaned up.
   26. Verify the public recent-trades feed contains the expected trade count and price/quantity distribution.
   27. Verify wallet/accountant/market database invariants after settlement.
-  27b. Verify public API active-user counts match market order projections.
+  27b. Verify public API active-user/order/trade counts match market projections.
   28. Verify normalized accountant order definitions match market order definitions.
   29. Verify accountant order reservation/release actions match eventlog order lifecycle events.
   30. Verify accountant trade settlement transfers match market trade executions.
@@ -889,6 +889,68 @@ wait_active_users_api_matches_orders() {
     fi
     sleep 2
   done
+}
+
+wait_market_count_apis_match_database() {
+  local label="$1"
+  local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
+  local expected_active expected_orders expected_eth_orders expected_trades expected_eth_trades
+  local active_body orders_body eth_orders_body trades_body eth_trades_body landing_body
+  local actual_active actual_orders actual_eth_orders actual_trades actual_eth_trades
+  local landing_active landing_orders landing_trades
+  until expected_active="$(psql_query "postgres-market" "select count(distinct uuid) from orders where create_date >= now() - interval '24 hours';")" &&
+    expected_orders="$(psql_query "postgres-market" "select count(*) from orders where create_date >= now() - interval '24 hours';")" &&
+    expected_eth_orders="$(psql_query "postgres-market" "select count(*) from orders where symbol = 'ETH_USDT' and create_date >= now() - interval '24 hours';")" &&
+    expected_trades="$(psql_query "postgres-market" "select count(*) from trades where create_date >= now() - interval '24 hours';")" &&
+    expected_eth_trades="$(psql_query "postgres-market" "select count(*) from trades where symbol = 'ETH_USDT' and create_date >= now() - interval '24 hours';")" &&
+    active_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/active-users?interval=TwentyFourHours")" &&
+    orders_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/orders-count?interval=TwentyFourHours")" &&
+    eth_orders_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/orders-count?interval=TwentyFourHours&symbol=ETH_USDT")" &&
+    trades_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/trades-count?interval=TwentyFourHours")" &&
+    eth_trades_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/trades-count?interval=TwentyFourHours&symbol=ETH_USDT")" &&
+    landing_body="$(curl -fsS "http://127.0.0.1:8094/v1/landing/exchangeInfo?interval=24h")" &&
+    actual_active="$(jq -r '.value' <<<"$active_body")" &&
+    actual_orders="$(jq -r '.value' <<<"$orders_body")" &&
+    actual_eth_orders="$(jq -r '.value' <<<"$eth_orders_body")" &&
+    actual_trades="$(jq -r '.value' <<<"$trades_body")" &&
+    actual_eth_trades="$(jq -r '.value' <<<"$eth_trades_body")" &&
+    landing_active="$(jq -r '.activeUsers' <<<"$landing_body")" &&
+    landing_orders="$(jq -r '.totalOrders' <<<"$landing_body")" &&
+    landing_trades="$(jq -r '.totalTrades' <<<"$landing_body")" &&
+    [[ "$actual_active" == "$expected_active" ]] &&
+    [[ "$actual_orders" == "$expected_orders" ]] &&
+    [[ "$actual_eth_orders" == "$expected_eth_orders" ]] &&
+    [[ "$actual_trades" == "$expected_trades" ]] &&
+    [[ "$actual_eth_trades" == "$expected_eth_trades" ]] &&
+    [[ "$landing_active" == "$expected_active" ]] &&
+    [[ "$landing_orders" == "$expected_orders" ]] &&
+    [[ "$landing_trades" == "$expected_trades" ]]; do
+    if (( SECONDS > deadline )); then
+      echo "$label count API mismatch" >&2
+      printf 'expected active/orders/ethOrders/trades/ethTrades: %s/%s/%s/%s/%s\n' \
+        "$expected_active" "$expected_orders" "$expected_eth_orders" "$expected_trades" "$expected_eth_trades" >&2
+      printf 'actual direct active/orders/ethOrders/trades/ethTrades: %s/%s/%s/%s/%s\n' \
+        "$actual_active" "$actual_orders" "$actual_eth_orders" "$actual_trades" "$actual_eth_trades" >&2
+      printf 'actual landing active/orders/trades: %s/%s/%s\n' "$landing_active" "$landing_orders" "$landing_trades" >&2
+      printf 'active body: %s\norders body: %s\neth orders body: %s\ntrades body: %s\neth trades body: %s\nlanding body: %s\n' \
+        "$active_body" "$orders_body" "$eth_orders_body" "$trades_body" "$eth_trades_body" "$landing_body" >&2
+      "${COMPOSE[@]}" logs --tail=200 market api >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
+  jq -nc \
+    --argjson active "$actual_active" \
+    --argjson orders "$actual_orders" \
+    --argjson ethOrders "$actual_eth_orders" \
+    --argjson trades "$actual_trades" \
+    --argjson ethTrades "$actual_eth_trades" \
+    --argjson landingActive "$landing_active" \
+    --argjson landingOrders "$landing_orders" \
+    --argjson landingTrades "$landing_trades" \
+    '{activeUsers:$active,totalOrders:$orders,ethOrders:$ethOrders,totalTrades:$trades,ethTrades:$ethTrades,landing:{activeUsers:$landingActive,totalOrders:$landingOrders,totalTrades:$landingTrades}}' \
+    >/tmp/opex-e2e-market-counts.json
 }
 
 wait_wallet_type_balance() {
@@ -6085,7 +6147,7 @@ main() {
     group by event_type, status
     order by event_type, status;
   "
-  wait_active_users_api_matches_orders
+  wait_market_count_apis_match_database "market count APIs match database after ETH scenarios"
   wait_query_eq "accountant retry queue drained" "postgres-accountant" "0,0" "
     select
       count(*) filter (where is_resolved = false and has_given_up = false),
@@ -6824,6 +6886,7 @@ main() {
   wait_wallet_fee_transactions_match_accountant_actions "all e2e wallet fee transactions match accountant fee actions after BTC"
   wait_wallet_transactions_match_accountant_actions "all e2e wallet transactions match accountant financial actions after BTC"
   wait_wallet_user_transactions_match_wallet_transactions "all e2e wallet user transactions match wallet movements after BTC"
+  wait_market_count_apis_match_database "market count APIs stay fresh after BTC/concurrency scenarios"
   wait_order_book_empty "BTC_USDT" "ASK"
   wait_order_book_empty "BTC_USDT" "BID"
 

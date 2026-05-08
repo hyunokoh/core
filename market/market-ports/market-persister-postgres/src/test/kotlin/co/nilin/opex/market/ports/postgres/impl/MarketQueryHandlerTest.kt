@@ -568,6 +568,101 @@ private class MarketQueryHandlerTest : MarketPostgresIntegrationTest() {
         assertThat(activeUsers).isEqualTo(12)
     }
 
+    @Test
+    fun givenDoubleDigitOrdersAndTrades_whenCountsRequested_thenReturnExactCounts(): Unit = runBlocking {
+        val now = LocalDateTime.now()
+        (1..12).forEach { index ->
+            val createdAt = now.minusMinutes(index.toLong())
+            seedOrder(
+                VALID.MAKER_ORDER_MODEL.copy(
+                    id = null,
+                    ouid = "exact-count-eth-order-$index",
+                    uuid = "exact-count-eth-user-$index",
+                    symbol = VALID.ETH_USDT,
+                    createDate = createdAt,
+                    updateDate = createdAt
+                ),
+                status = OrderStatus.FILLED
+            )
+            seedTrade(
+                tradeWith(
+                    tradeId = 7000L + index,
+                    symbol = VALID.ETH_USDT,
+                    matchedPrice = BigDecimal.valueOf(100 + index.toLong()),
+                    matchedQuantity = BigDecimal.valueOf(1),
+                    createDate = createdAt,
+                    makerOuid = "exact-count-eth-maker-$index",
+                    takerOuid = "exact-count-eth-taker-$index"
+                )
+            )
+        }
+
+        assertThat(marketQueryHandler.numberOfOrders(Interval.TwentyFourHours, null)).isEqualTo(12)
+        assertThat(marketQueryHandler.numberOfOrders(Interval.TwentyFourHours, VALID.ETH_USDT)).isEqualTo(12)
+        assertThat(marketQueryHandler.numberOfTrades(Interval.TwentyFourHours, null)).isEqualTo(12)
+        assertThat(marketQueryHandler.numberOfTrades(Interval.TwentyFourHours, VALID.ETH_USDT)).isEqualTo(12)
+    }
+
+    @Test
+    fun givenNewOrdersAndTradesAfterCountRead_whenCountsRequestedAgain_thenReturnFreshCounts(): Unit = runBlocking {
+        val now = LocalDateTime.now()
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "fresh-count-eth-order",
+                uuid = "fresh-count-user-1",
+                symbol = VALID.ETH_USDT,
+                createDate = now.minusMinutes(2),
+                updateDate = now.minusMinutes(2)
+            ),
+            status = OrderStatus.FILLED
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 6001,
+                symbol = VALID.ETH_USDT,
+                matchedPrice = BigDecimal.valueOf(100),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(2)
+            )
+        )
+
+        assertThat(marketQueryHandler.numberOfActiveUsers(Interval.TwentyFourHours)).isEqualTo(1)
+        assertThat(marketQueryHandler.numberOfOrders(Interval.TwentyFourHours, null)).isEqualTo(1)
+        assertThat(marketQueryHandler.numberOfOrders(Interval.TwentyFourHours, VALID.ETH_USDT)).isEqualTo(1)
+        assertThat(marketQueryHandler.numberOfTrades(Interval.TwentyFourHours, null)).isEqualTo(1)
+        assertThat(marketQueryHandler.numberOfTrades(Interval.TwentyFourHours, VALID.ETH_USDT)).isEqualTo(1)
+
+        seedOrder(
+            VALID.MAKER_ORDER_MODEL.copy(
+                id = null,
+                ouid = "fresh-count-btc-order",
+                uuid = "fresh-count-user-2",
+                symbol = "BTC_USDT",
+                createDate = now.minusMinutes(1),
+                updateDate = now.minusMinutes(1)
+            ),
+            status = OrderStatus.FILLED
+        )
+        seedTrade(
+            tradeWith(
+                tradeId = 6002,
+                symbol = "BTC_USDT",
+                matchedPrice = BigDecimal.valueOf(20000),
+                matchedQuantity = BigDecimal.valueOf(1),
+                createDate = now.minusMinutes(1)
+            )
+        )
+
+        assertThat(marketQueryHandler.numberOfActiveUsers(Interval.TwentyFourHours)).isEqualTo(2)
+        assertThat(marketQueryHandler.numberOfOrders(Interval.TwentyFourHours, null)).isEqualTo(2)
+        assertThat(marketQueryHandler.numberOfOrders(Interval.TwentyFourHours, VALID.ETH_USDT)).isEqualTo(1)
+        assertThat(marketQueryHandler.numberOfOrders(Interval.TwentyFourHours, "BTC_USDT")).isEqualTo(1)
+        assertThat(marketQueryHandler.numberOfTrades(Interval.TwentyFourHours, null)).isEqualTo(2)
+        assertThat(marketQueryHandler.numberOfTrades(Interval.TwentyFourHours, VALID.ETH_USDT)).isEqualTo(1)
+        assertThat(marketQueryHandler.numberOfTrades(Interval.TwentyFourHours, "BTC_USDT")).isEqualTo(1)
+    }
+
     private suspend fun seedOrder(
         order: co.nilin.opex.market.ports.postgres.model.OrderModel = VALID.MAKER_ORDER_MODEL.copy(
             id = null,
