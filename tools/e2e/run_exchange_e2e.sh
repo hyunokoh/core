@@ -5889,6 +5889,7 @@ main() {
   local withdraw_ref="e2e-withdraw-$(date +%s)"
   expect_2xx "withdraw owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/10_test-ethereum_USDT/${withdraw_owner}_MAIN?description=e2e-withdraw&transferRef=${withdraw_ref}-usdt")" >/dev/null
   assert_wallet_balance "withdraw owner initial USDT" "$withdraw_owner" "USDT" "10"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "10" "0" "0" /tmp/opex-e2e-withdraw-initial-asset.json
 
   local withdraw_below_minimum_body='{"currency":"USDT","amount":0.5,"destSymbol":"USDT","destAddress":"0xwithdrawbelowminimum","destNetwork":"test-ethereum","destNote":"below-minimum","description":"e2e withdraw below minimum"}'
   local withdraw_net_below_minimum_body='{"currency":"USDT","amount":1.05,"destSymbol":"USDT","destAddress":"0xwithdrawnetbelowminimum","destNetwork":"test-ethereum","destNote":"net-below-minimum","description":"e2e withdraw net below minimum"}'
@@ -5899,6 +5900,7 @@ main() {
   expect_http_status "withdraw zero amount rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_zero_amount_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-zero-amount.json
   expect_http_status "withdraw overbalance rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_overbalance_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-overbalance.json
   assert_wallet_balance "withdraw owner unchanged after invalid requests" "$withdraw_owner" "USDT" "10"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "10" "0" "0" /tmp/opex-e2e-withdraw-after-invalid-asset.json
   wait_query_eq "invalid withdraw requests absent from ledger" "postgres-wallet" "0" "
     select count(*)
     from withdraws
@@ -5917,16 +5919,20 @@ main() {
   withdraw_cancel_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-cancel-request.json)"
   wait_withdraw_status "withdraw cancel created" "$withdraw_cancel_id" "CREATED" /tmp/opex-e2e-withdraw-cancel-created.json
   assert_wallet_balance "withdraw owner reserved for cancel" "$withdraw_owner" "USDT" "7"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "7" "0" "3" /tmp/opex-e2e-withdraw-cancel-created-asset.json
   expect_http_status "withdraw intruder cancel rejected" "403" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_cancel_id}/cancel" "" "${withdraw_owner}-intruder")" >/tmp/opex-e2e-withdraw-intruder-cancel.json
   wait_withdraw_status "withdraw cancel still created after intruder cancel" "$withdraw_cancel_id" "CREATED" /tmp/opex-e2e-withdraw-cancel-after-intruder.json
   assert_wallet_balance "withdraw owner unchanged after intruder cancel" "$withdraw_owner" "USDT" "7"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "7" "0" "3" /tmp/opex-e2e-withdraw-cancel-after-intruder-asset.json
   expect_2xx "withdraw cancel action" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_cancel_id}/cancel" "" "$withdraw_owner")" >/dev/null
   wait_withdraw_status "withdraw cancel canceled" "$withdraw_cancel_id" "CANCELED" /tmp/opex-e2e-withdraw-cancel-canceled.json
   assert_wallet_balance "withdraw owner restored after cancel" "$withdraw_owner" "USDT" "10"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "10" "0" "0" /tmp/opex-e2e-withdraw-cancel-canceled-asset.json
   expect_http_status "withdraw canceled cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_cancel_id}/process")" >/tmp/opex-e2e-withdraw-canceled-process.json
   expect_http_status "withdraw canceled cannot reject" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_cancel_id}/reject?reason=e2e-canceled-reject")" >/tmp/opex-e2e-withdraw-canceled-reject.json
   wait_withdraw_status "withdraw cancel remains canceled" "$withdraw_cancel_id" "CANCELED" /tmp/opex-e2e-withdraw-cancel-terminal.json
   assert_wallet_balance "withdraw owner unchanged after canceled terminal attempts" "$withdraw_owner" "USDT" "10"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "10" "0" "0" /tmp/opex-e2e-withdraw-cancel-terminal-asset.json
 
   local withdraw_accept_body='{"currency":"USDT","amount":4,"destSymbol":"USDT","destAddress":"0xwithdrawaccept","destNetwork":"test-ethereum","destNote":"accept","description":"e2e withdraw accept"}'
   expect_2xx "withdraw accept request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_accept_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-accept-request.json
@@ -5934,24 +5940,29 @@ main() {
   withdraw_accept_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-accept-request.json)"
   wait_withdraw_status "withdraw accept created" "$withdraw_accept_id" "CREATED" /tmp/opex-e2e-withdraw-accept-created.json
   assert_wallet_balance "withdraw owner reserved for accept" "$withdraw_owner" "USDT" "6"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "4" /tmp/opex-e2e-withdraw-accept-created-asset.json
   expect_2xx "withdraw process action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/process")" >/tmp/opex-e2e-withdraw-processing.json
   wait_withdraw_status "withdraw processing" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-state.json
   expect_http_status "withdraw processing user cancel rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-processing-cancel.json
   wait_withdraw_status "withdraw remains processing after cancel attempt" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-after-cancel.json
   assert_wallet_balance "withdraw owner still reserved while processing" "$withdraw_owner" "USDT" "6"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "4" /tmp/opex-e2e-withdraw-processing-asset.json
   expect_http_status "withdraw zero dest amount accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-zero-dest&destAmount=0")" >/tmp/opex-e2e-withdraw-zero-dest-accept.json
   expect_http_status "withdraw excessive dest amount accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-excessive-dest&destAmount=4.01")" >/tmp/opex-e2e-withdraw-excessive-dest-accept.json
   wait_withdraw_status "withdraw remains processing after invalid accept attempts" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-after-invalid-accept.json
   assert_wallet_balance "withdraw owner still reserved after invalid accept attempts" "$withdraw_owner" "USDT" "6"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "4" /tmp/opex-e2e-withdraw-processing-after-invalid-accept-asset.json
   expect_2xx "withdraw accept action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=3.9")" >/tmp/opex-e2e-withdraw-done.json
   wait_withdraw_status "withdraw done" "$withdraw_accept_id" "DONE" /tmp/opex-e2e-withdraw-done-state.json
   assert_wallet_balance "withdraw owner final after accept" "$withdraw_owner" "USDT" "6"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-done-asset.json
   expect_http_status "withdraw duplicate accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain-duplicate&destAmount=3.9")" >/tmp/opex-e2e-withdraw-duplicate-accept.json
   expect_http_status "withdraw done cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/process")" >/tmp/opex-e2e-withdraw-done-process.json
   expect_http_status "withdraw done cannot reject" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/reject?reason=e2e-done-reject")" >/tmp/opex-e2e-withdraw-done-reject.json
   expect_http_status "withdraw done user cancel rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-done-cancel.json
   wait_withdraw_status "withdraw remains done after terminal attempts" "$withdraw_accept_id" "DONE" /tmp/opex-e2e-withdraw-done-terminal.json
   assert_wallet_balance "withdraw owner unchanged after done terminal attempts" "$withdraw_owner" "USDT" "6"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-done-terminal-asset.json
 
   local withdraw_duplicate_ref_body='{"currency":"USDT","amount":1.1,"destSymbol":"USDT","destAddress":"0xwithdrawduplicateref","destNetwork":"test-ethereum","destNote":"duplicate-ref","description":"e2e withdraw duplicate destination ref"}'
   expect_2xx "withdraw duplicate destination ref request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_duplicate_ref_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-duplicate-ref-request.json
@@ -5959,14 +5970,17 @@ main() {
   withdraw_duplicate_ref_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-duplicate-ref-request.json)"
   wait_withdraw_status "withdraw duplicate destination ref created" "$withdraw_duplicate_ref_id" "CREATED" /tmp/opex-e2e-withdraw-duplicate-ref-created.json
   assert_wallet_balance "withdraw owner reserved for duplicate destination ref" "$withdraw_owner" "USDT" "4.9"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "4.9" "0" "1.1" /tmp/opex-e2e-withdraw-duplicate-ref-created-asset.json
   expect_2xx "withdraw duplicate destination ref process action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/process")" >/tmp/opex-e2e-withdraw-duplicate-ref-processing.json
   wait_withdraw_status "withdraw duplicate destination ref processing" "$withdraw_duplicate_ref_id" "PROCESSING" /tmp/opex-e2e-withdraw-duplicate-ref-processing-state.json
   expect_http_status "withdraw duplicate destination ref accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=1.0")" >/tmp/opex-e2e-withdraw-duplicate-ref-accept.json
   wait_withdraw_status "withdraw duplicate destination ref remains processing" "$withdraw_duplicate_ref_id" "PROCESSING" /tmp/opex-e2e-withdraw-duplicate-ref-after-accept.json
   assert_wallet_balance "withdraw owner still reserved after duplicate destination ref" "$withdraw_owner" "USDT" "4.9"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "4.9" "0" "1.1" /tmp/opex-e2e-withdraw-duplicate-ref-after-accept-asset.json
   expect_2xx "withdraw duplicate destination ref reject action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/reject?reason=e2e-duplicate-ref")" >/tmp/opex-e2e-withdraw-duplicate-ref-rejected.json
   wait_withdraw_status "withdraw duplicate destination ref rejected" "$withdraw_duplicate_ref_id" "REJECTED" /tmp/opex-e2e-withdraw-duplicate-ref-rejected-state.json
   assert_wallet_balance "withdraw owner restored after duplicate destination ref reject" "$withdraw_owner" "USDT" "6"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-duplicate-ref-rejected-asset.json
 
   local withdraw_reject_body='{"currency":"USDT","amount":2,"destSymbol":"USDT","destAddress":"0xwithdrawreject","destNetwork":"test-ethereum","destNote":"reject","description":"e2e withdraw reject"}'
   expect_2xx "withdraw reject request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_reject_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-reject-request.json
@@ -5974,16 +5988,19 @@ main() {
   withdraw_reject_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-reject-request.json)"
   wait_withdraw_status "withdraw reject created" "$withdraw_reject_id" "CREATED" /tmp/opex-e2e-withdraw-reject-created.json
   assert_wallet_balance "withdraw owner reserved for reject" "$withdraw_owner" "USDT" "4"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "4" "0" "2" /tmp/opex-e2e-withdraw-reject-created-asset.json
   expect_2xx "withdraw reject process action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/process")" >/tmp/opex-e2e-withdraw-reject-processing.json
   wait_withdraw_status "withdraw reject processing" "$withdraw_reject_id" "PROCESSING" /tmp/opex-e2e-withdraw-reject-processing-state.json
   expect_2xx "withdraw reject action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject")" >/tmp/opex-e2e-withdraw-rejected.json
   wait_withdraw_status "withdraw rejected" "$withdraw_reject_id" "REJECTED" /tmp/opex-e2e-withdraw-rejected-state.json
   assert_wallet_balance "withdraw owner restored after reject" "$withdraw_owner" "USDT" "6"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-rejected-asset.json
   expect_http_status "withdraw rejected cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/process")" >/tmp/opex-e2e-withdraw-rejected-process.json
   expect_http_status "withdraw rejected cannot accept" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/accept?destTransactionRef=${withdraw_ref}-rejected-chain&destAmount=1.9")" >/tmp/opex-e2e-withdraw-rejected-accept.json
   expect_http_status "withdraw rejected duplicate reject rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject-duplicate")" >/tmp/opex-e2e-withdraw-rejected-duplicate-reject.json
   wait_withdraw_status "withdraw remains rejected after terminal attempts" "$withdraw_reject_id" "REJECTED" /tmp/opex-e2e-withdraw-rejected-terminal.json
   assert_wallet_balance "withdraw owner unchanged after rejected terminal attempts" "$withdraw_owner" "USDT" "6"
+  wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-rejected-terminal-asset.json
   local withdraw_history_body
   local withdraw_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until withdraw_history_body="$(expect_2xx "withdraw user history" "$(curl_json POST "http://127.0.0.1:8091/withdraw/history" '{"currency":"USDT","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&
