@@ -2466,6 +2466,47 @@ wait_binance_private_order_status_by_client_order_id() {
   printf '%s\n' "$body" > "$output_file"
 }
 
+assert_binance_cancel_response() {
+  local label="$1"
+  local file="$2"
+  local symbol="$3"
+  local order_id="$4"
+  local price="$5"
+  local quantity="$6"
+  local executed_quantity="$7"
+  local quote_quantity="$8"
+  local side="$9"
+  local type="${10:-LIMIT}"
+  if ! jq -e \
+    --arg symbol "$symbol" \
+    --argjson order_id "$order_id" \
+    --argjson price "$price" \
+    --argjson quantity "$quantity" \
+    --argjson executed_quantity "$executed_quantity" \
+    --argjson quote_quantity "$quote_quantity" \
+    --arg side "$side" \
+    --arg type "$type" '
+      def nearly_equal($actual; $expected):
+        (($actual - $expected) as $diff | (if $diff < 0 then -$diff else $diff end) <= 0.000001);
+      .symbol == $symbol and
+      .orderId == $order_id and
+      nearly_equal(.price; $price) and
+      nearly_equal(.origQty; $quantity) and
+      nearly_equal(.executedQty; $executed_quantity) and
+      nearly_equal(.cummulativeQuoteQty; $quote_quantity) and
+      .status == "CANCELED" and
+      .timeInForce == "GTC" and
+      .type == $type and
+      .side == $side and
+      (.origClientOrderId | type == "string") and
+      (.clientOrderId | type == "string")
+    ' "$file" >/dev/null; then
+    echo "$label cancel response did not match expected order state" >&2
+    cat "$file" >&2
+    exit 1
+  fi
+}
+
 wait_binance_private_trade_projection() {
   local owner="$1"
   local symbol="$2"
@@ -4302,6 +4343,7 @@ main() {
   wait_binance_account_balance "$api_market_buyer" "ETH" "0.198" "0" /tmp/opex-e2e-binance-api-market-buyer-eth-account.json
   wait_binance_account_balance "$api_market_buyer" "USDT" "9.4" "10.2" /tmp/opex-e2e-binance-api-market-buyer-partial-usdt-account.json
   expect_2xx_retry "Binance API market maker order-id cancel" "binance_private_delete '$api_market_buyer' '/v3/order' 'symbol=ETHUSDT&orderId=${api_market_bid_order_id}'" >/tmp/opex-e2e-binance-api-market-cancel-response.json
+  assert_binance_cancel_response "Binance API market maker order-id" /tmp/opex-e2e-binance-api-market-cancel-response.json "ETHUSDT" "$api_market_bid_order_id" "102" "0.3" "0.2" "20.4" "BUY"
   wait_no_user_open_orders "$api_market_buyer" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_binance_private_order_status_by_order_id "$api_market_buyer" "ETHUSDT" "$api_market_bid_order_id" "102" "0.3" "CANCELED" "0.2" "20.4" "BUY" /tmp/opex-e2e-binance-api-market-buyer-query-canceled.json
@@ -4390,6 +4432,7 @@ main() {
   wait_binance_account_balance "$api_market_buy_seller" "ETH" "0.7" "0.1" /tmp/opex-e2e-binance-api-market-buy-seller-partial-eth-account.json
   wait_binance_account_balance "$api_market_buy_seller" "USDT" "20.394" "0" /tmp/opex-e2e-binance-api-market-buy-seller-usdt-account.json
   expect_2xx_retry "Binance API market-buy maker order-id cancel" "binance_private_delete '$api_market_buy_seller' '/v3/order' 'symbol=ETHUSDT&orderId=${api_market_buy_ask_order_id}'" >/tmp/opex-e2e-binance-api-market-buy-cancel-response.json
+  assert_binance_cancel_response "Binance API market-buy maker order-id" /tmp/opex-e2e-binance-api-market-buy-cancel-response.json "ETHUSDT" "$api_market_buy_ask_order_id" "103" "0.3" "0.2" "20.6" "SELL"
   wait_no_user_open_orders "$api_market_buy_seller" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_private_order_status_by_order_id "$api_market_buy_seller" "ETHUSDT" "$api_market_buy_ask_order_id" "103" "0.3" "CANCELED" "0.2" "20.6" "SELL" /tmp/opex-e2e-binance-api-market-buy-seller-query-canceled.json
@@ -4472,19 +4515,13 @@ main() {
   wait_order_book_level "ETH_USDT" "ASK" "160" "0.3"
   wait_binance_account_balance "$api_cancel_owner" "ETH" "0.7" "0.3" /tmp/opex-e2e-binance-api-cancel-still-reserved-account.json
   expect_2xx_retry "Binance API cancel owner limit ask" "binance_private_delete '$api_cancel_owner' '/v3/order' 'symbol=ETHUSDT&orderId=${api_cancel_order_id}'" >/tmp/opex-e2e-binance-api-cancel-response.json
-  jq -e \
-    --argjson orderId "$api_cancel_order_id" \
-    '.symbol == "ETHUSDT" and .orderId == $orderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
-    /tmp/opex-e2e-binance-api-cancel-response.json >/dev/null
+  assert_binance_cancel_response "Binance API cancel owner limit ask" /tmp/opex-e2e-binance-api-cancel-response.json "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "0" "0" "SELL"
   wait_no_user_open_orders "$api_cancel_owner" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_cancel_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-cancel-released-account.json
   wait_binance_private_order_status_by_order_id "$api_cancel_owner" "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-cancel-query-canceled.json
   expect_2xx_retry "Binance API duplicate order-id cancel remains canceled" "binance_private_delete '$api_cancel_owner' '/v3/order' 'symbol=ETHUSDT&orderId=${api_cancel_order_id}'" >/tmp/opex-e2e-binance-api-cancel-duplicate-response.json
-  jq -e \
-    --argjson orderId "$api_cancel_order_id" \
-    '.symbol == "ETHUSDT" and .orderId == $orderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
-    /tmp/opex-e2e-binance-api-cancel-duplicate-response.json >/dev/null
+  assert_binance_cancel_response "Binance API duplicate order-id cancel" /tmp/opex-e2e-binance-api-cancel-duplicate-response.json "ETHUSDT" "$api_cancel_order_id" "160" "0.3" "0" "0" "SELL"
   wait_no_user_open_orders "$api_cancel_owner" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_account_balance "$api_cancel_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-cancel-duplicate-account.json
@@ -4516,10 +4553,7 @@ main() {
   wait_binance_account_balance "$api_partial_cancel_seller" "ETH" "0.5" "0.3" /tmp/opex-e2e-binance-api-partial-cancel-seller-account-partial-eth.json
   wait_binance_account_balance "$api_partial_cancel_seller" "USDT" "33.462" "0" /tmp/opex-e2e-binance-api-partial-cancel-seller-account-partial-usdt.json
   expect_2xx_retry "Binance API partial-cancel seller order-id cancel" "binance_private_delete '$api_partial_cancel_seller' '/v3/order' 'symbol=ETHUSDT&orderId=${api_partial_cancel_order_id}'" >/tmp/opex-e2e-binance-api-partial-cancel-response.json
-  jq -e \
-    --argjson orderId "$api_partial_cancel_order_id" \
-    '.symbol == "ETHUSDT" and .orderId == $orderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
-    /tmp/opex-e2e-binance-api-partial-cancel-response.json >/dev/null
+  assert_binance_cancel_response "Binance API partial-cancel seller order-id" /tmp/opex-e2e-binance-api-partial-cancel-response.json "ETHUSDT" "$api_partial_cancel_order_id" "169" "0.5" "0.2" "33.8" "SELL"
   wait_no_user_open_orders "$api_partial_cancel_seller" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_binance_private_order_status_by_order_id "$api_partial_cancel_seller" "ETHUSDT" "$api_partial_cancel_order_id" "169" "0.5" "CANCELED" "0.2" "33.8" "SELL" /tmp/opex-e2e-binance-api-partial-cancel-query-canceled.json
