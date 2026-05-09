@@ -4072,6 +4072,20 @@ main() {
     ([.[] | select(.symbol == "ETHUSDT" and .makerCommission == 0.01 and .takerCommission == 0.01)] | length == 1) and
     ([.[] | select(.symbol == "BTCUSDT" and .makerCommission == 0.01 and .takerCommission == 0.01)] | length == 1)
   ' /tmp/opex-e2e-binance-api-trade-fee-all.json >/dev/null
+  expect_2xx "Binance API signed owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_USDT/${api_signed_owner}_MAIN?description=e2e-api-signed&transferRef=${api_signed_owner}-usdt")" >/dev/null
+  expect_2xx "Binance API account commissions" "$(binance_private_get_status "$api_signed_owner" "/v3/account" "")" >/tmp/opex-e2e-binance-api-account-commissions.json
+  jq -e '
+    .makerCommission == 100 and
+    .takerCommission == 100 and
+    .buyerCommission == 0 and
+    .sellerCommission == 0 and
+    .accountType == "SPOT" and
+    .canTrade == true and
+    .canDeposit == true and
+    .canWithdraw == true and
+    (.permissions | type == "array") and
+    (.permissions | index("SPOT") != null)
+  ' /tmp/opex-e2e-binance-api-account-commissions.json >/dev/null
 
   local seller="e2e-seller-$(date +%s)"
   local buyer="e2e-buyer-$(date +%s)"
@@ -4433,6 +4447,76 @@ main() {
   wait_binance_private_order_status_by_order_id "$api_stp_market_owner" "ETHUSDT" "$api_stp_market_bid_order_id" "80" "0.5" "CANCELED" "0" "0" "BUY" /tmp/opex-e2e-binance-api-stp-market-bid-query-canceled.json
   wait_binance_account_balance "$api_stp_market_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-stp-market-eth-account-released.json
   wait_binance_account_balance "$api_stp_market_owner" "USDT" "100" "0" /tmp/opex-e2e-binance-api-stp-market-usdt-account-released.json
+
+  local api_stp_market_buy_owner="e2e-api-stp-market-buy-$(date +%s)"
+  local api_stp_market_buy_ref="e2e-api-stp-market-buy-$(date +%s)"
+  local api_stp_market_buy_ask_client_id="e2e-api-stp-market-buy-ask-$(date +%s)"
+  local api_stp_market_buy_bid_client_id="e2e-api-stp-market-buy-bid-$(date +%s)"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  expect_2xx "Binance API stp-market-buy owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_stp_market_buy_owner}_MAIN?description=e2e-api-stp-market-buy&transferRef=${api_stp_market_buy_ref}-eth")" >/dev/null
+  expect_2xx "Binance API stp-market-buy owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_stp_market_buy_owner}_MAIN?description=e2e-api-stp-market-buy&transferRef=${api_stp_market_buy_ref}-usdt")" >/dev/null
+  expect_2xx_retry "Binance API stp-market-buy resting ask" "binance_private_post '$api_stp_market_buy_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.4&price=105&newClientOrderId=${api_stp_market_buy_ask_client_id}'" >/tmp/opex-e2e-binance-api-stp-market-buy-ask.json
+  wait_user_open_order "$api_stp_market_buy_owner" "ETH_USDT" "105" "0.4" /tmp/opex-e2e-binance-api-stp-market-buy-open-orders.json
+  wait_order_book_level "ETH_USDT" "ASK" "105" "0.4"
+  wait_binance_account_balance "$api_stp_market_buy_owner" "ETH" "0.6" "0.4" /tmp/opex-e2e-binance-api-stp-market-buy-ask-eth-account.json
+  wait_binance_account_balance "$api_stp_market_buy_owner" "USDT" "100" "0" /tmp/opex-e2e-binance-api-stp-market-buy-ask-usdt-account.json
+
+  local api_stp_market_buy_ask_order_id
+  api_stp_market_buy_ask_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-binance-api-stp-market-buy-open-orders.json)"
+  if [[ -z "$api_stp_market_buy_ask_order_id" || "$api_stp_market_buy_ask_order_id" == "null" ]]; then
+    echo "Binance API stp-market-buy resting ask did not include orderId" >&2
+    cat /tmp/opex-e2e-binance-api-stp-market-buy-open-orders.json >&2
+    exit 1
+  fi
+  wait_binance_private_order_status_by_order_id "$api_stp_market_buy_owner" "ETHUSDT" "$api_stp_market_buy_ask_order_id" "105" "0.4" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-stp-market-buy-ask-query-new.json
+
+  expect_2xx_retry "Binance API stp-market-buy crossing market bid rejected async" "binance_private_post '$api_stp_market_buy_owner' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&price=105&newClientOrderId=${api_stp_market_buy_bid_client_id}'" >/tmp/opex-e2e-binance-api-stp-market-buy-bid.json
+  wait_query_eq "Binance API stp-market-buy reject financial action" "postgres-accountant" "1" "
+    select count(*)
+    from fi_actions
+    where event_type = 'RejectOrderEvent'
+      and category_name = 'ORDER_CANCEL'
+      and sender = '${api_stp_market_buy_owner}'
+      and receiver = '${api_stp_market_buy_owner}'
+      and symbol = 'USDT'
+      and amount = 21.00000000
+      and status = 'PROCESSED';
+  "
+  wait_query_eq "Binance API stp-market-buy reject eventlog audit" "postgres-eventlog" "SELF_TRADE_PREVENTION,PLACE_ORDER,BID,1,0" "
+    select event_json::jsonb ->> 'reason',
+           event_json::jsonb ->> 'requestedOperation',
+           event_json::jsonb ->> 'direction',
+           count(*),
+           sum(case when event_json is null or event_json = '' then 1 else 0 end)
+    from opex_events
+    where event = 'RejectOrderEvent'
+      and uuid = '$api_stp_market_buy_owner'
+    group by event_json::jsonb ->> 'reason',
+             event_json::jsonb ->> 'requestedOperation',
+             event_json::jsonb ->> 'direction';
+  "
+  wait_user_open_order "$api_stp_market_buy_owner" "ETH_USDT" "105" "0.4" /tmp/opex-e2e-binance-api-stp-market-buy-still-open-orders.json
+  wait_binance_private_order_status_by_order_id "$api_stp_market_buy_owner" "ETHUSDT" "$api_stp_market_buy_ask_order_id" "105" "0.4" "NEW" "0" "0" "SELL" /tmp/opex-e2e-binance-api-stp-market-buy-ask-query-still-new.json
+  wait_query_eq "Binance API stp-market-buy prevention emitted no trade" "postgres-market" "0" "
+    select count(*)
+    from trades
+    where symbol = 'ETH_USDT'
+      and maker_uuid = '$api_stp_market_buy_owner'
+      and taker_uuid = '$api_stp_market_buy_owner';
+  "
+  wait_binance_account_balance "$api_stp_market_buy_owner" "ETH" "0.6" "0.4" /tmp/opex-e2e-binance-api-stp-market-buy-eth-account-after-reject.json
+  wait_binance_account_balance "$api_stp_market_buy_owner" "USDT" "100" "0" /tmp/opex-e2e-binance-api-stp-market-buy-usdt-account-after-reject.json
+
+  expect_2xx_retry "Binance API stp-market-buy cleanup ask cancel" "binance_private_delete '$api_stp_market_buy_owner' '/v3/order' 'symbol=ETHUSDT&origClientOrderId=${api_stp_market_buy_ask_client_id}'" >/tmp/opex-e2e-binance-api-stp-market-buy-cancel.json
+  jq -e \
+    --argjson orderId "$api_stp_market_buy_ask_order_id" \
+    '.symbol == "ETHUSDT" and .orderId == $orderId and .status == "CANCELED" and .side == "SELL" and .type == "LIMIT"' \
+    /tmp/opex-e2e-binance-api-stp-market-buy-cancel.json >/dev/null
+  wait_no_user_open_orders "$api_stp_market_buy_owner" "ETH_USDT"
+  wait_order_book_empty "ETH_USDT" "ASK"
+  wait_binance_private_order_status_by_order_id "$api_stp_market_buy_owner" "ETHUSDT" "$api_stp_market_buy_ask_order_id" "105" "0.4" "CANCELED" "0" "0" "SELL" /tmp/opex-e2e-binance-api-stp-market-buy-ask-query-canceled.json
+  wait_binance_account_balance "$api_stp_market_buy_owner" "ETH" "1" "0" /tmp/opex-e2e-binance-api-stp-market-buy-eth-account-released.json
+  wait_binance_account_balance "$api_stp_market_buy_owner" "USDT" "100" "0" /tmp/opex-e2e-binance-api-stp-market-buy-usdt-account-released.json
 
   local api_underfunded_owner="e2e-api-underfunded-$(date +%s)"
   local api_underfunded_ref="e2e-api-underfunded-$(date +%s)"
@@ -5786,6 +5870,15 @@ main() {
   expect_2xx_retry "fifo second bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$fifo_second_bid' '$fifo_second_buyer'" >/tmp/opex-e2e-fifo-second-bid.json
   wait_user_open_order "$fifo_second_buyer" "ETH_USDT" "125" "0.2" /tmp/opex-e2e-fifo-second-open-orders.json
   wait_binance_depth_level "ETHUSDT" "BID" "125" "0.4" /tmp/opex-e2e-binance-depth-aggregated-fifo.json
+  jq -e '
+    (.lastUpdateId | type == "number") and
+    .lastUpdateId > 0 and
+    (.bids | type == "array") and
+    (.asks | type == "array") and
+    (.bids | all(length == 2)) and
+    (.asks | all(length == 2)) and
+    ([.bids[] | select(.[0] == 125)] | length == 1)
+  ' /tmp/opex-e2e-binance-depth-aggregated-fifo.json >/dev/null
 
   local fifo_second_ouid fifo_second_order_id fifo_second_cancel_request
   fifo_second_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-fifo-second-open-orders.json)"
@@ -7017,7 +7110,7 @@ main() {
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades.json
   wait_binance_latest_kline_matches_market_projection "ETHUSDT" "ETH_USDT" /tmp/opex-e2e-binance-latest-kline.json
-  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,87\nFEE,46\nNORMAL,1\nORDER_CANCEL,51\nORDER_CREATE,83\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
+  wait_query_eq "wallet transaction category ledger" "postgres-wallet" $'DEPOSIT,90\nFEE,46\nNORMAL,1\nORDER_CANCEL,53\nORDER_CREATE,85\nORDER_FINALIZED,1\nTRADE,46\nWITHDRAW_ACCEPT,1\nWITHDRAW_CANCEL,1\nWITHDRAW_REJECT,2\nWITHDRAW_REQUEST,4' "
     select t.transfer_category, count(*)
     from transaction t
     join wallet sw on sw.id = t.source_wallet
@@ -7028,7 +7121,7 @@ main() {
     group by t.transfer_category
     order by t.transfer_category;
   "
-  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,50.54000000\nUSDT,3445.90400000' "
+  wait_query_eq "wallet aggregate balances" "postgres-wallet" $'BTC,0.00200000\nETH,51.54000000\nUSDT,3546.90400000' "
     select w.currency, to_char(sum(w.balance), 'FM9999999990.00000000')
     from wallet w
     join wallet_owner wo on wo.id = w.owner
@@ -7092,7 +7185,7 @@ main() {
       and w.wallet_type = 'CASHOUT'
       and abs(w.balance) > 0.000001;
   "
-  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,43\nRejectOrderEvent,PROCESSED,5\nSubmitOrderEvent,PROCESSED,83\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
+  wait_query_eq "accountant processed financial actions" "postgres-accountant" $'CancelOrderEvent,PROCESSED,44\nRejectOrderEvent,PROCESSED,6\nSubmitOrderEvent,PROCESSED,85\nTradeEvent,PROCESSED,93\nUpdatedOrderEvent,PROCESSED,3' "
     select event_type, status, count(*)
     from fi_actions
     where sender like 'e2e-%' or receiver like 'e2e-%'
@@ -8464,10 +8557,10 @@ main() {
   },
   "databaseInvariantScenario": {
     "walletTransactionCategories": {
-      "DEPOSIT": 87,
+      "DEPOSIT": 90,
       "FEE": 46,
-      "ORDER_CANCEL": 51,
-      "ORDER_CREATE": 83,
+      "ORDER_CANCEL": 53,
+      "ORDER_CREATE": 85,
       "ORDER_FINALIZED": 1,
       "TRADE": 46,
       "WITHDRAW_ACCEPT": 1,
@@ -8477,8 +8570,8 @@ main() {
     },
     "walletAggregateBalances": {
       "BTC": 0.002,
-      "ETH": 50.54,
-      "USDT": 3445.904
+      "ETH": 51.54,
+      "USDT": 3546.904
     },
     "walletWithdrawStatuses": {
       "CANCELED": 1,
@@ -8491,9 +8584,9 @@ main() {
     "walletExchangeBalancesReleased": true,
     "walletCashoutBalancesReleased": true,
     "accountantProcessedFinancialActions": {
-      "CancelOrderEvent": 43,
-      "RejectOrderEvent": 5,
-      "SubmitOrderEvent": 83,
+      "CancelOrderEvent": 44,
+      "RejectOrderEvent": 6,
+      "SubmitOrderEvent": 85,
       "TradeEvent": 93,
       "UpdatedOrderEvent": 3
     },
