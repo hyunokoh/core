@@ -4017,6 +4017,24 @@ main() {
   "${COMPOSE[@]}" up -d --no-deps api
   wait_http "api" "http://127.0.0.1:8094/actuator/health"
   wait_binance_exchange_info_symbol "ETHUSDT" "ETH" "USDT"
+  curl -fsS "http://127.0.0.1:8094/v3/exchangeInfo?symbol=ETHUSDT" >/tmp/opex-e2e-binance-exchange-info-ethusdt.json
+  jq -e '
+    (.timezone | type == "string") and (.timezone | length > 0) and
+    (.serverTime | type == "number") and .serverTime > 0 and
+    (.rateLimits | type == "array") and
+    (.exchangeFilters | type == "array") and
+    ([.symbols[] | select(.symbol == "ETHUSDT")] | length == 1) and
+    (.symbols[] | select(.symbol == "ETHUSDT") |
+      .baseAssetPrecision == 6 and
+      .quoteAssetPrecision == 2 and
+      (.icebergAllowed | type == "boolean") and
+      (.ocoAllowed | type == "boolean") and
+      (.permissions | type == "array") and
+      (.permissions | index("SPOT") != null) and
+      (.orderTypes | type == "array") and
+      (.orderTypes | length >= 1)
+    )
+  ' /tmp/opex-e2e-binance-exchange-info-ethusdt.json >/dev/null
 
   local api_address_owner="e2e-api-address-$(date +%s)"
   local api_address="0xe2e${api_address_owner//[^[:alnum:]]/}"
