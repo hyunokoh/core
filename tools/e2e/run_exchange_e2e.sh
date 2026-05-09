@@ -1474,7 +1474,12 @@ wait_binance_24h_ticker() {
       (.[0].volume | tonumber) == $quantity and
       .[0].count == 1 and
       .[0].openTime > 0 and
-      .[0].closeTime > 0
+      .[0].closeTime > 0 and
+      (.[0].bidPrice | tonumber) >= 0 and
+      (.[0].askPrice | tonumber) >= 0 and
+      (.[0].firstId | tonumber) >= 0 and
+      (.[0].lastId | tonumber) >= 0 and
+      (.[0].lastId | tonumber) >= (.[0].firstId | tonumber)
     ' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for Binance 24h ticker symbol=$symbol price=$price quantity=$quantity" >&2
@@ -2362,7 +2367,12 @@ wait_binance_private_all_orders_across_symbols() {
           .side == $side and
           .type == "LIMIT" and
           (.orderId | type == "number") and
-          (.orderId > 0);
+          (.orderId > 0) and
+          (.time | type == "number") and
+          (.time > 0) and
+          (.updateTime | type == "number") and
+          (.updateTime > 0) and
+          (.updateTime >= .time);
         length == 2 and
         ([.[] | select(order_matches($symbol_one; $price_one; $quantity_one; $status_one; $side_one))] | length == 1) and
         ([.[] | select(order_matches($symbol_two; $price_two; $quantity_two; $status_two; $side_two))] | length == 1)
@@ -2561,7 +2571,11 @@ wait_binance_private_trade_projection() {
             (.id | type == "number") and
             (.id > 0) and
             (.orderId | type == "number") and
-            (.orderId > 0)
+            (.orderId > 0) and
+            (.symbol | type == "string") and
+            (.commissionAsset | type == "string") and
+            (.time | type == "number") and
+            (.time > 0)
           )
         ] | length >= 1
       ' >/dev/null; do

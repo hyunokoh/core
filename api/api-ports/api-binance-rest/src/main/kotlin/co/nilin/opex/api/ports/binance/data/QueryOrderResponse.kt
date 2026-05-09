@@ -6,7 +6,6 @@ import co.nilin.opex.api.core.inout.OrderType
 import co.nilin.opex.api.core.inout.TimeInForce
 import com.fasterxml.jackson.annotation.JsonInclude
 import java.math.BigDecimal
-import java.util.*
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class QueryOrderResponse(
@@ -25,8 +24,8 @@ data class QueryOrderResponse(
     val side: OrderSide,
     val stopPrice: BigDecimal?,
     val icebergQty: BigDecimal?,
-    val time: Date,
-    val updateTime: Date,
+    val time: Long,
+    val updateTime: Long,
     val isWorking: Boolean,
     val origQuoteOrderQty: BigDecimal
 )

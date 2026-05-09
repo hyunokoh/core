@@ -2,7 +2,6 @@ package co.nilin.opex.api.ports.binance.data
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import java.math.BigDecimal
-import java.util.*
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class TradeResponse(
@@ -15,7 +14,7 @@ data class TradeResponse(
     val quoteQty: BigDecimal,
     val commission: BigDecimal,
     val commissionAsset: String,
-    val time: Date,
+    val time: Long,
     val isBuyer: Boolean,
     val isMaker: Boolean,
     val isBestMatch: Boolean

@@ -466,7 +466,7 @@ class AccountController(
                     it.quoteQuantity,
                     it.commission,
                     it.commissionAsset,
-                    it.time,
+                    it.time.time,
                     it.isBuyer,
                     it.isMaker,
                     it.isBestMatch
@@ -670,8 +670,8 @@ class AccountController(
         direction.asOrderSide(),
         null,
         null,
-        Date.from(createDate.atZone(ZoneId.systemDefault()).toInstant()),
-        Date.from(updateDate.atZone(ZoneId.systemDefault()).toInstant()),
+        createDate.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+        updateDate.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
         status.isWorking(),
         quoteQuantity
     )
