@@ -110,6 +110,7 @@ Runs a real Docker-backed exchange E2E flow:
   36r. Verify Binance-compatible private API timestamp and recvWindow checks reject invalid signed requests.
   36r2. Verify Binance-compatible tradeFee reflects real accountant fee configuration.
   36r3. Verify Binance-compatible wallet history endpoints reject invalid signed request windows.
+  36r4. Verify Binance-compatible deposit address assignment uses the real bc-gateway path.
   36s. Verify Binance-compatible LIMIT IOC with no liquidity cancels and releases reserved funds.
   36t. Verify Binance-compatible LIMIT IOC partial fill cancels the remainder and releases reserved funds.
   36u. Verify Binance-compatible LIMIT IOC sell partial fill cancels the remainder and releases reserved funds.
@@ -1791,12 +1792,8 @@ deposit_via_bc_gateway() {
   local raw_amount="$6"
   local address="0xe2e${tx_hash//[^[:alnum:]]/}"
   address="${address:0:42}"
-  local csv_file
-  csv_file="$(mktemp)"
-  printf '%s,,ethereum\n' "$address" > "$csv_file"
 
-  curl -fsS -X PUT -F "file=@${csv_file}" "http://127.0.0.1:8095/v1/address" >/dev/null
-  rm -f "$csv_file"
+  upload_reserved_eth_address "$address"
 
   local assigned_body
   assigned_body="$(curl -fsS -X POST \
@@ -1823,6 +1820,15 @@ deposit_via_bc_gateway() {
     }]')"
   expect_2xx "bc-gateway wallet-sync deposit" "$(curl_json PUT "http://127.0.0.1:8095/wallet-sync/test-ethereum" "$transfer_body")" >/dev/null
   assert_wallet_balance "bc-gateway ${currency} deposit" "$owner" "$currency" "$amount"
+}
+
+upload_reserved_eth_address() {
+  local address="$1"
+  local csv_file
+  csv_file="$(mktemp)"
+  printf '%s,,ethereum\n' "$address" > "$csv_file"
+  curl -fsS -X PUT -F "file=@${csv_file}" "http://127.0.0.1:8095/v1/address" >/dev/null
+  rm -f "$csv_file"
 }
 
 wait_binance_deposit_history() {
@@ -4011,6 +4017,27 @@ main() {
   "${COMPOSE[@]}" up -d --no-deps api
   wait_http "api" "http://127.0.0.1:8094/actuator/health"
   wait_binance_exchange_info_symbol "ETHUSDT" "ETH" "USDT"
+
+  local api_address_owner="e2e-api-address-$(date +%s)"
+  local api_address="0xe2e${api_address_owner//[^[:alnum:]]/}"
+  api_address="${api_address:0:42}"
+  upload_reserved_eth_address "$api_address"
+  expect_2xx "Binance API deposit address assignment" "$(binance_private_get_status "$api_address_owner" "/v1/capital/deposit/address" "coin=USDT&network=test-ethereum")" >/tmp/opex-e2e-binance-api-deposit-address.json
+  jq -e \
+    --arg address "$api_address" '
+      .address == $address and
+      .coin == "USDT" and
+      .network == "test-ethereum" and
+      .tag == "" and
+      .url == ""
+    ' /tmp/opex-e2e-binance-api-deposit-address.json >/dev/null
+  expect_2xx "Binance API deposit address idempotent lookup" "$(binance_private_get_status "$api_address_owner" "/v1/capital/deposit/address" "coin=USDT&network=test-ethereum")" >/tmp/opex-e2e-binance-api-deposit-address-repeat.json
+  jq -e \
+    --arg address "$api_address" '
+      .address == $address and
+      .coin == "USDT" and
+      .network == "test-ethereum"
+    ' /tmp/opex-e2e-binance-api-deposit-address-repeat.json >/dev/null
 
   local api_signed_owner="e2e-api-signed-$(date +%s)"
   local api_signed_now api_signed_stale api_signed_future
