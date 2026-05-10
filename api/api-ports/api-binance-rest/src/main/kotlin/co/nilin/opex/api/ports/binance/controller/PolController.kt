@@ -1,15 +1,18 @@
 package co.nilin.opex.api.ports.binance.controller
 
+import co.nilin.opex.common.OpexError
 import co.nilin.opex.common.utils.LoggerDelegate
 import com.fasterxml.jackson.databind.JsonNode
 import kotlinx.coroutines.reactive.awaitSingle
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import org.springframework.web.reactive.function.client.bodyToMono
 import java.security.Principal
 
@@ -35,51 +38,69 @@ class PolController(private val webClientBuilder: WebClient.Builder) {
         principal: Principal,
         @RequestParam(required = false) epoch: Long?,
     ): JsonNode {
-        require(baseUrl.isNotBlank()) { "app.pol.url must be configured" }
+        ensureConfigured()
         val userId = principal.name
         val targetEpoch = epoch ?: latestEpoch()
         logger.info("fetching PoL inclusion proof for user=$userId epoch=$targetEpoch")
-        return webClient.get()
-            .uri("$baseUrl/api/v1/audit/user-proof?epoch=$targetEpoch&user_id=$userId")
-            .accept(MediaType.APPLICATION_JSON)
-            .retrieve()
-            .onStatus({ it.isError }, { it.createException() })
-            .bodyToMono<JsonNode>()
-            .awaitSingle()
+        return fetchJson("$baseUrl/api/v1/audit/user-proof?epoch=$targetEpoch&user_id=$userId")
     }
 
     @GetMapping("/certificate/latest", produces = [MediaType.APPLICATION_JSON_VALUE])
     suspend fun latestCertificate(): JsonNode {
-        require(baseUrl.isNotBlank()) { "app.pol.url must be configured" }
-        return webClient.get()
-            .uri("$baseUrl/api/v1/certificate/latest")
-            .accept(MediaType.APPLICATION_JSON)
-            .retrieve()
-            .onStatus({ it.isError }, { it.createException() })
-            .bodyToMono<JsonNode>()
-            .awaitSingle()
+        ensureConfigured()
+        return fetchJson("$baseUrl/api/v1/certificate/latest")
     }
 
     @GetMapping("/certificate/pubkey", produces = [MediaType.APPLICATION_JSON_VALUE])
     suspend fun signingPubkey(): JsonNode {
-        require(baseUrl.isNotBlank()) { "app.pol.url must be configured" }
-        return webClient.get()
-            .uri("$baseUrl/api/v1/certificate/pubkey")
-            .accept(MediaType.APPLICATION_JSON)
-            .retrieve()
-            .onStatus({ it.isError }, { it.createException() })
-            .bodyToMono<JsonNode>()
-            .awaitSingle()
+        ensureConfigured()
+        return fetchJson("$baseUrl/api/v1/certificate/pubkey")
     }
 
     private suspend fun latestEpoch(): Long {
-        val resp = webClient.get()
-            .uri("$baseUrl/api/v1/certificate/latest")
-            .accept(MediaType.APPLICATION_JSON)
-            .retrieve()
-            .onStatus({ it.isError }, { it.createException() })
-            .bodyToMono<JsonNode>()
-            .awaitSingle()
+        val resp = fetchJson("$baseUrl/api/v1/certificate/latest")
         return resp.path("certificate").path("epoch").asLong()
+    }
+
+    /**
+     * Run a GET against the snapshot server and translate its failures into clean OpexError
+     * responses. Without this, a 404 from the snapshot server (e.g., epoch not yet ingested)
+     * leaks as a Spring 500 to the user; a connection error becomes an even messier stack
+     * trace. We map upstream 4xx/5xx onto stable Binance-API-style error codes.
+     */
+    private suspend fun fetchJson(uri: String): JsonNode {
+        return try {
+            webClient.get()
+                .uri(uri)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .onStatus({ it.isError }, { it.createException() })
+                .bodyToMono<JsonNode>()
+                .awaitSingle()
+        } catch (e: WebClientResponseException) {
+            logger.warn("pol-snapshot-server returned ${e.statusCode} for $uri: ${e.responseBodyAsString.take(200)}")
+            throw when (val status = e.statusCode) {
+                HttpStatus.NOT_FOUND -> OpexError.NoRecordFound.exception()
+                HttpStatus.BAD_REQUEST -> OpexError.BadRequest.exception()
+                HttpStatus.UNAUTHORIZED -> OpexError.UnAuthorized.exception()
+                HttpStatus.FORBIDDEN -> OpexError.Forbidden.exception()
+                else -> if (status.is5xxServerError) {
+                    OpexError.ServiceUnavailable.exception()
+                } else {
+                    OpexError.InternalServerError.exception()
+                }
+            }
+        } catch (e: Exception) {
+            // Connection refused / timeout / DNS / etc. — the snapshot server is unreachable.
+            logger.warn("pol-snapshot-server unreachable while calling $uri: ${e.message}")
+            throw OpexError.ServiceUnavailable.exception()
+        }
+    }
+
+    private fun ensureConfigured() {
+        if (baseUrl.isBlank()) {
+            logger.warn("app.pol.url is not configured; /v3/pol/* endpoints cannot serve")
+            throw OpexError.ServiceUnavailable.exception()
+        }
     }
 }
