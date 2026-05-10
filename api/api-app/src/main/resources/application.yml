@@ -109,5 +109,7 @@ app:
       secret: ${API_KEY_CLIENT_SECRET}
   binance:
     api-url: https://api1.binance.com
+  pol:
+    url: ${POL_SNAPSHOT_URL:}
 swagger:
   authUrl: ${SWAGGER_AUTH_URL:https://api.opex.dev/auth}/realms/opex/protocol/openid-connect/token
