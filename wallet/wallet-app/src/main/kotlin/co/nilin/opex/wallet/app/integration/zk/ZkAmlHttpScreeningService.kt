@@ -24,8 +24,11 @@ class ZkAmlHttpScreeningService(
     @Value("\${app.zkaml.enabled:false}")
     private var enabled: Boolean = false
 
-    @Value("\${app.zkaml.fail-closed:false}")
-    private var failClosed: Boolean = false
+    // Default fail-closed: if zkAML is enabled but unreachable we route the withdraw to
+    // manual REVIEW rather than approving it. Operators who explicitly want fail-open can
+    // set this to false, but the safer behaviour is the new default.
+    @Value("\${app.zkaml.fail-closed:true}")
+    private var failClosed: Boolean = true
 
     @Value("\${app.zkaml.url:http://localhost:8000}")
     private lateinit var baseUrl: String

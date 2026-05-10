@@ -53,24 +53,27 @@ class WalletSyncServiceImpl(
                         tokenAddress = it.tokenAddress
                     )
                 )
+                // Persist the screening decision for every deposit (ALLOW included). Regulators
+                // need a complete trail mapping each on-chain deposit to its AML decision; the
+                // previous code only recorded BLOCK/REVIEW so approved deposits had no link.
+                zkAmlDepositCaseRecorder.record(
+                    ZkAmlDepositCaseRecord(
+                        ownerUuid = uuid,
+                        chain = it.chain,
+                        txHash = it.txHash,
+                        amount = it.amount.toPlainString(),
+                        receiverAddress = it.receiver.address,
+                        receiverMemo = it.receiver.memo,
+                        tokenAddress = it.tokenAddress,
+                        decision = screening.decision,
+                        reason = screening.reason,
+                        externalRef = screening.externalRef
+                    )
+                )
                 if (screening.decision == ZkScreeningDecision.ALLOW) {
                     sendDeposit(uuid, currencyImpl, it)
                     logger.info("Deposit synced for $uuid on ${currencyImpl.currency.symbol} - to ${it.receiver.address}")
                 } else {
-                    zkAmlDepositCaseRecorder.record(
-                        ZkAmlDepositCaseRecord(
-                            ownerUuid = uuid,
-                            chain = it.chain,
-                            txHash = it.txHash,
-                            amount = it.amount.toPlainString(),
-                            receiverAddress = it.receiver.address,
-                            receiverMemo = it.receiver.memo,
-                            tokenAddress = it.tokenAddress,
-                            decision = screening.decision,
-                            reason = screening.reason,
-                            externalRef = screening.externalRef
-                        )
-                    )
                     logger.warn(
                         "zkAML held deposit owner={} chain={} txHash={} decision={} reason={} ref={}",
                         uuid,
