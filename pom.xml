@@ -143,6 +143,9 @@
                         <include>**/*IT</include>
                         <include>**/*Test</include>
                     </includes>
+                    <!-- Perf benchmarks are named *Bench (no Test suffix) so they are
+                         intentionally not picked up by the default include pattern above.
+                         Run them with: -Dtest=*Bench -DfailIfNoTests=false -->
                 </configuration>
             </plugin>
         </plugins>
