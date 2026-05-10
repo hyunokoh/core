@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>zkCEX — Verifiable Exchange Backend</title>
+<meta name="description" content="zkCEX is a compliance-friendly exchange backend: a Binance-compatible REST API, a real-time matching engine, 5-minute Proof-of-Liabilities, and integrated AML through zkAML." />
+<meta property="og:title" content="zkCEX — Verifiable CEX Backend" />
+<meta property="og:description" content="Binance-compatible REST + Merkle-sum PoL + zkAML-driven decisions in one stack." />
+<link rel="canonical" href="/en/" />
+<link rel="alternate" hreflang="ko" href="/" />
+<link rel="alternate" hreflang="en" href="/en/" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/en/"><span class="mark"></span>zkCEX</a>
+    <nav class="nav">
+      <a href="#features">Product</a>
+      <a href="#stack">Stack</a>
+      <a href="#integrations">Integrations</a>
+      <a href="#api">API</a>
+      <span class="lang-toggle">
+        <a href="/">KO</a>
+        <a class="active" href="/en/">EN</a>
+      </span>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="hero-inner">
+    <h1>Verifiable CEX backend</h1>
+    <p class="tagline">Binance-compatible REST + a real-time matching engine + 5-minute Proof-of-Liabilities + zkAML-driven deposit/withdraw decisions. Operators audit; users verify their own balance.</p>
+    <div class="cta-row">
+      <a class="cta primary" href="#api">API docs</a>
+      <a class="cta secondary" href="#integrations">Integration guide</a>
+    </div>
+    <p class="meta">Backend API + operator console. End-user trading UIs are built by integrators on top of this API.</p>
+  </div>
+</section>
+
+<section id="features" class="features">
+  <div class="section-inner">
+    <h2>Components</h2>
+    <div class="feature-grid">
+      <article class="card">
+        <h3>Binance-compatible REST</h3>
+        <p>Standard surface (<code>/v3/order</code>, <code>/v3/account</code>, <code>/v3/myTrades</code>, <code>/v3/depth</code>, <code>/v3/exchangeInfo</code>, <code>/v3/klines</code>). Existing Binance clients (SDKs and bots) plug in unchanged.</p>
+      </article>
+      <article class="card">
+        <h3>Real-time matching engine</h3>
+        <p>Kafka-driven order stream. GTC/IOC/FOK, MARKET orders, price/time priority, self-trade prevention (LIMIT and MARKET, both directions) — all covered end-to-end.</p>
+      </article>
+      <article class="card">
+        <h3>Proof-of-Liabilities (5-min epochs)</h3>
+        <p>Per-user nonce + Merkle-sum tree lets every user verify locally that their balance is included in the published total liability. Exposed via <code>/v3/pol/inclusion-proof</code>.</p>
+      </article>
+      <article class="card">
+        <h3>Integrated AML (zkAML)</h3>
+        <p>Every deposit and withdraw passes through zkAML for an ALLOW/REVIEW/BLOCK decision. Decisions are audit-logged; if zkAML is unreachable the system fails closed into the review queue.</p>
+      </article>
+      <article class="card">
+        <h3>Wallet + bc-gateway</h3>
+        <p>Multi-chain deposits and withdrawals, address provisioning, transferRef de-duplication, and a tested withdraw state machine (<code>CREATED → PROCESSING → DONE/REJECTED/CANCELED</code>).</p>
+      </article>
+      <article class="card">
+        <h3>Observability</h3>
+        <p>Spring Actuator, Prometheus metrics, structured logging, and Vault-backed secrets. A 25+ minute e2e validates correctness on every change.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="stack" class="how">
+  <div class="section-inner">
+    <h2>Architecture</h2>
+    <ol class="how-list">
+      <li><strong>API layer</strong> — <code>api-binance-rest</code> (Kotlin/Spring WebFlux). Surfaces the Binance-compatible endpoints to authenticated users.</li>
+      <li><strong>Matching gateway + engine</strong> — Kafka-routed orders and trades; supports per-market engine shards (<code>matching-engine-duo</code>).</li>
+      <li><strong>Wallet + Accountant</strong> — Balances, reservations, fees, transaction history. PostgreSQL persistence; restart resilience covered by e2e.</li>
+      <li><strong>bc-gateway</strong> — Synchronises deposits and withdrawals with external chains. Every deposit is recorded with its zkAML decision.</li>
+      <li><strong>Market</strong> — Public order book and recent-trades projections. Drives <code>/v3/depth</code>, <code>/v3/ticker/24h</code>, and <code>/v3/klines</code>.</li>
+      <li><strong>EventLog + zkPoL bridge</strong> — Streams balance deltas into the snapshot tree so a fresh PoL certificate is signed every five minutes.</li>
+    </ol>
+  </div>
+</section>
+
+<section id="integrations" class="trust">
+  <div class="section-inner">
+    <h2>Integrations</h2>
+    <div class="trust-grid">
+      <article class="trust-card">
+        <h3>zkAML</h3>
+        <p>Deposit/withdraw screening. Set <code>ZKAML_ENABLED=true</code>; default is fail-closed. Per-user audit rows, per-source sanctions freshness on <code>/ops/readiness</code>.</p>
+      </article>
+      <article class="trust-card">
+        <h3>pol-snapshot-server</h3>
+        <p>Ed25519-signed certificates over a Poseidon2 / Keccak256 Merkle-sum tree. Users verify locally with the <code>@pol-snapshot/client</code> SDK.</p>
+      </article>
+      <article class="trust-card">
+        <h3>Keycloak / user management</h3>
+        <p>Sign-up, email verification, OTP, sessions, and password reset all run through the standard Keycloak gateway.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="api" class="demo">
+  <div class="section-inner demo-inner">
+    <h2>Getting started</h2>
+    <p>This is the operator/integrator backend. End-user trading UIs build on top of these APIs.</p>
+    <ol class="demo-steps">
+      <li>Clone the repo: <code>git clone https://github.com/zkrypto-inc/zkCEX</code></li>
+      <li>Inside <code>core/</code>, run <code>tools/e2e/run_exchange_e2e.sh --reset</code>. The 25+ minute e2e brings up the full stack and validates every correctness scenario.</li>
+      <li>Base URL: <code>http://127.0.0.1:8094/v3/...</code> (Binance-compatible). Auth uses <code>X-Opex-User</code> plus Binance-style HMAC SHA256.</li>
+      <li>zkAML wiring: point <code>app.zkaml.url</code> at a running zkAML instance to gate deposits and withdrawals.</li>
+      <li>PoL wiring: point <code>app.pol.url</code> at a running pol-snapshot-server so <code>/v3/pol/inclusion-proof</code> can return per-user balance proofs.</li>
+    </ol>
+    <p class="meta">See <code>docs/exchange-e2e.md</code> in the repo for the full operator runbook.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <p>© zkCEX. Backend stack for compliance-friendly digital asset exchanges.</p>
+  </div>
+</footer>
+
+</body>
+</html>

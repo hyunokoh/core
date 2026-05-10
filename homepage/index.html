@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>zkCEX — 검증 가능한 거래소 백엔드</title>
+<meta name="description" content="zkCEX는 Binance 호환 REST API, 실시간 매칭 엔진, 5분 주기 Proof-of-Liabilities, 통합 AML(zkAML)을 묶은 컴플라이언스 친화 거래소 백엔드입니다." />
+<meta property="og:title" content="zkCEX — Verifiable CEX Backend" />
+<meta property="og:description" content="Binance-compatible REST + Merkle-sum PoL + zkAML-driven decisions in one stack." />
+<link rel="canonical" href="/" />
+<link rel="alternate" hreflang="ko" href="/" />
+<link rel="alternate" hreflang="en" href="/en/" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/"><span class="mark"></span>zkCEX</a>
+    <nav class="nav">
+      <a href="#features">제품</a>
+      <a href="#stack">스택</a>
+      <a href="#integrations">통합</a>
+      <a href="#api">API</a>
+      <span class="lang-toggle">
+        <a class="active" href="/">KO</a>
+        <a href="/en/">EN</a>
+      </span>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="hero-inner">
+    <h1>검증 가능한 CEX 백엔드</h1>
+    <p class="tagline">Binance-compatible REST + 실시간 매칭 엔진 + 5분 주기 Proof-of-Liabilities + zkAML-driven 입출금 결정. 운영자가 감사하고, 사용자가 자신의 잔고를 직접 검증합니다.</p>
+    <div class="cta-row">
+      <a class="cta primary" href="#api">API 문서</a>
+      <a class="cta secondary" href="#integrations">통합 가이드</a>
+    </div>
+    <p class="meta">백엔드 API + 운영자 콘솔. 트레이딩 UI는 통합 파트너가 별도로 구축합니다.</p>
+  </div>
+</section>
+
+<section id="features" class="features">
+  <div class="section-inner">
+    <h2>제품 구성</h2>
+    <div class="feature-grid">
+      <article class="card">
+        <h3>Binance 호환 REST</h3>
+        <p><code>/v3/order</code>, <code>/v3/account</code>, <code>/v3/myTrades</code>, <code>/v3/depth</code>, <code>/v3/exchangeInfo</code>, <code>/v3/klines</code> 등 표준 API 표면. 기존 Binance 클라이언트(SDK/봇)를 그대로 연결할 수 있습니다.</p>
+      </article>
+      <article class="card">
+        <h3>실시간 매칭 엔진</h3>
+        <p>Kafka 기반 주문 스트림, GTC/IOC/FOK, MARKET 주문, 가격/시간 우선순위, self-trade prevention(LIMIT/MARKET 양방향)이 e2e로 검증되어 있습니다.</p>
+      </article>
+      <article class="card">
+        <h3>Proof-of-Liabilities (5분 epoch)</h3>
+        <p>per-user nonce + Merkle-sum tree로 사용자가 자신의 잔고가 거래소 총 부채에 포함되어 있음을 직접 검증합니다. <code>/v3/pol/inclusion-proof</code>로 노출.</p>
+      </article>
+      <article class="card">
+        <h3>통합 AML (zkAML)</h3>
+        <p>입금/출금마다 zkAML이 ALLOW/REVIEW/BLOCK 결정을 반환. 모든 결정은 audit log에 기록되며, zkAML 미가용 시 fail-closed로 REVIEW 큐에 보관됩니다.</p>
+      </article>
+      <article class="card">
+        <h3>지갑 + bc-gateway</h3>
+        <p>다중 체인 입출금, 주소 발급, transferRef 중복 거부, withdraw 상태 머신(<code>CREATED → PROCESSING → DONE/REJECTED/CANCELED</code>)이 단위·통합 테스트로 보장됩니다.</p>
+      </article>
+      <article class="card">
+        <h3>관측성</h3>
+        <p>Spring Actuator, Prometheus 메트릭, structured logging, Vault 기반 시크릿 관리. 25+ 분 짜리 e2e가 매 변경마다 correctness를 검증합니다.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="stack" class="how">
+  <div class="section-inner">
+    <h2>아키텍처 스택</h2>
+    <ol class="how-list">
+      <li><strong>API 계층</strong> — <code>api-binance-rest</code> (Kotlin/Spring WebFlux). 인증된 사용자에게 Binance-호환 endpoint 제공.</li>
+      <li><strong>Matching gateway + engine</strong> — Kafka로 주문/체결을 라우팅, market 별 분리된 engine shard 지원 (<code>matching-engine-duo</code>).</li>
+      <li><strong>Wallet + Accountant</strong> — 잔고/예약, 수수료, 트랜잭션 히스토리. PostgreSQL에 영속, 재시작 후 매칭 가능한 상태 유지가 e2e로 검증됨.</li>
+      <li><strong>bc-gateway</strong> — 외부 체인과 입출금 동기화. 모든 deposit이 ALLOW/REVIEW/BLOCK 감사 row로 기록됨.</li>
+      <li><strong>Market</strong> — 공개 주문서/최근 거래 projection. <code>/v3/depth</code>, <code>/v3/ticker/24h</code>, <code>/v3/klines</code> 출력.</li>
+      <li><strong>EventLog + zkPoL bridge</strong> — 잔고 변동을 Merkle-sum 스냅샷에 공급해 5분마다 PoL certificate 발행.</li>
+    </ol>
+  </div>
+</section>
+
+<section id="integrations" class="trust">
+  <div class="section-inner">
+    <h2>통합</h2>
+    <div class="trust-grid">
+      <article class="trust-card">
+        <h3>zkAML</h3>
+        <p>입출금 screening 전담. <code>ZKAML_ENABLED=true</code>로 활성화, 기본 fail-closed. 사용자별 audit row + per-source sanctions 신선도 모니터링.</p>
+      </article>
+      <article class="trust-card">
+        <h3>pol-snapshot-server</h3>
+        <p>Ed25519 서명 인증서 + Poseidon2/Keccak256 Merkle-sum tree. 사용자가 client SDK(<code>@pol-snapshot/client</code>)로 자신의 inclusion proof를 직접 검증.</p>
+      </article>
+      <article class="trust-card">
+        <h3>Keycloak / 사용자 관리</h3>
+        <p>가입, 이메일 인증, OTP, 세션, 비밀번호 재설정이 standard Keycloak gateway를 통해 처리됩니다.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="api" class="demo">
+  <div class="section-inner demo-inner">
+    <h2>시작하기</h2>
+    <p>운영자/통합 파트너용 백엔드 스택입니다. 사용자 트레이딩 UI는 별도 프론트엔드에서 이 API를 호출해 구성합니다.</p>
+    <ol class="demo-steps">
+      <li>저장소 clone: <code>git clone https://github.com/zkrypto-inc/zkCEX</code></li>
+      <li><code>core/</code>로 이동, <code>tools/e2e/run_exchange_e2e.sh --reset</code> 실행. 25+ 분 e2e가 전체 스택을 띄우고 모든 correctness 시나리오를 검증합니다.</li>
+      <li>API 베이스: <code>http://127.0.0.1:8094/v3/...</code> (Binance 호환). 인증은 <code>X-Opex-User</code> 헤더 + 표준 HMAC SHA256 (Binance 방식).</li>
+      <li>zkAML 통합: <code>app.zkaml.url</code>로 zkAML 인스턴스를 가리키면 입출금이 자동으로 screening됨.</li>
+      <li>PoL: <code>app.pol.url</code>로 pol-snapshot-server를 가리키면 <code>/v3/pol/inclusion-proof</code>가 사용자별 잔고 증명을 반환.</li>
+    </ol>
+    <p class="meta">상세 운영 가이드는 저장소의 <code>docs/exchange-e2e.md</code>를 참고하세요.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <p>© zkCEX. Backend stack for compliance-friendly digital asset exchanges.</p>
+  </div>
+</footer>
+
+</body>
+</html>
