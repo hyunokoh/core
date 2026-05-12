@@ -81,7 +81,7 @@ public GET that returns 200 when the process is up.
 - PID-1: `python3` itself (no tini — distroless has no shell to spawn one).
 - `PYTHONUNBUFFERED=1`, `PYTHONDONTWRITEBYTECODE=1`,
   `PYTHONPATH=/app/site-packages:/app/tools`, `HOME=/home/nonroot`.
-- One pip dependency total: `pg8000==1.31.2`, installed into
+- One pip dependency total: `pg8000==1.31.5`, installed into
   `/app/site-packages` by the base image builder stage. Only the `auth`
   service actually imports it.
 - Each service image is ~96 MB (distroless python3 itself is 92.4 MB; service

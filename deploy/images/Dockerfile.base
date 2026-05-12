@@ -29,7 +29,7 @@ WORKDIR /build
 # pg8000 is the ONLY pip dependency in the entire fleet. It is pure-Python
 # (~500 KB installed) so we ship it in every image to keep base/service layers
 # uniform; only the auth service actually imports it.
-RUN pip install --no-cache-dir --target /build/site-packages pg8000==1.31.2
+RUN pip install --no-cache-dir --target /build/site-packages pg8000==1.31.5
 
 # Copy source so we can pre-bytecode-compile to speed runtime imports.
 # Compile with Python 3.11 to match the distroless runtime — otherwise .pyc
