@@ -450,7 +450,7 @@ package_apps() {
   fi
 
   "$mvn_bin" \
-    -pl wallet/wallet-app,accountant/accountant-app,matching-engine/matching-engine-app,matching-gateway/matching-gateway-app,market/market-app,eventlog/eventlog-app,api/api-app \
+    -pl wallet/wallet-app,accountant/accountant-app,matching-engine/matching-engine-app,matching-gateway/matching-gateway-app,market/market-app,eventlog/eventlog-app,api/api-app,user-management/keycloak-gateway,bc-gateway/bc-gateway-app \
     -am \
     package \
     -Dmaven.test.skip=true
