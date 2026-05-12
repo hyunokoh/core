@@ -19,7 +19,7 @@ import co.nilin.opex.accountant.ports.kafka.listener.consumer.OrderKafkaListener
 import co.nilin.opex.accountant.ports.kafka.listener.consumer.TempEventKafkaListener
 import co.nilin.opex.accountant.ports.kafka.listener.consumer.TradeKafkaListener
 import co.nilin.opex.accountant.ports.kafka.listener.spi.FAResponseListener
-import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.SmartInitializingSingleton
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.scheduling.TaskScheduler
@@ -135,35 +135,41 @@ class AppConfig {
         return AccountantFAResponseEventListener(financialActionPersister)
     }
 
-    @Autowired
-    fun configureOrderListener(orderKafkaListener: OrderKafkaListener, orderListener: OrderListener) {
-        orderKafkaListener.addListener(orderListener)
+    @Bean
+    fun orderListenerRegistration(
+        orderKafkaListener: OrderKafkaListener,
+        orderListener: OrderListener
+    ): SmartInitializingSingleton {
+        return SmartInitializingSingleton { orderKafkaListener.addListener(orderListener) }
     }
 
-    @Autowired
-    fun configureTradeListener(
+    @Bean
+    fun tradeListenerRegistration(
         tradeKafkaListener: TradeKafkaListener,
         accountantTradeListener: AccountantTradeListener
-    ) {
-        tradeKafkaListener.addListener(accountantTradeListener)
+    ): SmartInitializingSingleton {
+        return SmartInitializingSingleton { tradeKafkaListener.addListener(accountantTradeListener) }
     }
 
-    @Autowired
-    fun configureEventListener(
+    @Bean
+    fun eventListenerRegistration(
         eventKafkaListener: EventKafkaListener,
         accountantEventListener: AccountantEventListener,
         kycLevelUpdatedKafkaListener: KycLevelUpdatedKafkaListener,
         kycLevelUpdatedEventListener: KycLevelUpdatedListener
-    ) {
-        eventKafkaListener.addListener(accountantEventListener)
-        kycLevelUpdatedKafkaListener.addEventListener(kycLevelUpdatedEventListener)
+    ): SmartInitializingSingleton {
+        return SmartInitializingSingleton {
+            eventKafkaListener.addListener(accountantEventListener)
+            kycLevelUpdatedKafkaListener.addEventListener(kycLevelUpdatedEventListener)
+        }
     }
 
-    @Autowired
-    fun configureTempEventListener(
+    @Bean
+    fun tempEventListenerRegistration(
         tempEventKafkaListener: TempEventKafkaListener,
-        accountantTempEventListener: AccountantTempEventListener) {
-        tempEventKafkaListener.addListener(accountantTempEventListener)
+        accountantTempEventListener: AccountantTempEventListener
+    ): SmartInitializingSingleton {
+        return SmartInitializingSingleton { tempEventKafkaListener.addListener(accountantTempEventListener) }
     }
 
 }
