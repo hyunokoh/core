@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>고객 자산 보호 펀드 / Customer Asset Protection Fund — zkCEX</title>
+  <meta name="description" content="zkCEX의 SAFU 자체 보험 펀드. 모든 거래 수수료의 10%가 자동으로 적립되어 보안 사고, 시스템 오류, 청산 cascade로부터 사용자 자산을 보호합니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    body.safu { background: #07090f; }
+    .safu-shell {
+      max-width: 1180px; margin: 0 auto; padding: 8px 28px 80px;
+      display: flex; flex-direction: column; gap: 22px;
+    }
+
+    /* --- Hero ---------------------------------------------------- */
+    .safu-hero {
+      padding: 34px 38px 32px; border-radius: var(--radius-lg);
+      background:
+        radial-gradient(1100px 380px at 100% 0%, rgba(46,229,155,0.10), transparent 60%),
+        radial-gradient(800px 320px at 0% 100%, rgba(11,58,255,0.10), transparent 60%),
+        linear-gradient(180deg, rgba(11,58,255,0.05), rgba(11,58,255,0.01));
+      border: 1px solid var(--line-strong);
+      position: relative; overflow: hidden;
+    }
+    .safu-hero .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: #9aa3b3; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      font-weight: 600;
+    }
+    .safu-hero .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #2ee59b;
+      box-shadow: 0 0 0 4px rgba(46,229,155,0.18);
+      animation: safu-pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes safu-pulse {
+      0%, 100% { box-shadow: 0 0 0 4px rgba(46,229,155,0.18); }
+      50%      { box-shadow: 0 0 0 8px rgba(46,229,155,0.06); }
+    }
+    .safu-hero h1 {
+      margin: 12px 0 6px; font-size: 30px; font-weight: 800; letter-spacing: -0.02em;
+      color: #fff; line-height: 1.14;
+    }
+    .safu-hero h1 .en { display: block; color: var(--ink-mute); font-weight: 500; font-size: 15px; margin-top: 4px; }
+    .safu-hero .lede { color: var(--ink-mute); font-size: 14px; max-width: 760px; margin: 0 0 22px; line-height: 1.55; }
+    .safu-hero .lede .en { color: var(--ink-dim); font-size: 12px; display: block; margin-top: 4px; }
+
+    .safu-mega {
+      display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .safu-mega .num {
+      font-family: var(--font-mono); font-size: 56px; font-weight: 700;
+      color: #fff; letter-spacing: -0.025em; line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .safu-mega .num .frac { color: var(--ink-mute); font-size: 28px; font-weight: 500; }
+    .safu-mega .unit { color: var(--ink-mute); font-family: var(--font-mono); font-size: 16px; }
+    .safu-mega .stale {
+      color: #f0b429; font-size: 11px; font-family: var(--font-mono);
+      padding: 2px 8px; border-radius: 99px; background: rgba(240,180,41,0.10);
+      border: 1px solid rgba(240,180,41,0.32); display: none;
+    }
+    .safu-hero .breakdown-tease {
+      margin-top: 14px;
+      color: var(--ink-dim); font-size: 12px; font-family: var(--font-mono);
+      cursor: pointer; user-select: none;
+    }
+    .safu-hero .breakdown-tease:hover { color: var(--ink-mute); }
+    .safu-hero .breakdown-panel {
+      margin-top: 12px;
+      padding: 12px 14px; border-radius: var(--radius-sm);
+      background: rgba(7,9,15,0.6); border: 1px solid var(--line);
+      display: none; flex-direction: column; gap: 6px;
+      font-family: var(--font-mono); font-size: 12px; color: var(--ink-mute);
+    }
+    .safu-hero .breakdown-panel.open { display: flex; }
+    .safu-hero .breakdown-panel .row {
+      display: flex; justify-content: space-between; gap: 14px;
+    }
+    .safu-hero .breakdown-panel .row .a { color: #fff; }
+
+    /* --- 30-day stats row ---------------------------------------- */
+    .safu-stats {
+      display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px;
+    }
+    .safu-stat-card {
+      padding: 22px 24px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .safu-stat-card .ko {
+      font-size: 12px; letter-spacing: 0.04em; color: var(--ink-mute); text-transform: uppercase;
+      font-weight: 600;
+    }
+    .safu-stat-card .en { color: var(--ink-dim); font-size: 11px; margin-top: -3px; }
+    .safu-stat-card .big {
+      font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: #fff;
+      letter-spacing: -0.01em; line-height: 1.1; margin-top: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .safu-stat-card .big.pos { color: #2ee59b; }
+    .safu-stat-card .sub { color: var(--ink-mute); font-family: var(--font-mono); font-size: 12px; }
+
+    /* --- Sections (asset table, incidents, verification, faq) ---- */
+    .safu-section {
+      padding: 22px 26px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+    }
+    .safu-section h2 {
+      margin: 0 0 12px; font-size: 16px; font-weight: 700; color: #fff;
+      letter-spacing: -0.005em;
+    }
+    .safu-section h2 .en { color: var(--ink-dim); font-weight: 500; font-size: 13px; margin-left: 8px; }
+
+    /* --- Asset table --------------------------------------------- */
+    .safu-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .safu-table th {
+      text-align: left; color: var(--ink-mute); font-weight: 500; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 10px 12px; border-bottom: 1px solid var(--line);
+    }
+    .safu-table th.r { text-align: right; }
+    .safu-table td {
+      padding: 14px 12px; border-bottom: 1px solid var(--line);
+      color: var(--ink); font-family: var(--font-mono); vertical-align: top;
+    }
+    .safu-table tr:last-child td { border-bottom: none; }
+    .safu-table td.r { text-align: right; }
+    .safu-table .asset-name { color: #fff; font-weight: 700; font-family: var(--font-sans); }
+    .safu-table .balance-cell .big { color: #fff; font-size: 14px; font-weight: 600; }
+    .safu-table .balance-cell .sub { color: var(--ink-mute); font-size: 11px; margin-top: 2px; }
+    .safu-table .mini-bar {
+      display: inline-block; width: 110px; height: 6px;
+      border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden;
+      vertical-align: middle; margin-left: 6px;
+    }
+    .safu-table .mini-bar > span {
+      display: block; height: 100%; background: #2ee59b; border-radius: 3px;
+    }
+    .safu-table .mini-bar.out > span { background: #ff6b85; }
+
+    /* --- Incidents ----------------------------------------------- */
+    .incident-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .incident-table th {
+      text-align: left; color: var(--ink-mute); font-weight: 500; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 10px 12px; border-bottom: 1px solid var(--line);
+    }
+    .incident-table td {
+      padding: 12px; border-bottom: 1px solid var(--line);
+      color: var(--ink); font-family: var(--font-mono); font-size: 12px;
+    }
+    .incident-table tr:last-child td { border-bottom: none; }
+    .badge {
+      display: inline-flex; padding: 2px 9px; border-radius: 99px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; font-family: var(--font-sans);
+    }
+    .badge.cat-security-breach     { background: rgba(255,77,99,0.12); color: #ff6b85; border:1px solid rgba(255,77,99,0.32); }
+    .badge.cat-liquidation-cascade { background: rgba(240,180,41,0.12); color: #f0b429; border:1px solid rgba(240,180,41,0.32); }
+    .badge.cat-system-error        { background: rgba(11,58,255,0.14); color: #6c8cff; border:1px solid rgba(11,58,255,0.42); }
+    .badge.cat-goodwill            { background: rgba(46,229,155,0.10); color: #2ee59b; border:1px solid rgba(46,229,155,0.32); }
+    .badge.s-open      { background: rgba(240,180,41,0.12); color: #f0b429; border:1px solid rgba(240,180,41,0.32); animation: safu-amber 1.8s ease-in-out infinite; }
+    .badge.s-resolved  { background: rgba(46,229,155,0.10); color: #2ee59b; border:1px solid rgba(46,229,155,0.32); }
+    .badge.s-rejected  { background: var(--panel-3); color: var(--ink-dim); border:1px solid var(--line); }
+    @keyframes safu-amber { 0%,100% { box-shadow: 0 0 0 0 rgba(240,180,41,0); } 50% { box-shadow: 0 0 0 5px rgba(240,180,41,0.10); } }
+    .empty-incidents {
+      padding: 20px; text-align: center; color: var(--ink-mute);
+      font-size: 13px;
+    }
+    .empty-incidents .en { color: var(--ink-dim); font-size: 12px; display:block; margin-top: 4px; }
+
+    /* --- Verification panel -------------------------------------- */
+    .verify-row {
+      display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px;
+      font-family: var(--font-mono); font-size: 12px; align-items: center;
+      margin-bottom: 14px;
+    }
+    .verify-row .k { color: var(--ink-mute); font-family: var(--font-sans); }
+    .verify-row .v { color: var(--ink); display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .verify-row .v .mono-trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .verify-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .verify-pre {
+      background: #0a0d14; border: 1px solid var(--line); border-radius: var(--radius-sm);
+      padding: 12px 14px; margin: 12px 0 0;
+      font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
+      color: #d6dae3; white-space: pre; overflow-x: auto; max-height: 360px; overflow-y: auto;
+    }
+    .copy-btn {
+      flex-shrink: 0;
+      background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-mute);
+      border-radius: 4px; font-size: 10px; padding: 2px 6px; cursor: pointer; font-family: var(--font-mono);
+    }
+    .copy-btn:hover { color: #fff; border-color: var(--line-strong); }
+    .copy-btn.ok { color: #2ee59b; border-color: rgba(0,184,124,0.32); }
+    .pill-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: var(--pill);
+      background: var(--panel-2); border: 1px solid var(--line);
+      color: var(--ink); font-size: 12px; text-decoration: none; font-family: var(--font-sans);
+    }
+    .pill-link:hover { color: #fff; border-color: var(--line-strong); }
+
+    /* --- How it works + FAQ -------------------------------------- */
+    .safu-disclosure details, .safu-faq details {
+      padding: 14px 18px; border-radius: var(--radius-sm);
+      background: var(--panel-2); border: 1px solid var(--line);
+      margin-bottom: 8px;
+    }
+    .safu-disclosure details summary, .safu-faq details summary {
+      cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 14px;
+    }
+    .safu-disclosure details summary .en, .safu-faq details summary .en { color: var(--ink-dim); font-weight: 400; margin-left: 6px; font-size: 12px; }
+    .safu-disclosure details[open] summary, .safu-faq details[open] summary { margin-bottom: 10px; }
+    .safu-disclosure .body, .safu-faq .body { color: var(--ink-mute); font-size: 13px; line-height: 1.65; }
+    .safu-disclosure ul { padding-left: 18px; margin: 6px 0 12px; }
+    .safu-disclosure li { margin: 4px 0; }
+    .safu-disclosure .disclaimer {
+      margin-top: 10px; padding: 10px 12px;
+      border-left: 3px solid rgba(255,77,99,0.55);
+      background: rgba(255,77,99,0.05);
+      color: var(--ink-mute); font-size: 12px; line-height: 1.5;
+      border-radius: 0 4px 4px 0;
+    }
+
+    /* Skeleton placeholders */
+    .skel {
+      background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.04) 100%);
+      background-size: 200% 100%; animation: safu-skel 1.4s ease-in-out infinite;
+      border-radius: 4px; display: inline-block;
+    }
+    @keyframes safu-skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+    @media (max-width: 760px) {
+      .safu-shell { padding: 8px 16px 64px; }
+      .safu-hero  { padding: 24px; }
+      .safu-mega .num { font-size: 40px; }
+      .safu-mega .num .frac { font-size: 22px; }
+      .safu-stats { grid-template-columns: 1fr; }
+      .safu-section { padding: 18px; }
+      .safu-table th, .safu-table td { padding: 10px 8px; font-size: 12px; }
+      .safu-table .mini-bar { width: 70px; }
+      .incident-table th, .incident-table td { padding: 8px; font-size: 11px; }
+    }
+  </style>
+</head>
+<body class="safu">
+
+<div id="app-header"></div>
+
+<main class="safu-shell" id="safu-shell">
+
+  <!-- ============== Section 1 — Hero ============== -->
+  <section class="safu-hero">
+    <span class="eyebrow"><span class="dot"></span> 자산 보호 / Asset Protection</span>
+    <h1>
+      고객 자산 보호 펀드 (SAFU)
+      <span class="en">Customer Asset Protection Fund</span>
+    </h1>
+    <p class="lede">
+      모든 거래 수수료의 10%가 자동으로 적립되어, 보안 사고·시스템 오류·청산 cascade로부터
+      사용자의 자산을 보전하는 자체 보험 펀드입니다. 잔액은 매 분 서명된 증명으로 공개되어
+      누구나 검증할 수 있습니다.
+      <span class="en">10% of every trading fee is automatically routed to a self-insurance fund that backstops users against security incidents, system errors and liquidation cascades. The balance is published every minute with an Ed25519-signed attestation that anyone can verify.</span>
+    </p>
+    <div class="safu-mega">
+      <div class="num" id="hero-num"><span class="skel" style="width:280px;height:0.9em;"></span></div>
+      <div class="unit">USDT</div>
+      <div class="stale" id="hero-stale">데이터가 오래되었습니다 / data stale</div>
+    </div>
+    <div class="breakdown-tease" id="breakdown-tease">
+      ▸ 자산별 내역 보기 / Show per-asset breakdown
+    </div>
+    <div class="breakdown-panel" id="breakdown-panel"></div>
+  </section>
+
+  <!-- ============== Section 2 — 30-day stats row ============== -->
+  <section class="safu-stats">
+    <div class="safu-stat-card">
+      <div class="ko">이번 달 적립</div>
+      <div class="en">This month's inflow (30d)</div>
+      <div class="big pos" id="stat-inflow"><span class="skel" style="width:120px;height:1em;"></span></div>
+      <div class="sub" id="stat-inflow-sub">USDT 환산 / In USDT terms</div>
+    </div>
+    <div class="safu-stat-card">
+      <div class="ko">이번 달 지급</div>
+      <div class="en">This month's payout (30d)</div>
+      <div class="big" id="stat-payout"><span class="skel" style="width:120px;height:1em;"></span></div>
+      <div class="sub" id="stat-payout-sub">사용자 손실 보전 / Paid to affected users</div>
+    </div>
+    <div class="safu-stat-card">
+      <div class="ko">누적 잔액</div>
+      <div class="en">Cumulative balance</div>
+      <div class="big" id="stat-balance"><span class="skel" style="width:120px;height:1em;"></span></div>
+      <div class="sub" id="stat-balance-sub">총 적립 / 총 지급 비율 — / Payout-to-inflow ratio</div>
+    </div>
+  </section>
+
+  <!-- ============== Section 3 — Per-asset breakdown ============== -->
+  <section class="safu-section">
+    <h2>자산별 잔액<span class="en">Per-asset breakdown</span></h2>
+    <table class="safu-table" id="asset-table">
+      <thead>
+        <tr>
+          <th>자산 / Asset</th>
+          <th class="r">잔액 / Balance</th>
+          <th class="r">USDT 환산 / Value</th>
+          <th class="r">총 적립 / Inflow</th>
+          <th class="r">총 지급 / Payout</th>
+        </tr>
+      </thead>
+      <tbody id="asset-tbody">
+        <tr><td colspan="5" style="color:var(--ink-mute); text-align:center; padding:24px;">
+          불러오는 중… / Loading…
+        </td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============== Section 4 — Recent incidents ============== -->
+  <section class="safu-section">
+    <h2>최근 사건 / Recent incidents</h2>
+    <div id="incidents-host">
+      <div class="empty-incidents">불러오는 중… / Loading…</div>
+    </div>
+  </section>
+
+  <!-- ============== Section 5 — Verification panel ============== -->
+  <section class="safu-section">
+    <h2>검증 / Verification</h2>
+    <p style="color:var(--ink-mute);font-size:13px;line-height:1.55;margin:0 0 16px;">
+      SAFU 잔액 attestation은 Ed25519 서명되어 있으며, 동일한 키가 PoL (Proof-of-Liabilities) 루트도 서명합니다.
+      외부 검증자는 단일 공개키만으로 두 가지 증명을 모두 확인할 수 있습니다.
+      <span style="display:block;color:var(--ink-dim);font-size:12px;margin-top:4px;">
+        The SAFU attestation is Ed25519-signed with the same custodian key that signs PoL roots.
+        An external verifier only has to trust one pubkey to audit both balances and liabilities.
+      </span>
+    </p>
+    <div class="verify-row">
+      <span class="k">서명 / Signature</span>
+      <span class="v"><span class="mono-trunc" id="vf-sig">—</span>
+        <button class="copy-btn" data-copy-target="vf-sig" type="button">복사</button></span>
+      <span class="k">공개키 / Public key</span>
+      <span class="v"><span class="mono-trunc" id="vf-pub">—</span>
+        <button class="copy-btn" data-copy-target="vf-pub" type="button">복사</button></span>
+      <span class="k">서명 스키마 / Scheme</span>
+      <span class="v"><span id="vf-scheme">—</span></span>
+      <span class="k">스냅샷 시각 / Snapshot at</span>
+      <span class="v"><span id="vf-ts">—</span></span>
+      <span class="k">PoL 키와 동일? / Shared with PoL?</span>
+      <span class="v"><span id="vf-shared">—</span></span>
+    </div>
+    <div class="verify-actions">
+      <a class="pill-link" href="/safu/attestation" target="_blank" rel="noopener">
+        ↓ attestation JSON 다운로드 / Download
+      </a>
+      <a class="pill-link" href="/safu/server-info" target="_blank" rel="noopener">
+        🔑 서명 키 정보 / Signing key info
+      </a>
+      <a class="pill-link" href="proof-of-reserves.html">
+        → PoL 페이지 / Proof-of-Reserves
+      </a>
+    </div>
+    <details style="margin-top:14px;">
+      <summary>
+        외부 검증용 Python 스니펫
+        <span class="en">/ External verifier (Python, stdlib-only)</span>
+      </summary>
+      <pre class="verify-pre" id="snippet-py"># SAFU attestation verifier — copy &amp; run, no pip deps required.
+# python3 verify_safu.py
+import hashlib, json, urllib.request
+
+# Pure-Python Ed25519 (RFC 8032 ref impl) lives in tools/pol_server.py + safu_server.py.
+# We assume it's available; if you only need to verify, lift those ~80 lines.
+from safu_server import ed25519_verify  # ed25519_verify(pk: bytes, msg: bytes, sig: bytes) -> bool
+
+URL = "https://api.zkcex.io/safu/attestation"  # or http://localhost:5500/safu/attestation in dev
+data = json.load(urllib.request.urlopen(URL))
+
+# Rebuild the canonical signed message — sort by_asset by 'asset', fold per-asset balances.
+h = hashlib.sha256()
+for a in sorted(data["by_asset"], key=lambda x: x["asset"]):
+    h.update(f"{a['asset']}|{a['balance']}|{a['total_inflow']}|{a['total_payout']}\n".encode("utf-8"))
+by_asset_hash = h.hexdigest()
+t = data["totals"]
+msg = (f"{data['scheme']}|{data['snapshot_at']}|{t['total_balance_usdt']}|"
+       f"{t['total_inflow_usdt']}|{t['total_payout_usdt']}|{by_asset_hash}").encode("utf-8")
+
+ok = ed25519_verify(bytes.fromhex(data["server_pubkey"]), msg, bytes.fromhex(data["signature"]))
+print("SAFU attestation valid:", ok)
+print("Total balance:        ", t["total_balance_usdt"], "USDT")
+print("Open incidents:       ", t["n_incidents_open"])
+</pre>
+    </details>
+  </section>
+
+  <!-- ============== Section 6 — How it works (collapsed) ============== -->
+  <section class="safu-section safu-disclosure">
+    <h2>작동 원리 / How it works</h2>
+    <details>
+      <summary>SAFU 펀드 운영 방식 <span class="en">/ How the fund operates</span></summary>
+      <div class="body">
+        <ul>
+          <li>현물·선물 모든 거래에서 발생한 수수료의 <strong>10%</strong>가 자동으로 적립됩니다 / 10% of every spot and perpetual-futures fee is auto-routed into the fund.</li>
+          <li>청산 cascade로 인한 잉여 마진의 일부도 함께 적립됩니다 / A slice of the surplus margin from liquidations also flows in.</li>
+          <li>보안 사고, 시스템 오류, 청산 cascade가 발생하면 사용자 손실을 보전합니다 / Pays out to affected users in security breaches, system errors, or liquidation cascades.</li>
+          <li>독립적인 ZK 증명으로 잔액을 누구나 검증할 수 있습니다 / Anyone can verify the balance via the signed attestation (Ed25519) above.</li>
+        </ul>
+        <div class="disclaimer">
+          <strong>고지 / Disclaimer.</strong>
+          본 펀드는 자체 보험(self-insurance) 형태로 운영되며 정부 보증 또는 규제 보험 상품이 아닙니다.
+          지급 의무가 법적으로 보장되지 않으며, 펀드 잔액 한도 내에서 거래소의 재량으로 집행됩니다.
+          <span style="display:block;margin-top:4px;color:var(--ink-dim);font-size:11px;">
+            This is a self-insurance fund operated by the exchange. It is NOT a regulator-approved
+            or government-backed insurance product. Payouts are discretionary and capped at the
+            fund's available balance.
+          </span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ============== Section 7 — FAQ ============== -->
+  <section class="safu-section safu-faq">
+    <h2>자주 묻는 질문 / FAQ</h2>
+    <details>
+      <summary>SAFU 펀드는 어떻게 사용되나요?
+        <span class="en">/ When does the fund actually pay out?</span></summary>
+      <div class="body">
+        보안 침해(키 유출, 스마트 컨트랙트 취약점), 거래소 측 시스템 오류(매칭 엔진 버그 등),
+        그리고 perp 청산이 cascade로 발전해 기존 insurance fund가 부족해진 경우에 사용됩니다.
+        모든 지급은 incident_id 단위로 추적되어 본 페이지에서 공개됩니다.
+        <span style="display:block;margin-top:6px;color:var(--ink-dim);font-size:12px;">
+          Payouts cover security breaches (key compromise, contract exploits), our own system errors
+          (matching-engine bugs, accounting glitches), and liquidation cascades that overwhelm the
+          perp engine's own insurance bucket. Every payout is grouped under an incident_id, published
+          on this page.
+        </span>
+      </div>
+    </details>
+    <details>
+      <summary>누가 관리하나요?
+        <span class="en">/ Who controls the fund?</span></summary>
+      <div class="body">
+        펀드 잔액은 별도의 콜드 월렛에 보관되며(데모에서는 회계 장부로 운영),
+        지급은 거래소 보안팀의 다중 서명 승인을 필요로 합니다. 모든 지급 결정은
+        본 페이지의 "최근 사건" 섹션에 공개됩니다.
+        <span style="display:block;margin-top:6px;color:var(--ink-dim);font-size:12px;">
+          The fund is held in a cold-stored wallet separate from the operational treasury. In this
+          demo deployment it's accounted for in a dedicated ledger; in production the wallet would
+          require multi-sig approval from the exchange security team for any debit. Every approval
+          decision is published in the "Recent incidents" section above.
+        </span>
+      </div>
+    </details>
+    <details>
+      <summary>잔액을 어떻게 검증하나요?
+        <span class="en">/ How do I verify the balance?</span></summary>
+      <div class="body">
+        위의 "검증" 섹션에서 attestation JSON을 다운받아 Ed25519 서명을 직접 확인하세요.
+        동일한 공개키가 PoL(Proof-of-Liabilities) 루트도 서명하므로,
+        키 하나만 신뢰하면 거래소의 부채 + SAFU 잔액을 모두 검증할 수 있습니다.
+        <span style="display:block;margin-top:6px;color:var(--ink-dim);font-size:12px;">
+          Download the attestation from the Verification panel and run an Ed25519 verify against the
+          published pubkey. The same key signs PoL roots, so you only need one trust anchor to audit
+          both customer liabilities and the SAFU balance.
+        </span>
+      </div>
+    </details>
+    <details>
+      <summary>지급 한도가 있나요?
+        <span class="en">/ Is there a payout cap?</span></summary>
+      <div class="body">
+        펀드 잔액 자체가 한도입니다. 잔액이 0이 되면 추가 지급이 불가합니다.
+        펀드는 매 거래 수수료의 10%로 지속 적립되므로, 거래량이 늘수록 한도도 함께 증가합니다.
+        <span style="display:block;margin-top:6px;color:var(--ink-dim);font-size:12px;">
+          The cap is the fund balance itself. Once depleted, no further payouts can be made until
+          new inflows accrue. Because 10% of every fee accrues continuously, the cap grows with
+          trading volume.
+        </span>
+      </div>
+    </details>
+    <details>
+      <summary>다른 거래소의 보호 펀드와 무엇이 다른가요?
+        <span class="en">/ How is this different from other exchanges' funds?</span></summary>
+      <div class="body">
+        대부분의 거래소 보호 펀드는 내부 회계 수치로만 공개됩니다. zkCEX SAFU는 모든 inflow가
+        on-ledger로 기록되고, 매 분 Ed25519 서명된 attestation으로 공개되며, 동일한 키가
+        부채 증명(PoL)을 서명하므로 잔액과 부채를 함께 검증할 수 있습니다.
+        <span style="display:block;margin-top:6px;color:var(--ink-dim);font-size:12px;">
+          Most exchanges publish their protection fund as an internal accounting number. zkCEX SAFU
+          publishes every inflow on a public ledger, mints a fresh signed attestation every minute,
+          and uses the same custodian key as Proof-of-Liabilities — so a single key fully audits
+          both balance and liability.
+        </span>
+      </div>
+    </details>
+  </section>
+
+</main>
+
+<script type="module">
+  import { renderHeader, renderFooter, escapeHtml, toast } from "./app.js";
+
+  renderHeader("transparency");
+  renderFooter();
+
+  // ---------- helpers ----------
+  function fmtUsdt(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(n);
+  }
+  function fmtUnits(v, asset) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    let dp = 4;
+    if (asset === "USDT" || asset === "BUSD" || asset === "IRT" || asset === "USDC") dp = 4;
+    if (asset === "ETH" || asset === "BTC") dp = 6;
+    if (asset === "DOGE" || asset === "SHIB") dp = 2;
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: dp }).format(n);
+  }
+  function fmtTs(ms) {
+    if (!ms) return "—";
+    try { return new Date(ms).toLocaleString(); } catch (_) { return "—"; }
+  }
+
+  // Split a big number into the integer.fraction halves so we can typeset
+  // the fractional part smaller in the hero number (Binance-y).
+  function fmtMegaUsdt(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return { int: "—", frac: "" };
+    const s = n.toFixed(4);
+    const [intPart, fracPart] = s.split(".");
+    const withCommas = Number(intPart).toLocaleString("en-US");
+    return { int: withCommas, frac: "." + fracPart };
+  }
+
+  async function fetchJson(url) {
+    const r = await fetch(url, { credentials: "same-origin" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+
+  function setText(id, txt) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  }
+
+  function copyHandler(e) {
+    const btn = e.target.closest(".copy-btn");
+    if (!btn) return;
+    const target = document.getElementById(btn.dataset.copyTarget);
+    if (!target) return;
+    const txt = target.textContent || "";
+    try {
+      navigator.clipboard.writeText(txt).then(() => {
+        btn.classList.add("ok");
+        btn.textContent = "✓";
+        setTimeout(() => { btn.classList.remove("ok"); btn.textContent = "복사"; }, 1400);
+      });
+    } catch (_) {}
+  }
+  document.addEventListener("click", copyHandler);
+
+  // Toggle hero per-asset breakdown.
+  document.getElementById("breakdown-tease").addEventListener("click", () => {
+    const panel = document.getElementById("breakdown-panel");
+    const tease = document.getElementById("breakdown-tease");
+    if (panel.classList.contains("open")) {
+      panel.classList.remove("open");
+      tease.textContent = "▸ 자산별 내역 보기 / Show per-asset breakdown";
+    } else {
+      panel.classList.add("open");
+      tease.textContent = "▾ 숨기기 / Hide";
+    }
+  });
+
+  function renderHeroBreakdown(by_asset) {
+    const panel = document.getElementById("breakdown-panel");
+    if (!by_asset || by_asset.length === 0) {
+      panel.innerHTML = `<div class="row"><span>(no assets)</span></div>`;
+      return;
+    }
+    panel.innerHTML = by_asset.map(a =>
+      `<div class="row"><span class="a">${escapeHtml(a.asset)}</span>` +
+      `<span>${fmtUnits(a.balance, a.asset)} ${escapeHtml(a.asset)}` +
+      (a.balance_usdt && a.balance_usdt !== "0"
+         ? ` <span style="color:var(--ink-dim);">≈ ${fmtUsdt(a.balance_usdt)} USDT</span>` : "") +
+      `</span></div>`
+    ).join("");
+  }
+
+  function renderAssetTable(by_asset) {
+    const tbody = document.getElementById("asset-tbody");
+    if (!by_asset || by_asset.length === 0) {
+      tbody.innerHTML =
+        `<tr><td colspan="5" style="text-align:center;color:var(--ink-mute);padding:24px;">아직 적립된 자산이 없습니다. / No accrued assets yet — try again in ~60s.</td></tr>`;
+      return;
+    }
+    const maxIn = by_asset.reduce((m, a) => Math.max(m, Number(a.total_inflow_usdt || a.total_inflow) || 0), 0) || 1;
+    const maxOut = by_asset.reduce((m, a) => Math.max(m, Number(a.total_payout_usdt || a.total_payout) || 0), 0) || 1;
+    tbody.innerHTML = by_asset.map(a => {
+      const inN = Number(a.total_inflow_usdt || a.total_inflow) || 0;
+      const outN = Number(a.total_payout_usdt || a.total_payout) || 0;
+      const inPct = Math.min(100, Math.round((inN / maxIn) * 100));
+      const outPct = Math.min(100, Math.round((outN / maxOut) * 100));
+      return `<tr>
+        <td><span class="asset-name">${escapeHtml(a.asset)}</span></td>
+        <td class="r balance-cell">
+          <div class="big">${fmtUnits(a.balance, a.asset)}</div>
+          ${a.balance_usdt ? `<div class="sub">≈ ${fmtUsdt(a.balance_usdt)} USDT</div>` : ""}
+        </td>
+        <td class="r">${a.balance_usdt ? fmtUsdt(a.balance_usdt) + " USDT" : "—"}</td>
+        <td class="r">
+          ${fmtUnits(a.total_inflow, a.asset)}
+          <span class="mini-bar"><span style="width:${inPct}%;"></span></span>
+        </td>
+        <td class="r">
+          ${fmtUnits(a.total_payout, a.asset)}
+          <span class="mini-bar out"><span style="width:${outPct}%;"></span></span>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function renderIncidents() {
+    const host = document.getElementById("incidents-host");
+    try {
+      const data = await fetchJson("/safu/incidents");
+      const rows = data.incidents || [];
+      if (rows.length === 0) {
+        host.innerHTML =
+          `<div class="empty-incidents">아직 사건이 없습니다. SAFU는 적립 중입니다.<span class="en">No incidents on record — the fund is in pure accrual mode.</span></div>`;
+        return;
+      }
+      host.innerHTML = `<table class="incident-table">
+        <thead><tr>
+          <th>제목 / Title</th><th>카테고리 / Category</th>
+          <th>지급액 / Payout (USDT)</th><th>영향 사용자 / Users</th>
+          <th>상태 / Status</th><th>해결 일자 / Resolved</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr>
+            <td>${escapeHtml(r.title || "")}
+              <div style="color:var(--ink-mute);font-size:11px;margin-top:3px;">${escapeHtml(r.incident_id || "")}</div>
+            </td>
+            <td><span class="badge cat-${escapeHtml(r.category)}">${escapeHtml(r.category || "")}</span></td>
+            <td>${fmtUsdt(r.total_payout_usdt || 0)}</td>
+            <td>${r.affected_user_count || 0}</td>
+            <td><span class="badge s-${escapeHtml(r.status || "open")}">${escapeHtml(r.status || "open")}</span></td>
+            <td>${r.closed_at ? fmtTs((r.closed_at) * 1000) : "—"}</td>
+          </tr>`).join("")}
+        </tbody></table>`;
+    } catch (e) {
+      host.innerHTML =
+        `<div class="empty-incidents">조회 실패: ${escapeHtml(String(e))} <span class="en">Could not load incidents</span></div>`;
+    }
+  }
+
+  async function renderSummary() {
+    try {
+      const data = await fetchJson("/safu/summary");
+      const m = fmtMegaUsdt(data.total_balance_usdt);
+      document.getElementById("hero-num").innerHTML =
+        `<span>${m.int}</span><span class="frac">${m.frac}</span>`;
+      const stale = Math.abs(Date.now() - Number(data.snapshot_at_ms || 0)) > 5 * 60 * 1000;
+      document.getElementById("hero-stale").style.display = stale ? "inline-block" : "none";
+      renderHeroBreakdown(data.by_asset);
+
+      setText("stat-inflow",  fmtUsdt(data.monthly_inflow_usdt) + " USDT");
+      setText("stat-payout",  fmtUsdt(data.monthly_payout_usdt) + " USDT");
+      setText("stat-balance", fmtUsdt(data.total_balance_usdt) + " USDT");
+      const ratio = Number(data.payout_to_inflow_ratio);
+      setText("stat-balance-sub",
+        Number.isFinite(ratio)
+          ? `총 적립 / 총 지급 비율 ${(ratio * 100).toFixed(2)}% / Payout-to-inflow ratio`
+          : "총 적립 / 총 지급 비율 — / Payout-to-inflow ratio");
+
+      renderAssetTable(data.by_asset);
+    } catch (e) {
+      document.getElementById("hero-num").textContent = "—";
+      toast && toast(`Failed to load SAFU summary: ${e}`, "error");
+    }
+  }
+
+  async function renderAttestation() {
+    try {
+      const data = await fetchJson("/safu/attestation");
+      setText("vf-sig", data.signature || "—");
+      setText("vf-pub", data.server_pubkey || "—");
+      setText("vf-scheme", `${data.sig_scheme || ""} · ${data.scheme || ""}`);
+      setText("vf-ts", fmtTs(data.snapshot_at));
+      setText("vf-shared", data.key_shared_with_pol ? "예 / Yes" : "별도 키 / Separate key");
+    } catch (e) {
+      setText("vf-sig", `error: ${e}`);
+    }
+  }
+
+  // Initial load + light polling.
+  renderSummary();
+  renderIncidents();
+  renderAttestation();
+  setInterval(renderSummary, 30_000);
+  setInterval(renderIncidents, 60_000);
+  setInterval(renderAttestation, 60_000);
+</script>
+
+</body>
+</html>

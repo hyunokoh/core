@@ -1,0 +1,66 @@
+name: e2e
+on:
+  pull_request:
+  workflow_run:
+    workflows: [deploy-staging]
+    types: [completed]
+
+jobs:
+  playwright:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: tools/tests/e2e/package-lock.json
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('tools/tests/e2e/package-lock.json') }}
+      - run: cd tools/tests/e2e && npm ci && npx playwright install --with-deps
+
+      - name: Start local static proxy for PR smoke
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 tools/serve_homepage.py 5500 > /tmp/zkcex-homepage.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:5500/ >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/zkcex-homepage.log
+          exit 1
+
+      - name: Run PR smoke E2E
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_URL: http://127.0.0.1:5500
+        run: cd tools/tests/e2e && npx playwright test tests/smoke --project=chromium
+
+      - name: Require staging base URL
+        if: github.event_name == 'workflow_run'
+        env:
+          BASE_URL: ${{ vars.STAGING_BASE_URL }}
+        run: |
+          test -n "$BASE_URL" || {
+            echo "Set repository variable STAGING_BASE_URL to run post-deploy Playwright E2E." >&2
+            exit 1
+          }
+
+      - name: Run staging E2E
+        if: github.event_name == 'workflow_run'
+        env:
+          BASE_URL: ${{ vars.STAGING_BASE_URL }}
+        run: cd tools/tests/e2e && npx playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: tools/tests/e2e/playwright-report/

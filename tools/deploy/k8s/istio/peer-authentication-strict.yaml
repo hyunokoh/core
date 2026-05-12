@@ -1,0 +1,22 @@
+# Cluster-wide strict mTLS.
+#
+# Applies in istio-system so that *every* namespace inherits STRICT unless it
+# explicitly opts out. The zkcex namespace also gets its own copy as belt-and-
+# suspenders: if someone deletes the mesh-wide policy, zkcex stays locked down.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: zkcex
+spec:
+  mtls:
+    mode: STRICT

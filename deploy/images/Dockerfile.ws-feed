@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=ws-feed
+
+COPY --chown=65532:65532 tools/ws_feed.py /app/tools/ws_feed.py
+
+ENV PORT=5510
+EXPOSE 5510
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5510", "/health"]
+CMD ["-u", "/app/tools/ws_feed.py", "5510"]

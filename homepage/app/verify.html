@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>잔고 검증 / Verify — zkCEX</title>
+  <meta name="description" content="zkCEX의 Proof-of-Liabilities로 본인의 잔고가 거래소 총 부채에 포함되어 있는지 직접 검증합니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    .pol-shell { max-width: 980px; margin: 0 auto; padding: 16px 24px 64px; display: flex; flex-direction: column; gap: 18px; }
+    .pol-status {
+      padding: 22px 26px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+      display: flex; align-items: center; gap: 18px;
+    }
+    .pol-status.ok   { border-color: rgba(0,184,124,0.32);  background: linear-gradient(180deg, rgba(0,184,124,0.07), rgba(0,184,124,0.02)); }
+    .pol-status.warn { border-color: rgba(240,180,41,0.36); background: linear-gradient(180deg, rgba(240,180,41,0.07), rgba(240,180,41,0.02)); }
+    .pol-status.err  { border-color: rgba(255,77,99,0.36);  background: linear-gradient(180deg, rgba(255,77,99,0.07), rgba(255,77,99,0.02)); }
+    .pol-status .icon {
+      width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--panel-2); color: var(--ink-mute); font-size: 20px;
+    }
+    .pol-status.ok   .icon { background: rgba(0,184,124,0.16);  color: #2ee59b; }
+    .pol-status.warn .icon { background: rgba(240,180,41,0.18); color: #f0b429; }
+    .pol-status.err  .icon { background: rgba(255,77,99,0.18);  color: #ff6b85; }
+    .pol-status .body { flex: 1; min-width: 0; }
+    .pol-status .body strong { display: block; color: #fff; font-size: 16px; }
+    .pol-status .body span { color: var(--ink-mute); font-size: 13px; }
+    .pol-status pre {
+      margin: 8px 0 0; padding: 8px 10px; background: var(--panel-3); border: 1px solid var(--line);
+      border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 11px;
+      color: var(--ink-mute); white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow: auto;
+    }
+    .pol-status .actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .spinner {
+      width: 18px; height: 18px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.18); border-top-color: #fff;
+      animation: pol-spin 0.8s linear infinite;
+    }
+    @keyframes pol-spin { to { transform: rotate(360deg); } }
+
+    .pol-section {
+      padding: 22px 26px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+    }
+    .pol-section h2, .pol-section h3 {
+      margin: 0 0 10px; font-size: 14px; color: #fff; letter-spacing: -0.01em;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      font-weight: 600;
+    }
+    .pol-section h2 .en, .pol-section h3 .en { color: var(--ink-dim); font-weight: 500; font-size: 12px; margin-left: 8px; }
+    .pol-section.collapsible h2, .pol-section.collapsible h3 { cursor: pointer; user-select: none; }
+    .pol-section.collapsible h2::after, .pol-section.collapsible h3::after {
+      content: "▾"; color: var(--ink-mute); font-size: 12px; transition: transform 150ms ease;
+    }
+    .pol-section.collapsible.collapsed h2::after, .pol-section.collapsible.collapsed h3::after { transform: rotate(-90deg); }
+    .pol-section.collapsible.collapsed .pol-section-body { display: none; }
+    .pol-section-body { display: flex; flex-direction: column; gap: 14px; }
+
+    .kv-grid { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: 8px 14px; font-size: 12px; }
+    .kv-grid .k { color: var(--ink-dim); font-family: var(--font-sans); }
+    .kv-grid .v { color: var(--ink); font-family: var(--font-mono); display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .kv-grid .v .mono-trunc { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .copy-btn {
+      flex-shrink: 0;
+      background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-mute);
+      border-radius: 4px; font-size: 10px; padding: 2px 6px; cursor: pointer; font-family: var(--font-mono);
+    }
+    .copy-btn:hover { color: #fff; border-color: var(--line-strong); }
+    .copy-btn.ok { color: #2ee59b; border-color: rgba(0,184,124,0.32); }
+
+    .pol-table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+    }
+    .pol-table th, .pol-table td {
+      padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line);
+    }
+    .pol-table th { color: var(--ink-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .pol-table td { color: var(--ink); font-family: var(--font-mono); }
+    .pol-table td.num { text-align: right; }
+    .pol-table tr:last-child td { border-bottom: none; }
+    .side-pill {
+      display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px;
+      font-family: var(--font-mono); background: var(--panel-2); border: 1px solid var(--line);
+    }
+    .side-pill.right { color: #88abff; border-color: rgba(136,171,255,0.32); }
+    .side-pill.left  { color: #ffb88c; border-color: rgba(255,184,140,0.32); }
+
+    .pol-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .code-block {
+      background: #0a0d14; border: 1px solid var(--line); border-radius: var(--radius-sm);
+      padding: 14px 16px; font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
+      color: #d6dae3; white-space: pre; overflow: auto; max-height: 460px;
+    }
+    .code-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+    .code-tab {
+      background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-mute);
+      padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12px; cursor: pointer;
+    }
+    .code-tab.active { color: #fff; background: var(--panel-3); border-color: var(--line-strong); }
+
+    .pol-trust {
+      padding: 14px 18px; border-radius: var(--radius-sm);
+      background: var(--panel-2); border: 1px solid var(--line);
+      display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 12px;
+    }
+    .pol-trust .lbl { color: var(--ink-dim); margin-right: 4px; }
+    .pol-trust a { color: var(--ink); text-decoration: none; border-bottom: 1px dashed var(--ink-mute); }
+    .pol-trust a:hover { color: #fff; border-bottom-color: #fff; }
+
+    /* --- Live mode toggle row --- */
+    .pol-live-row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+      padding: 14px 18px; border-radius: var(--radius);
+      background: var(--panel-2); border: 1px solid var(--line);
+    }
+    .pol-live-row .switch {
+      display: inline-flex; align-items: center; gap: 10px;
+      cursor: pointer; user-select: none;
+    }
+    .pol-live-row .switch input { display: none; }
+    .pol-live-row .switch .track {
+      width: 38px; height: 22px; border-radius: 22px;
+      background: #1a1f2c; border: 1px solid var(--line-strong);
+      position: relative; transition: background 180ms ease, border-color 180ms ease;
+    }
+    .pol-live-row .switch .track::after {
+      content: ""; position: absolute; top: 2px; left: 2px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #cdd2dc; transition: left 180ms ease, background 180ms ease;
+    }
+    .pol-live-row .switch input:checked + .track {
+      background: rgba(46,229,155,0.20); border-color: rgba(46,229,155,0.55);
+    }
+    .pol-live-row .switch input:checked + .track::after {
+      left: 18px; background: #2ee59b;
+    }
+    .pol-live-row .label-ko { color: #fff; font-weight: 600; }
+    .pol-live-row .label-en { color: var(--ink-dim); font-size: 12px; margin-left: 4px; }
+    .pol-live-row .explain { color: var(--ink-mute); font-size: 12px; flex: 1 1 320px; min-width: 220px; line-height: 1.5; }
+    .pol-live-row .live-status { font-family: var(--font-mono); font-size: 12px; color: var(--ink-mute); display: inline-flex; align-items: center; gap: 8px; }
+
+    .live-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: var(--pill);
+      font-family: var(--font-sans); font-size: 12px; font-weight: 600;
+    }
+    .live-pill .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      box-shadow: 0 0 0 4px rgba(46,229,155,0.0);
+    }
+    .live-pill.on  { background: rgba(46,229,155,0.16); color: #2ee59b; border: 1px solid rgba(46,229,155,0.42); }
+    .live-pill.on  .dot { background: #2ee59b; animation: live-pulse 1.6s ease-in-out infinite; }
+    .live-pill.warn{ background: rgba(240,180,41,0.14); color: #f0b429; border: 1px solid rgba(240,180,41,0.42); }
+    .live-pill.warn .dot { background: #f0b429; }
+    .live-pill.off { background: var(--panel-3); color: var(--ink-dim); border: 1px solid var(--line); }
+    .live-pill.off .dot { background: var(--ink-mute); }
+    @keyframes live-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(46,229,155,0.0); }
+      50%      { box-shadow: 0 0 0 6px rgba(46,229,155,0.10); }
+    }
+
+    /* Subtle flash when the proof updates from a live commit. */
+    @keyframes pol-flash {
+      0%   { background-color: rgba(46,229,155,0.18); }
+      100% { background-color: transparent; }
+    }
+    .pol-flash { animation: pol-flash 250ms ease-out; }
+
+    /* --- Real-time zkPoL upstream card --- */
+    .zkpol-card {
+      padding: 22px 26px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .zkpol-card .head {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    }
+    .zkpol-card h2, .zkpol-card h3 { margin: 0; font-size: 14px; color: #fff; letter-spacing: -0.01em; font-weight: 600; }
+    .zkpol-card h2 .en, .zkpol-card h3 .en { color: var(--ink-dim); font-weight: 500; font-size: 12px; margin-left: 8px; }
+    .zkpol-card .meta { color: var(--ink-mute); font-size: 11px; font-family: var(--font-mono); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .zkpol-card .auto-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    .zkpol-card .auto-toggle input { accent-color: #2ee59b; }
+    .zkpol-card .offline {
+      padding: 12px 14px; border-radius: var(--radius-sm);
+      background: rgba(240,180,41,0.07); border: 1px solid rgba(240,180,41,0.36);
+      color: #f0b429; font-size: 12px; line-height: 1.5;
+    }
+    .zkpol-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .zkpol-table th, .zkpol-table td {
+      padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line);
+    }
+    .zkpol-table th { color: var(--ink-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .zkpol-table td { color: var(--ink); font-family: var(--font-mono); }
+    .zkpol-table td.num { text-align: right; }
+    .zkpol-table tr:last-child td { border-bottom: none; }
+    .zkpol-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: var(--pill);
+      font-family: var(--font-sans); font-size: 11px; font-weight: 600;
+    }
+    .zkpol-pill.ok  { background: rgba(46,229,155,0.16); color: #2ee59b; border: 1px solid rgba(46,229,155,0.42); }
+    .zkpol-pill.bad { background: rgba(255,77,99,0.16);  color: #ff6b85; border: 1px solid rgba(255,77,99,0.42); }
+    .zkpol-pill.muted { background: var(--panel-3); color: var(--ink-dim); border: 1px solid var(--line); }
+    .zkpol-comm { font-family: var(--font-mono); cursor: pointer; }
+    .zkpol-comm:hover { color: #fff; }
+    .zkpol-modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50;
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .zkpol-modal {
+      background: var(--panel); border: 1px solid var(--line-strong);
+      border-radius: var(--radius); max-width: 720px; width: 100%;
+      max-height: 80vh; overflow: auto; padding: 20px 22px;
+    }
+    .zkpol-modal h4 { margin: 0 0 8px; font-size: 13px; color: #fff; }
+    .zkpol-modal pre {
+      background: #0a0d14; border: 1px solid var(--line); border-radius: var(--radius-sm);
+      padding: 12px 14px; font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
+      color: #d6dae3; white-space: pre-wrap; word-break: break-all;
+    }
+    .zkpol-modal .close-row { display: flex; justify-content: flex-end; margin-top: 10px; }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>잔고 검증<span class="en">Verify your balance</span></h1>
+  <p>거래소 총 부채에 당신의 잔고가 포함되어 있음을 직접 확인합니다 / Confirm your balance is included in the published total liability.</p>
+</section>
+
+<main id="main" class="pol-shell">
+
+  <!-- Real-time zkPoL upstream card (live state from the upstream Rust service) -->
+  <section class="zkpol-card" id="zkpol-card">
+    <div class="head">
+      <h2>실시간 zkPoL<span class="en">/ Real-time zkPoL</span></h2>
+      <div class="meta">
+        <label for="zkpol-auto" class="auto-toggle">
+          <input type="checkbox" id="zkpol-auto" checked />
+          <span>자동 새로고침 / Auto refresh</span>
+        </label>
+        <span id="zkpol-lastfetch">—</span>
+      </div>
+    </div>
+    <div id="zkpol-body">
+      <div style="color: var(--ink-mute); font-size: 12px;">불러오는 중… / Loading…</div>
+    </div>
+  </section>
+
+  <!-- Status card -->
+  <section class="pol-status" id="status-card">
+    <div class="icon"><div class="spinner"></div></div>
+    <div class="body">
+      <strong>검증 중… / Verifying…</strong>
+      <span>최신 epoch에서 본인의 inclusion proof를 가져오는 중입니다.</span>
+    </div>
+  </section>
+
+  <!-- Live mode toggle -->
+  <section class="pol-live-row">
+    <label class="switch" for="live-toggle">
+      <input type="checkbox" id="live-toggle" />
+      <span class="track" aria-hidden="true"></span>
+      <span><span class="label-ko">실시간 모드</span><span class="label-en">/ Live mode</span></span>
+    </label>
+    <div class="explain">
+      거래소 잔고가 변할 때마다 즉시 새 증명을 받습니다. 일반 모드는 60초 epoch 마다 갱신됩니다.<br/>
+      Pushes a new proof the moment your balance changes. Default mode refreshes every 60-second epoch.
+    </div>
+    <span class="live-pill off" id="live-pill"><span class="dot"></span><span id="live-pill-text">OFF</span></span>
+    <span class="live-status" id="live-status"></span>
+  </section>
+
+  <!-- Proof details accordion -->
+  <section class="pol-section collapsible collapsed" id="details-section" hidden>
+    <h2 data-toggle="details">증명 세부 정보<span class="en">Proof details</span></h2>
+    <div class="pol-section-body">
+      <div class="kv-grid" id="details-kv"></div>
+
+      <div>
+        <div style="color: var(--ink-dim); font-size: 12px; margin-bottom: 6px;">자산 구성 / Asset breakdown</div>
+        <table class="pol-table" id="breakdown-table" aria-label="자산 구성 / Asset breakdown">
+          <thead><tr>
+            <th scope="col">Asset</th>
+            <th scope="col" class="num">Balance</th>
+            <th scope="col" class="num">Valuation (USDT)</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div>
+        <div style="color: var(--ink-dim); font-size: 12px; margin-bottom: 6px;">Sibling 경로 / Sibling path (leaf → root)</div>
+        <table class="pol-table" id="sibling-table" aria-label="Sibling 경로 / Merkle sibling path">
+          <thead><tr>
+            <th scope="col">#</th>
+            <th scope="col">Side</th>
+            <th scope="col">Hash</th>
+            <th scope="col" class="num">Sibling sum</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Action buttons -->
+  <div class="pol-actions" id="action-bar" hidden>
+    <button class="btn btn-primary" id="download-btn">증명 다운로드 <span class="btn-en">/ Download proof JSON</span></button>
+    <button class="btn btn-secondary" id="refresh-btn">다음 epoch에서 다시 검증 <span class="btn-en">/ Verify in next epoch</span></button>
+  </div>
+
+  <!-- External verification card -->
+  <section class="pol-section" hidden id="external-section">
+    <h2>외부 검증 코드<span class="en">External verifier</span></h2>
+    <div class="pol-section-body">
+      <p style="margin: 0; color: var(--ink-mute); font-size: 12px;">
+        다운로드한 <code>pol-proof-*.json</code>을 아래 스크립트로 직접 검증할 수 있습니다. 모든 코드는 표준 라이브러리만 사용합니다.<br/>
+        Verify the downloaded <code>pol-proof-*.json</code> with these standalone scripts. Standard library only.
+      </p>
+      <div class="code-tabs" role="tablist">
+        <button class="code-tab active" data-tab="py">Python 3</button>
+        <button class="code-tab" data-tab="js">Node.js</button>
+      </div>
+      <pre class="code-block" id="code-py" hidden></pre>
+      <pre class="code-block" id="code-js" hidden></pre>
+      <div style="font-size: 11px; color: var(--ink-dim);">
+        실행 / Run: <code id="run-cmd-py">python3 verifier.py pol-proof-…json</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- Trust links -->
+  <section class="pol-trust">
+    <span class="lbl">독립 확인 / Verify out-of-band:</span>
+    <a href="/pol/server-info" target="_blank" rel="noopener">발행 키 / Server signing key</a>
+    <a href="/pol/latest-epoch" target="_blank" rel="noopener">최신 epoch / Latest epoch</a>
+    <a href="/pol/verify-instructions" target="_blank" rel="noopener">검증 절차 / Verification recipe</a>
+    <a href="proof-of-reserves.html">→ 거래소 전체 보유/부채 보기 / View total reserves &amp; liabilities</a>
+  </section>
+
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import { renderHeader, renderFooter, getSession, requireSession,
+           authedFetch, escapeHtml, fmtRelative, toast } from "./app.js";
+
+  renderHeader("verify");
+  renderFooter();
+
+  const session = requireSession();
+  if (!session) { /* requireSession redirects */ }
+
+  const statusCard = document.getElementById("status-card");
+  const detailsSection = document.getElementById("details-section");
+  const detailsKV = document.getElementById("details-kv");
+  const breakdownTbody = document.querySelector("#breakdown-table tbody");
+  const siblingTbody = document.querySelector("#sibling-table tbody");
+  const actionBar = document.getElementById("action-bar");
+  const externalSection = document.getElementById("external-section");
+  const downloadBtn = document.getElementById("download-btn");
+  const refreshBtn = document.getElementById("refresh-btn");
+
+  let currentProof = null;
+  let liveMode = false;
+  let liveES = null;            // EventSource handle while live mode is on
+  let liveLastCommitTs = null;  // unix ms of the most recently rendered live commit
+  let liveLastEpochId = null;   // tracks epoch_rotated transitions
+  let liveStatusTimer = null;   // ticks the "X.Xs ago" label
+  let liveProofInflight = false;
+  const livePill = document.getElementById("live-pill");
+  const livePillText = document.getElementById("live-pill-text");
+  const liveStatusEl = document.getElementById("live-status");
+  const liveToggle = document.getElementById("live-toggle");
+
+  // ----- helpers -----
+  function setStatus(kind, ko, en, opts = {}) {
+    statusCard.className = `pol-status ${kind}`;
+    const icon = kind === "ok"   ? "✓"
+              : kind === "warn" ? "!"
+              : kind === "err"  ? "×"
+              : "";
+    const iconHtml = opts.spinner ? `<div class="spinner"></div>` : `<span>${icon}</span>`;
+    const extra = opts.detail ? `<pre>${escapeHtml(opts.detail)}</pre>` : "";
+    const actionsHtml = (opts.actions || []).map(a =>
+      `<button class="btn ${a.primary ? "btn-primary" : "btn-secondary"}" data-act="${a.id}">${a.label}</button>`
+    ).join("");
+    statusCard.innerHTML = `
+      <div class="icon">${iconHtml}</div>
+      <div class="body">
+        <strong>${escapeHtml(ko)}</strong>
+        <span>${escapeHtml(en)}</span>
+        ${extra}
+      </div>
+      ${actionsHtml ? `<div class="actions">${actionsHtml}</div>` : ""}
+    `;
+    for (const btn of statusCard.querySelectorAll("[data-act]")) {
+      btn.addEventListener("click", () => {
+        const fn = (opts.actions || []).find(a => a.id === btn.dataset.act)?.onClick;
+        if (fn) fn();
+      });
+    }
+  }
+
+  function truncMid(s, head = 10, tail = 8) {
+    if (!s || s.length <= head + tail + 1) return s ?? "";
+    return s.slice(0, head) + "…" + s.slice(-tail);
+  }
+
+  function copyButton(value) {
+    return `<button class="copy-btn" data-copy="${escapeHtml(value)}">copy</button>`;
+  }
+
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".copy-btn");
+    if (!btn) return;
+    const v = btn.dataset.copy;
+    try {
+      await navigator.clipboard.writeText(v);
+      btn.classList.add("ok");
+      const old = btn.textContent;
+      btn.textContent = "copied";
+      setTimeout(() => { btn.classList.remove("ok"); btn.textContent = old; }, 1100);
+    } catch {
+      toast("복사 실패 / Copy failed");
+    }
+  });
+
+  // ----- accordion -----
+  document.querySelector('[data-toggle="details"]').addEventListener("click", () => {
+    detailsSection.classList.toggle("collapsed");
+  });
+
+  // ----- code tabs -----
+  let codeLoaded = false;
+  async function loadCodeTabs() {
+    if (codeLoaded) return;
+    codeLoaded = true;
+    try {
+      const [py, js] = await Promise.all([
+        fetch("/pol/verifier/python").then(r => r.text()),
+        fetch("/pol/verifier/javascript").then(r => r.text()),
+      ]);
+      document.getElementById("code-py").textContent = py;
+      document.getElementById("code-js").textContent = js;
+    } catch (e) {
+      const msg = `# failed to load verifier snippet: ${e}`;
+      document.getElementById("code-py").textContent = msg;
+      document.getElementById("code-js").textContent = msg;
+    }
+  }
+
+  function showTab(name) {
+    for (const t of document.querySelectorAll(".code-tab")) {
+      t.classList.toggle("active", t.dataset.tab === name);
+    }
+    document.getElementById("code-py").hidden = name !== "py";
+    document.getElementById("code-js").hidden = name !== "js";
+    document.getElementById("run-cmd-py").textContent = name === "js"
+      ? "node verifier.js pol-proof-…json"
+      : "python3 verifier.py pol-proof-…json";
+  }
+  for (const t of document.querySelectorAll(".code-tab")) {
+    t.addEventListener("click", () => showTab(t.dataset.tab));
+  }
+  showTab("py");
+
+  // ----- render proof -----
+  // Accepts either snapshot proof (zkcex-pol-v1) or live proof (zkcex-pol-live-v1).
+  function renderProof(proof) {
+    currentProof = proof;
+    const isLive = proof.scheme === "zkcex-pol-live-v1";
+    // Normalise: live proofs put the metadata under live_commit + a separate epoch
+    // section; map to the same shape the rest of this page expects so we don't
+    // duplicate the entire renderer.
+    const e = isLive
+      ? { id: proof.live_commit.epoch_id, started_at: (proof.epoch && proof.epoch.started_at) || Math.floor(proof.live_commit.committed_at / 1000),
+          root_hash: proof.live_commit.root_hash, root_sum: proof.live_commit.root_sum,
+          signature: proof.live_commit.signature, n_users: proof.live_commit.n_users }
+      : proof.epoch;
+    const leaf = proof.leaf;
+    const ageMs = Date.now() - (e.started_at * 1000);
+    const ageMin = Math.floor(ageMs / 60000);
+    const ageStr = ageMin <= 0 ? "방금 / just now"
+                : ageMin < 60   ? `${ageMin}분 전 / ${ageMin}m ago`
+                : `${Math.floor(ageMin / 60)}시간 전 / ${Math.floor(ageMin / 60)}h ago`;
+
+    if (isLive) {
+      const c = proof.live_commit;
+      setStatus("ok",
+        "실시간 검증 중 — 잔고가 포함되어 있습니다",
+        `LIVE · commit #${c.commit_id} · epoch #${c.epoch_id} · ${e.n_users} users`,
+      );
+    } else {
+      setStatus("ok",
+        "당신의 잔고가 포함되어 있습니다",
+        `Your balance is included · epoch #${e.id} · 발행 ${ageStr}`,
+      );
+    }
+
+    const liveExtras = isLive ? [
+      ["Live commit ID",  String(proof.live_commit.commit_id)],
+      ["Live committed",  new Date(proof.live_commit.committed_at).toLocaleTimeString()],
+      ["Live scheme",     "zkcex-pol-live-v1"],
+    ] : [];
+
+    detailsKV.innerHTML = [
+      ...liveExtras,
+      ["Epoch ID",       String(e.id)],
+      ["Started at",     new Date(e.started_at * 1000).toLocaleString()],
+      ["Total users",    String(e.n_users)],
+      ["Root sum (USDT)", e.root_sum],
+      ["Root hash",      truncMid(e.root_hash) + " " + copyButton(e.root_hash), true],
+      ["Signature",      truncMid(e.signature) + " " + copyButton(e.signature), true],
+      ["Server pubkey",  truncMid(proof.server_pubkey) + " " + copyButton(proof.server_pubkey), true],
+      ["Sig scheme",     proof.sig_scheme],
+      ["Hash function",  proof.hash],
+      ["Your balance",   leaf.balance + " USDT-eq"],
+      ["Your user_hash", truncMid(leaf.user_hash) + " " + copyButton(leaf.user_hash), true],
+      ["Epoch nonce",    truncMid(leaf.epoch_nonce) + " " + copyButton(leaf.epoch_nonce), true],
+    ].map(([k, v, html]) => `
+      <div class="k">${escapeHtml(k)}</div>
+      <div class="v">${html ? `<span class="mono-trunc">${v}</span>` : escapeHtml(String(v))}</div>
+    `).join("");
+
+    breakdownTbody.innerHTML = (leaf.asset_breakdown || []).map(b => `
+      <tr>
+        <td>${escapeHtml(b.asset)}</td>
+        <td class="num">${escapeHtml(b.balance)}</td>
+        <td class="num">${b.valuation_usdt == null
+          ? `<span style="color:var(--ink-dim);">— (${escapeHtml(b.note || "no_price")})</span>`
+          : escapeHtml(b.valuation_usdt)}</td>
+      </tr>
+    `).join("") || `<tr><td colspan="3" style="color:var(--ink-dim);text-align:center;">자산이 없습니다 / No assets</td></tr>`;
+
+    siblingTbody.innerHTML = (proof.sibling_path || []).map((s, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td><span class="side-pill ${s.side}">${escapeHtml(s.side)}</span></td>
+        <td>${truncMid(s.hash, 12, 10)} ${copyButton(s.hash)}</td>
+        <td class="num">${escapeHtml(s.sum)}</td>
+      </tr>
+    `).join("") || `<tr><td colspan="4" style="color:var(--ink-dim);text-align:center;">단일 leaf 트리 / single-leaf tree (no siblings)</td></tr>`;
+
+    detailsSection.hidden = false;
+    actionBar.hidden = false;
+    externalSection.hidden = false;
+    loadCodeTabs();
+
+    if (isLive) {
+      // Brief green flash so the user sees the proof was just rebuilt.
+      detailsSection.classList.remove("pol-flash");
+      // force reflow so re-adding the class re-triggers the animation
+      void detailsSection.offsetWidth;
+      detailsSection.classList.add("pol-flash");
+      liveLastCommitTs = proof.live_commit.committed_at;
+      liveLastEpochId  = proof.live_commit.epoch_id;
+      updateLiveStatus();
+    }
+  }
+
+  // ----- main flow -----
+  async function loadProof() {
+    setStatus("warn", "검증 중… / Verifying…",
+      "최신 epoch에서 본인의 inclusion proof를 가져오는 중 / Fetching your inclusion proof from the latest epoch",
+      { spinner: true });
+    try {
+      const proof = await authedFetch("/pol/my-proof");
+      renderProof(proof);
+    } catch (err) {
+      const status = err.status;
+      if (status === 503 || status === 404) {
+        setStatus("warn",
+          "스냅샷이 아직 생성되지 않았습니다",
+          "No snapshot has been published yet — click below to build one now.",
+          { actions: [{ id: "build", primary: true, label: "지금 스냅샷 생성 / Build snapshot now",
+            onClick: doRefresh }] }
+        );
+      } else if (status === 401) {
+        setStatus("err",
+          "세션이 만료되었습니다",
+          "Your session expired. Sign in again.",
+          { detail: err.message,
+            actions: [{ id: "signin", primary: true, label: "로그인 / Sign in",
+              onClick: () => { location.href = "/app/signin.html?next=" + encodeURIComponent(location.pathname); } }] }
+        );
+      } else {
+        setStatus("err",
+          "검증 중 오류가 발생했습니다",
+          "Verification error — see details below.",
+          { detail: err.message || String(err),
+            actions: [{ id: "retry", primary: true, label: "다시 시도 / Retry", onClick: loadProof }] }
+        );
+      }
+    }
+  }
+
+  async function doRefresh() {
+    setStatus("warn", "스냅샷 생성 중… / Building snapshot…",
+      "전체 사용자의 잔고로 새 Merkle-sum 트리를 만듭니다.",
+      { spinner: true });
+    try {
+      await authedFetch("/pol/refresh", { method: "POST" });
+      await loadProof();
+    } catch (err) {
+      setStatus("err", "스냅샷 생성 실패 / Snapshot failed",
+        "Snapshot rebuild failed.",
+        { detail: err.message || String(err),
+          actions: [{ id: "retry", primary: true, label: "다시 시도 / Retry", onClick: doRefresh }] });
+    }
+  }
+
+  downloadBtn.addEventListener("click", () => {
+    if (!currentProof) return;
+    const blob = new Blob([JSON.stringify(currentProof, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    // Live proofs identify the commit; snapshot proofs identify the epoch.
+    const tag = currentProof.scheme === "zkcex-pol-live-v1"
+      ? `live-${currentProof.live_commit.epoch_id}-c${currentProof.live_commit.commit_id}`
+      : currentProof.epoch.id;
+    a.download = `pol-proof-${session.user.opex_user}-${tag}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("증명 JSON을 저장했습니다", "Proof JSON saved");
+  });
+
+  refreshBtn.addEventListener("click", doRefresh);
+
+  // ----- live mode -----
+  function setLivePill(state /* "on" | "off" | "warn" */, text) {
+    livePill.classList.remove("on", "off", "warn");
+    livePill.classList.add(state);
+    livePillText.textContent = text;
+  }
+
+  function updateLiveStatus() {
+    if (!liveMode) {
+      liveStatusEl.textContent = "";
+      return;
+    }
+    if (!liveLastCommitTs) {
+      liveStatusEl.textContent = "대기 중 / waiting for first commit…";
+      return;
+    }
+    const dt = (Date.now() - liveLastCommitTs) / 1000;
+    const dtStr = dt < 1 ? `${(dt * 1000).toFixed(0)}ms`
+               : dt < 90 ? `${dt.toFixed(1)}s`
+               : `${Math.floor(dt / 60)}m`;
+    liveStatusEl.textContent = `마지막 갱신 ${dtStr} 전 / Updated ${dtStr} ago`;
+  }
+
+  async function fetchLiveProof() {
+    if (liveProofInflight) return;
+    liveProofInflight = true;
+    try {
+      const proof = await authedFetch("/pol/live/my-proof");
+      renderProof(proof);
+    } catch (err) {
+      // 503 means we're not in the tree yet — fall back to snapshot view.
+      if (err.status === 503) {
+        liveStatusEl.textContent = "라이브 트리에 합류 대기 중 / waiting to join live tree";
+      } else if (err.status === 401) {
+        // Session expired; let the snapshot loader handle the redirect UX.
+        stopLiveMode();
+        loadProof();
+      } else {
+        liveStatusEl.textContent = `오류 / error: ${err.message || err}`;
+      }
+    } finally {
+      liveProofInflight = false;
+    }
+  }
+
+  function startLiveMode() {
+    if (liveES) return;
+    liveMode = true;
+    setLivePill("warn", "연결 중… / Connecting…");
+    liveStatusEl.textContent = "";
+    try {
+      liveES = new EventSource("/pol/live/stream");
+    } catch (e) {
+      setLivePill("warn", "연결 실패 / Connect failed");
+      return;
+    }
+    liveES.addEventListener("commit", (ev) => {
+      setLivePill("on", "실시간 / LIVE");
+      // Re-fetch the user's proof against the new commit.
+      fetchLiveProof();
+    });
+    liveES.addEventListener("epoch_rotated", async (ev) => {
+      // The 60s snapshot rolled over: refresh server-info / latest-epoch hints
+      // (we don't surface them directly, but a fresh fetch keeps the proof's
+      // epoch_nonce + sibling path correctly tied to the new epoch).
+      try { await fetch("/pol/server-info"); } catch {}
+      try { await fetch("/pol/latest-epoch"); } catch {}
+      fetchLiveProof();
+    });
+    liveES.addEventListener("ping", () => { /* keepalive — no-op */ });
+    liveES.addEventListener("warn", (ev) => {
+      console.warn("live warn:", ev.data);
+    });
+    liveES.onerror = () => {
+      // EventSource reconnects automatically; reflect the gap visually.
+      if (liveMode) setLivePill("warn", "연결 재시도 중… / Reconnecting…");
+    };
+    liveES.onopen = () => {
+      if (liveMode) setLivePill("on", "실시간 / LIVE");
+    };
+    liveStatusTimer = setInterval(updateLiveStatus, 200);
+    // Fetch an initial live proof immediately so the page reflects the live root
+    // even before the next 1Hz commit lands.
+    fetchLiveProof();
+  }
+
+  function stopLiveMode() {
+    liveMode = false;
+    if (liveES) { try { liveES.close(); } catch {} liveES = null; }
+    if (liveStatusTimer) { clearInterval(liveStatusTimer); liveStatusTimer = null; }
+    liveLastCommitTs = null;
+    liveLastEpochId = null;
+    setLivePill("off", "OFF");
+    liveStatusEl.textContent = "";
+    // Re-load the snapshot proof so the page state is consistent after toggle off.
+    loadProof();
+  }
+
+  liveToggle.addEventListener("change", () => {
+    if (liveToggle.checked) startLiveMode();
+    else                    stopLiveMode();
+  });
+
+  // ====================================================================
+  // Real-time zkPoL upstream card
+  // ====================================================================
+  // This card is independent of the in-memory live mode below. It reads the
+  // upstream Rust zkPoL service via /zkpol/* (proxied through serve_homepage).
+  // If the upstream is unreachable we surface a soft "offline / fallback"
+  // hint and keep the rest of the page working.
+  const zkpolBody       = document.getElementById("zkpol-body");
+  const zkpolAutoToggle = document.getElementById("zkpol-auto");
+  const zkpolLastFetch  = document.getElementById("zkpol-lastfetch");
+  let   zkpolTimer      = null;
+  let   zkpolInflight   = false;
+
+  function zkpolTrunc(s, head = 10, tail = 8) {
+    if (!s || s.length <= head + tail + 1) return s ?? "";
+    return s.slice(0, head) + "…" + s.slice(-tail);
+  }
+
+  function zkpolScaledToDecimal(scaledStr) {
+    // value comes back as a string like "1000000000". Render with up to 8 dp.
+    if (scaledStr == null) return "—";
+    let s = String(scaledStr);
+    let neg = false;
+    if (s.startsWith("-")) { neg = true; s = s.slice(1); }
+    s = s.replace(/^0+/, "") || "0";
+    const SCALE = 8;
+    if (s.length <= SCALE) s = "0".repeat(SCALE - s.length + 1) + s;
+    const intPart = s.slice(0, s.length - SCALE);
+    let fracPart  = s.slice(s.length - SCALE).replace(/0+$/, "");
+    const out = fracPart ? `${intPart}.${fracPart}` : intPart;
+    return neg ? `-${out}` : out;
+  }
+
+  async function zkpolUpstreamLive() {
+    try {
+      const r = await fetch("/zkpol/health/live", { cache: "no-store" });
+      return r.ok;
+    } catch { return false; }
+  }
+
+  function zkpolShowOffline() {
+    zkpolBody.innerHTML = `
+      <div class="offline">
+        실시간 zkPoL 연결 실패 — 폴백 모드 / Upstream offline — falling back to in-memory live.<br/>
+        <span style="color: var(--ink-mute); font-size: 11px;">
+          아래 in-memory 실시간 모드로 검증을 계속합니다.
+        </span>
+      </div>
+    `;
+    zkpolLastFetch.textContent = "offline";
+  }
+
+  function openZkpolModal(verifyResp) {
+    const bg = document.createElement("div");
+    bg.className = "zkpol-modal-bg";
+    bg.innerHTML = `
+      <div class="zkpol-modal">
+        <h4>zkPoL verify 응답 / Verify response</h4>
+        <pre>${escapeHtml(JSON.stringify(verifyResp, null, 2))}</pre>
+        <div class="close-row"><button class="btn btn-secondary" id="zkpol-modal-close">닫기 / Close</button></div>
+      </div>
+    `;
+    document.body.appendChild(bg);
+    bg.addEventListener("click", (e) => {
+      if (e.target === bg || e.target.id === "zkpol-modal-close") bg.remove();
+    });
+  }
+
+  async function zkpolRender() {
+    if (zkpolInflight) return;
+    zkpolInflight = true;
+    try {
+      const live = await zkpolUpstreamLive();
+      if (!live) { zkpolShowOffline(); return; }
+
+      const opex = session?.user?.opex_user;
+      if (!opex) {
+        zkpolBody.innerHTML = `<div style="color: var(--ink-mute); font-size: 12px;">세션이 만료되었습니다 / Session expired.</div>`;
+        return;
+      }
+
+      // Pull the user's wallet list (drives which assets to query)
+      let wallets = [];
+      try {
+        const r = await fetch(`/v1/owner/${encodeURIComponent(opex)}/wallets`, { cache: "no-store" });
+        if (r.ok) wallets = await r.json();
+      } catch {}
+
+      // Map asset -> zkPoL token_id (matches tools/zkpol_bridge.py)
+      const ASSET_MAP = { ETH: "ETH", ZETH: "ETH", USDT: "USDT", ZUSDT: "USDT" };
+      const tokens = new Map(); // token_id -> wallet asset symbol for display
+      for (const w of (wallets || [])) {
+        const sym = (w.asset || "").toUpperCase();
+        const tid = ASSET_MAP[sym];
+        if (tid && !tokens.has(tid)) tokens.set(tid, sym);
+      }
+      if (tokens.size === 0) {
+        // Fall back to the canonical pair so the user sees something even
+        // before the bridge has emitted any deposit events.
+        tokens.set("ETH", "ETH");
+        tokens.set("USDT", "USDT");
+      }
+
+      const rowsHtml = [];
+      const verifyResponses = {};
+      for (const [tid, sym] of tokens) {
+        let acc = null, ver = null;
+        try {
+          const r = await fetch(`/zkpol/tokens/${encodeURIComponent(tid)}/accounts/${encodeURIComponent(opex)}`, { cache: "no-store" });
+          if (r.ok) acc = await r.json();
+        } catch {}
+        try {
+          const r = await fetch(`/zkpol/tokens/${encodeURIComponent(tid)}/accounts/${encodeURIComponent(opex)}/verify`, { cache: "no-store" });
+          if (r.ok) ver = await r.json();
+        } catch {}
+        verifyResponses[tid] = ver;
+
+        if (!acc) {
+          rowsHtml.push(`
+            <tr data-tid="${escapeHtml(tid)}">
+              <td>${escapeHtml(tid)}</td>
+              <td class="num" colspan="3"><span class="zkpol-pill muted">no account yet</span></td>
+            </tr>
+          `);
+          continue;
+        }
+
+        const matched = ver?.matched === true;
+        const matchPill = ver == null
+          ? `<span class="zkpol-pill muted">verify ?</span>`
+          : (matched ? `<span class="zkpol-pill ok">✓ matched</span>` : `<span class="zkpol-pill bad">✗ mismatch</span>`);
+        const commitment = acc.commitment || "—";
+        rowsHtml.push(`
+          <tr data-tid="${escapeHtml(tid)}">
+            <td>${escapeHtml(tid)}</td>
+            <td class="num">${escapeHtml(zkpolScaledToDecimal(acc.value))}</td>
+            <td>
+              <span class="zkpol-comm" data-tid="${escapeHtml(tid)}">${escapeHtml(zkpolTrunc(commitment))}</span>
+              <button class="copy-btn" data-copy="${escapeHtml(commitment)}">copy</button>
+            </td>
+            <td class="num">#${escapeHtml(String(acc.updated_batch_seq ?? "—"))}</td>
+            <td>${matchPill}</td>
+          </tr>
+        `);
+      }
+
+      zkpolBody.innerHTML = `
+        <table class="zkpol-table">
+          <thead>
+            <tr>
+              <th scope="col">Token</th>
+              <th scope="col" class="num">Value</th>
+              <th scope="col">Commitment</th>
+              <th scope="col" class="num">Batch</th>
+              <th scope="col">Verify</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml.join("")}</tbody>
+        </table>
+      `;
+      zkpolLastFetch.textContent = `갱신 / fetched ${new Date().toLocaleTimeString()}`;
+
+      // Wire up commitment-click -> modal
+      for (const el of zkpolBody.querySelectorAll(".zkpol-comm")) {
+        el.addEventListener("click", () => {
+          const tid = el.dataset.tid;
+          openZkpolModal(verifyResponses[tid] || { error: "no_verify_response", token_id: tid });
+        });
+      }
+    } finally {
+      zkpolInflight = false;
+    }
+  }
+
+  function zkpolStartAuto() {
+    if (zkpolTimer) return;
+    zkpolTimer = setInterval(zkpolRender, 2000);
+  }
+  function zkpolStopAuto() {
+    if (!zkpolTimer) return;
+    clearInterval(zkpolTimer);
+    zkpolTimer = null;
+  }
+  zkpolAutoToggle.addEventListener("change", () => {
+    if (zkpolAutoToggle.checked) zkpolStartAuto();
+    else                          zkpolStopAuto();
+  });
+  zkpolRender();
+  zkpolStartAuto();
+
+  loadProof();
+</script>
+
+</body>
+</html>

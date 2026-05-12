@@ -1,0 +1,96 @@
+{{- if .Values.patroni.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: patroni-config
+  labels:
+    {{- include "zkcex.labels" (dict "name" "patroni" "Values" .Values "Release" .Release "Chart" .Chart) | nindent 4 }}
+data:
+  patroni.yaml: |
+    scope: {{ .Values.patroni.scope }}
+    namespace: /service/
+
+    log:
+      level: INFO
+      format: '%(asctime)s %(levelname)s: %(message)s'
+
+    restapi:
+      listen: 0.0.0.0:8008
+
+    kubernetes:
+      use_endpoints: true
+      labels:
+        app.kubernetes.io/name: patroni
+      role_label: spilo-role
+      scope_label: cluster-name
+      pod_ip: ${POD_IP}
+
+    bootstrap:
+      dcs:
+        ttl: {{ .Values.patroni.ttl }}
+        loop_wait: {{ .Values.patroni.loop_wait }}
+        retry_timeout: {{ .Values.patroni.retry_timeout }}
+        maximum_lag_on_failover: {{ .Values.patroni.maximum_lag_on_failover }}
+        master_start_timeout: 300
+        synchronous_mode: {{ .Values.patroni.sync_replication }}
+        synchronous_mode_strict: {{ .Values.patroni.strict_sync }}
+        synchronous_node_count: 1
+        postgresql:
+          use_pg_rewind: true
+          use_slots: true
+          parameters:
+            wal_level: replica
+            hot_standby: "on"
+            max_wal_senders: 10
+            max_replication_slots: 10
+            max_connections: 200
+            wal_keep_size: 256MB
+            wal_log_hints: "on"
+            {{- if .Values.patroni.sync_replication }}
+            synchronous_commit: "on"
+            synchronous_standby_names: '*'
+            {{- else }}
+            synchronous_commit: "local"
+            {{- end }}
+            archive_mode: "on"
+            archive_timeout: 1800s
+            archive_command: /scripts/archive_command.sh "%p"
+
+      users:
+        admin:
+          password: ${PATRONI_admin_PASSWORD}
+          options:
+            - createrole
+            - createdb
+
+      method: initdb
+      initdb:
+        - encoding: UTF8
+          locale: C.UTF-8
+          data-checksums
+
+    postgresql:
+      listen: 0.0.0.0:5432
+      data_dir: /home/postgres/pgdata/pgroot/data
+      bin_dir: /usr/lib/postgresql/{{ .Values.patroni.pgVersion }}/bin
+      pgpass: /home/postgres/.pgpass
+      pg_hba:
+        - local   all             all                                   trust
+        - host    all             all             127.0.0.1/32          trust
+        - host    all             all             0.0.0.0/0             scram-sha-256
+        - host    replication     standby         0.0.0.0/0             scram-sha-256
+      parameters:
+        shared_preload_libraries: 'bg_mon,pg_stat_statements'
+
+    tags:
+      nofailover: false
+      noloadbalance: false
+      clonefrom: false
+      nosync: false
+
+    watchdog:
+      mode: off
+
+    ctl:
+      insecure: true
+{{- end }}

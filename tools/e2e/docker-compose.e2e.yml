@@ -1,8 +1,7 @@
 services:
   zookeeper:
-    platform: linux/amd64
+    image: confluentinc/cp-zookeeper:7.6.1
   kafka-1:
-    platform: linux/amd64
     environment:
       - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
       - ALLOW_PLAINTEXT_LISTENER=yes
@@ -19,17 +18,20 @@ services:
       - KAFKA_MIN_INSYNC_REPLICAS=1
       - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
       - KAFKA_AUTO_LEADER_REBALANCE_ENABLE=false
-      - KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS=60000
-      - KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS=60000
-      - KAFKA_HEAP_OPTS=-Xms256m -Xmx768m
+      # Keep ZK sessions short so a crashed broker can reclaim its broker id quickly.
+      - KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS=6000
+      - KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS=6000
+      # E2E runs a single broker under tight local memory; keep broker heap conservative.
+      - KAFKA_HEAP_OPTS=-Xms128m -Xmx256m
+      - KAFKA_OPTS=
+      - KAFKA_LOG4J_ROOT_LOGLEVEL=WARN
+      - KAFKA_LOG4J_LOGGERS=kafka.controller=INFO,state.change.logger=INFO
   kafka-2:
     profiles:
       - full-stack
-    platform: linux/amd64
   kafka-3:
     profiles:
       - full-stack
-    platform: linux/amd64
   akhq:
     profiles:
       - full-stack
@@ -42,24 +44,46 @@ services:
     environment:
       - KAFKA_IP_PORT=kafka-1:29092
       - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - SPRING_CLOUD_BUS_ENABLED=false
+      - JAVA_OPTS=-Xmx192m
+      - OPEX_KAFKA_DLT_PARTITIONS=1
+      - OPEX_KAFKA_DLT_REPLICAS=1
   matching-engine-duo:
     depends_on: !override
       - kafka-1
       - redis-duo
     environment:
+      - JAVA_OPTS=-Xmx256m
       - KAFKA_IP_PORT=kafka-1:29092
       - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - SYMBOLS=SOL_USDT,DOGE_USDT,TON_USDT
       - OPEX_KAFKA_TOPIC_PARTITIONS=1
       - OPEX_KAFKA_TOPIC_REPLICAS=1
       - OPEX_KAFKA_TOPIC_MIN_INSYNC_REPLICAS=1
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"
   auth:
     profiles:
       - full-stack
+    environment:
+      - SPRING_CLOUD_BUS_ENABLED=false
+      - JAVA_OPTS=-Xmx192m
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"
   api:
     profiles:
       - full-stack
     environment:
+      - JAVA_OPTS=-Xmx256m
+      - SPRING_CLOUD_BUS_ENABLED=false
       - SPRING_PROFILES_ACTIVE=e2e
+      - ACCOUNTANT_URL=http://opex-accountant
+      - MATCHING_GATEWAY_URL=http://opex-matching-gateway
+      - WALLET_URL=http://opex-wallet
+      - MARKET_URL=http://opex-market
+      - BC_GATEWAY_URL=http://opex-bc-gateway
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"
   bc-gateway:
     profiles:
       - full-stack
@@ -70,8 +94,13 @@ services:
       - wallet
       - postgres-bc-gateway
     environment:
+      - JAVA_OPTS=-Xmx224m
       - KAFKA_IP_PORT=kafka-1:29092
       - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - SPRING_CLOUD_BUS_ENABLED=false
+      - ADDRESS_EXP_TIME=3600
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"
   redis:
     ports: !override
       - "127.0.0.1:16379:6379"
@@ -82,10 +111,18 @@ services:
       - vault
       - postgres-wallet
     environment:
+      - JAVA_OPTS=-Xmx256m
       - KAFKA_IP_PORT=kafka-1:29092
       - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
-      - SPRING_CLOUD_STREAM_DEFAULT_BINDER=kafka
+      - SPRING_KAFKA_ADMIN_AUTO_CREATE=false
+      - SPRING_CLOUD_BUS_ENABLED=false
       - SPRING_PROFILES_ACTIVE=e2e
+      - APP_SWAGGER_ENABLED=false
+      - APP_KAFKA_TOPICS_ENABLED=false
+      - SPRINGFOX_DOCUMENTATION_ENABLED=false
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"
+      - "./drive-key.json:/drive-key.json"
   accountant:
     depends_on: !override
       - kafka-1
@@ -94,32 +131,42 @@ services:
       - vault
       - postgres-accountant
     environment:
+      - JAVA_OPTS=-Xmx224m
       - KAFKA_IP_PORT=kafka-1:29092
       - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - SPRING_CLOUD_BUS_ENABLED=false
       - SPRING_MAIN_WEB_APPLICATION_TYPE=reactive
-      - SPRING_CLOUD_STREAM_DEFAULT_BINDER=kafka
-      - SPRING_KAFKA_PARTITIONS=1
-      - SPRING_KAFKA_REPLICA=1
-      - SPRING_KAFKA_MIN_SYNC_REPLICA=1
+      - OPEX_KAFKA_TOPIC_PARTITIONS=1
+      - OPEX_KAFKA_TOPIC_REPLICAS=1
+      - OPEX_KAFKA_TOPIC_MIN_INSYNC_REPLICAS=1
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"
   matching-engine:
     depends_on: !override
       - kafka-1
       - redis
     environment:
+      - JAVA_OPTS=-Xmx224m
       - KAFKA_IP_PORT=kafka-1:29092
       - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - SYMBOLS=ETH_USDT,BTC_USDT
       - OPEX_KAFKA_TOPIC_PARTITIONS=1
       - OPEX_KAFKA_TOPIC_REPLICAS=1
       - OPEX_KAFKA_TOPIC_MIN_INSYNC_REPLICAS=1
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"
   matching-gateway:
     depends_on: !override
       - kafka-1
       - consul
       - matching-engine
     environment:
+      - JAVA_OPTS=-Xmx224m
       - KAFKA_IP_PORT=kafka-1:29092
       - SPRING_PROFILES_ACTIVE=e2e
       - APP_KAFKA_HEALTH_MIN_NODES=1
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"
   market:
     depends_on: !override
       - kafka-1
@@ -128,8 +175,12 @@ services:
       - postgres-market
       - redis-cache
     environment:
+      - JAVA_OPTS=-Xmx224m
       - KAFKA_IP_PORT=kafka-1:29092
       - SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET=earliest
+      - SPRING_CLOUD_BUS_ENABLED=false
       - OPEX_KAFKA_TOPIC_PARTITIONS=1
       - OPEX_KAFKA_TOPIC_REPLICAS=1
       - OPEX_KAFKA_TOPIC_MIN_INSYNC_REPLICAS=1
+    volumes: !override
+      - "./preferences.yml:/preferences.yml"

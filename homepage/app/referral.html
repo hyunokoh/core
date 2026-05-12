@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>친구 초대 / Referral — zkCEX</title>
+  <meta name="description" content="zkCEX 리퍼럴 프로그램. 친구를 초대하고 평생 거래 수수료의 일부를 함께 나눠 가지세요." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    body.ref { background: #07090f; }
+    .ref-shell {
+      max-width: 1180px; margin: 0 auto; padding: 8px 28px 80px;
+      display: flex; flex-direction: column; gap: 22px;
+    }
+    .ref-hero {
+      padding: 34px 38px 32px; border-radius: var(--radius-lg);
+      background:
+        radial-gradient(1100px 380px at 100% 0%, rgba(11,58,255,0.18), transparent 60%),
+        radial-gradient(800px 320px at 0% 100%, rgba(46,229,155,0.10), transparent 60%),
+        linear-gradient(180deg, rgba(11,58,255,0.06), rgba(11,58,255,0.01));
+      border: 1px solid var(--line-strong);
+      position: relative; overflow: hidden;
+    }
+    .ref-hero .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: #9aa3b3; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      font-weight: 600;
+    }
+    .ref-hero .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #0b3aff;
+      box-shadow: 0 0 0 4px rgba(11,58,255,0.22);
+    }
+    .ref-hero h1 {
+      margin: 12px 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -0.02em;
+      color: #fff; line-height: 1.18;
+    }
+    .ref-hero h1 .en {
+      display: block; color: var(--ink-mute); font-weight: 500; font-size: 14px; margin-top: 4px;
+    }
+    .ref-hero .lede {
+      color: var(--ink-mute); font-size: 14px; max-width: 760px;
+      margin: 8px 0 22px; line-height: 1.55;
+    }
+    .ref-hero .lede .en { color: var(--ink-dim); font-size: 12px; display: block; margin-top: 4px; }
+
+    .code-card {
+      margin-top: 14px;
+      display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center;
+      padding: 18px 22px; border-radius: var(--radius);
+      background: rgba(7,9,15,0.55); border: 1px solid var(--line-strong);
+    }
+    .code-card .code-block {
+      font-family: var(--font-mono); font-size: 32px; font-weight: 700; color: #fff;
+      letter-spacing: 0.18em;
+    }
+    .code-card .label {
+      color: var(--ink-dim); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      font-weight: 600; margin-bottom: 4px;
+    }
+    .code-card .actions {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .code-card button, .code-card a.btnish {
+      background: rgba(11,58,255,0.18); border: 1px solid rgba(11,58,255,0.42);
+      color: #fff; padding: 9px 14px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: var(--font-sans);
+    }
+    .code-card button:hover { background: rgba(11,58,255,0.32); }
+    .code-card button.ghost {
+      background: transparent; border-color: var(--line);
+      color: var(--ink-mute);
+    }
+    .code-card .share-link {
+      grid-column: 1 / -1;
+      font-family: var(--font-mono); font-size: 12px; color: var(--ink-mute);
+      padding: 8px 12px; border-radius: 6px;
+      background: rgba(7,9,15,0.65); border: 1px solid var(--line);
+      word-break: break-all;
+    }
+
+    .ref-stats {
+      display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px;
+    }
+    .ref-stat-card {
+      padding: 22px 24px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .ref-stat-card .ko { color: var(--ink); font-weight: 600; font-size: 14px; }
+    .ref-stat-card .en { color: var(--ink-mute); font-size: 11px; }
+    .ref-stat-card .big {
+      font-family: var(--font-mono); font-size: 26px; color: #fff; font-weight: 700;
+      letter-spacing: -0.02em; margin-top: 6px;
+    }
+    .ref-stat-card .big.pos { color: #2ee59b; }
+    .ref-stat-card .sub { color: var(--ink-dim); font-size: 11px; }
+
+    .ref-section {
+      padding: 22px 24px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+    }
+    .ref-section h2 {
+      margin: 0 0 16px; font-size: 18px; color: #fff; font-weight: 700;
+      display: flex; align-items: baseline; gap: 10px;
+    }
+    .ref-section h2 .en {
+      color: var(--ink-mute); font-size: 12px; font-weight: 500;
+    }
+
+    /* Breakdown bar */
+    .breakdown-bar {
+      display: flex; height: 28px; border-radius: 6px; overflow: hidden;
+      background: rgba(7,9,15,0.5); border: 1px solid var(--line);
+      margin-bottom: 12px;
+    }
+    .breakdown-bar .seg { transition: flex 0.3s ease; }
+    .breakdown-legend {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+    }
+    .breakdown-legend .pill {
+      display: flex; gap: 10px; align-items: center;
+      padding: 8px 10px; border-radius: 6px; background: rgba(7,9,15,0.4);
+      border: 1px solid var(--line);
+    }
+    .breakdown-legend .pill .sw {
+      width: 12px; height: 12px; border-radius: 3px; flex: 0 0 12px;
+    }
+    .breakdown-legend .pill .name { color: var(--ink-mute); font-size: 11px; flex: 1; }
+    .breakdown-legend .pill .v { color: #fff; font-family: var(--font-mono); font-size: 13px; }
+
+    /* Table */
+    .ref-table {
+      width: 100%; border-collapse: collapse;
+    }
+    .ref-table th, .ref-table td {
+      padding: 10px 12px; text-align: left; font-size: 12px;
+      border-bottom: 1px solid var(--line); color: var(--ink-mute);
+    }
+    .ref-table th { color: var(--ink-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .ref-table td.mono { font-family: var(--font-mono); color: #fff; }
+    .ref-table td.r, .ref-table th.r { text-align: right; font-variant-numeric: tabular-nums; }
+    .status-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 99px;
+      font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .status-pending  { background: rgba(240,180,41,0.15); color: #f0b429; border: 1px solid rgba(240,180,41,0.3); }
+    .status-qualified{ background: rgba(46,229,155,0.15); color: #2ee59b; border: 1px solid rgba(46,229,155,0.32); }
+    .status-expired  { background: rgba(160,160,160,0.12); color: #aaa; border: 1px solid var(--line); }
+
+    /* Customize form */
+    .customize-form {
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
+    }
+    .customize-form input {
+      flex: 1; min-width: 200px; background: rgba(7,9,15,0.6); border: 1px solid var(--line);
+      color: #fff; font-family: var(--font-mono); font-size: 16px; padding: 10px 12px;
+      border-radius: 8px; text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .customize-form input:focus { outline: 1px solid rgba(11,58,255,0.4); }
+    .customize-form button {
+      background: rgba(11,58,255,0.2); border: 1px solid rgba(11,58,255,0.42);
+      color: #fff; padding: 10px 16px; border-radius: 8px; cursor: pointer;
+      font-size: 13px; font-weight: 600;
+    }
+    .customize-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .customize-help { color: var(--ink-dim); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+
+    /* Campaign banner */
+    .campaign-banner {
+      display: flex; gap: 16px; align-items: center; padding: 14px 18px;
+      border-radius: var(--radius); background: rgba(46,229,155,0.06);
+      border: 1px solid rgba(46,229,155,0.25);
+    }
+    .campaign-banner .icon { font-size: 22px; }
+    .campaign-banner .name { color: #fff; font-weight: 700; font-size: 14px; }
+    .campaign-banner .desc { color: var(--ink-mute); font-size: 12px; margin-top: 2px; }
+
+    /* QR + Share kit */
+    .share-grid {
+      display: grid; grid-template-columns: 220px 1fr; gap: 22px; align-items: center;
+    }
+    .qr-host {
+      width: 200px; height: 200px; background: #fff; padding: 10px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .qr-host svg { width: 100%; height: 100%; }
+    .share-actions {
+      display: flex; gap: 10px; flex-wrap: wrap;
+    }
+    .share-actions a, .share-actions button {
+      padding: 9px 14px; border-radius: 8px; font-size: 13px;
+      background: rgba(7,9,15,0.5); border: 1px solid var(--line);
+      color: #fff; cursor: pointer; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .share-actions a:hover, .share-actions button:hover { border-color: rgba(11,58,255,0.6); }
+
+    /* FAQ */
+    .faq details {
+      padding: 12px 14px; border-bottom: 1px solid var(--line);
+    }
+    .faq details:last-child { border-bottom: none; }
+    .faq summary {
+      cursor: pointer; color: #fff; font-weight: 600; font-size: 14px;
+      list-style: none;
+    }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::before {
+      content: '+'; display: inline-block; width: 18px; color: var(--ink-mute);
+    }
+    .faq details[open] summary::before { content: '−'; }
+    .faq .answer {
+      padding: 8px 0 4px 18px; color: var(--ink-mute); font-size: 13px; line-height: 1.6;
+    }
+    .faq .answer .en { color: var(--ink-dim); display: block; margin-top: 4px; font-size: 12px; }
+
+    .toast {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: rgba(7,9,15,0.96); color: #fff; padding: 12px 22px; border-radius: 99px;
+      font-size: 13px; border: 1px solid var(--line-strong); z-index: 9999;
+      opacity: 0; transition: opacity 0.18s; pointer-events: none;
+    }
+    .toast.visible { opacity: 1; }
+
+    .anon-shield {
+      margin-top: 18px; padding: 22px 24px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+      color: var(--ink-mute); font-size: 13px;
+    }
+    .anon-shield a { color: #0b8aff; text-decoration: underline; }
+
+    @media (max-width: 760px) {
+      .ref-shell { padding: 8px 16px 64px; }
+      .ref-hero  { padding: 24px; }
+      .ref-stats { grid-template-columns: 1fr 1fr; }
+      .ref-section { padding: 18px; }
+      .code-card { grid-template-columns: 1fr; }
+      .code-card .code-block { font-size: 26px; }
+      .share-grid { grid-template-columns: 1fr; }
+      .qr-host { width: 180px; height: 180px; margin: 0 auto; }
+    }
+  </style>
+</head>
+<body class="ref">
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main class="ref-shell" id="main">
+
+  <!-- ============== Hero ============== -->
+  <section class="ref-hero">
+    <span class="eyebrow"><span class="dot"></span> 친구 초대 / Referral Program</span>
+    <h1>
+      친구를 초대하고, 평생 보상을 받으세요
+      <span class="en">Invite friends, earn for life</span>
+    </h1>
+    <p class="lede">
+      친구가 가입하고 거래할 때마다 자동으로 보상을 받습니다. 일회성 보너스가 아닌,
+      친구의 거래 수수료에서 평생 일정 비율이 함께 적립됩니다.
+      <span class="en">When a friend signs up with your code and trades, you both get rewarded — a signup bonus, a KYC bonus, a first-trade bonus, and a lifetime share of every fee they ever pay.</span>
+    </p>
+
+    <div id="campaign-host"></div>
+
+    <div class="code-card" id="code-card">
+      <div>
+        <div class="label">내 리퍼럴 코드 / Your code</div>
+        <div class="code-block" id="my-code">…</div>
+      </div>
+      <div class="actions">
+        <button type="button" id="copy-code">코드 복사 / Copy code</button>
+        <button type="button" class="ghost" id="copy-link">링크 복사 / Copy link</button>
+      </div>
+      <div class="share-link" id="share-link">…</div>
+    </div>
+  </section>
+
+  <!-- ============== Stats grid ============== -->
+  <section class="ref-stats">
+    <div class="ref-stat-card">
+      <div class="ko">초대한 친구</div>
+      <div class="en">Total signups</div>
+      <div class="big" id="s-total">—</div>
+      <div class="sub">코드로 가입한 사용자 / Signed up with your code</div>
+    </div>
+    <div class="ref-stat-card">
+      <div class="ko">자격 충족</div>
+      <div class="en">Qualified</div>
+      <div class="big pos" id="s-qual">—</div>
+      <div class="sub">KYC + 첫 거래 완료 / Completed KYC and first trade</div>
+    </div>
+    <div class="ref-stat-card">
+      <div class="ko">누적 수익</div>
+      <div class="en">Lifetime earnings</div>
+      <div class="big pos" id="s-total-earn">—</div>
+      <div class="sub">USDT 환산 / In USDT</div>
+    </div>
+    <div class="ref-stat-card">
+      <div class="ko">이번 달</div>
+      <div class="en">This month (30d)</div>
+      <div class="big" id="s-month">—</div>
+      <div class="sub">최근 30일 수익 / Earnings over 30 days</div>
+    </div>
+  </section>
+
+  <!-- ============== Earnings breakdown ============== -->
+  <section class="ref-section">
+    <h2>수익 내역 <span class="en">/ Earnings breakdown</span></h2>
+    <div class="breakdown-bar" id="breakdown-bar"></div>
+    <div class="breakdown-legend" id="breakdown-legend"></div>
+  </section>
+
+  <!-- ============== Recent referrals ============== -->
+  <section class="ref-section">
+    <h2>최근 초대 내역 <span class="en">/ Recent referrals</span></h2>
+    <table class="ref-table" id="recent-table" aria-label="최근 초대 내역 / Recent referrals">
+      <thead>
+        <tr>
+          <th scope="col">친구 / Referee</th>
+          <th scope="col">가입일 / Signed up</th>
+          <th scope="col">상태 / Status</th>
+          <th scope="col" class="r">적립 / Earned</th>
+        </tr>
+      </thead>
+      <tbody id="recent-tbody">
+        <tr><td colspan="4" style="color:var(--ink-mute); text-align:center; padding:24px;">
+          불러오는 중… / Loading…
+        </td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============== Leaderboard ============== -->
+  <section class="ref-section">
+    <h2>리더보드 <span class="en">/ Top referrers (30 days)</span></h2>
+    <table class="ref-table" id="lb-table" aria-label="리더보드 / Referral leaderboard">
+      <thead>
+        <tr>
+          <th scope="col">순위 / Rank</th>
+          <th scope="col">유저 / User</th>
+          <th scope="col" class="r">초대 / Referees</th>
+          <th scope="col" class="r">30일 수익 / 30d earnings</th>
+        </tr>
+      </thead>
+      <tbody id="lb-tbody">
+        <tr><td colspan="4" style="color:var(--ink-mute); text-align:center; padding:24px;">
+          불러오는 중… / Loading…
+        </td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============== Customize ============== -->
+  <section class="ref-section">
+    <h2>코드 변경 <span class="en">/ Customize your code</span></h2>
+    <form class="customize-form" id="customize-form" autocomplete="off">
+      <input id="custom-code-input" type="text" placeholder="예: MYNAME26" maxlength="12" minlength="4" aria-label="새 추천 코드 / New referral code" />
+      <button type="submit" id="customize-submit">변경 / Change</button>
+    </form>
+    <div class="customize-help" id="customize-help">
+      4–12자, 영문 대문자 + 숫자만 사용할 수 있습니다. <strong>한 번만</strong> 변경 가능합니다.
+      <span style="display:block;color:var(--ink-dim);margin-top:4px;">
+        4–12 chars, uppercase letters + digits only. You can change your code <strong>once</strong>.
+      </span>
+    </div>
+  </section>
+
+  <!-- ============== Share kit ============== -->
+  <section class="ref-section">
+    <h2>공유 키트 <span class="en">/ Share kit</span></h2>
+    <div class="share-grid">
+      <div class="qr-host" id="qr-host">…</div>
+      <div>
+        <div style="color:var(--ink-mute);font-size:13px;line-height:1.6;margin-bottom:12px;">
+          QR 코드를 사진으로 저장해 공유하거나, 아래 버튼으로 바로 공유할 수 있습니다.
+          <span style="display:block;color:var(--ink-dim);font-size:12px;margin-top:4px;">
+            Save the QR as an image, or share directly with the buttons below.
+          </span>
+        </div>
+        <div class="share-actions">
+          <a id="share-x"   href="#" target="_blank" rel="noopener">X (Twitter)</a>
+          <a id="share-tg"  href="#" target="_blank" rel="noopener">Telegram</a>
+          <a id="share-kt"  href="#" target="_blank" rel="noopener">KakaoTalk</a>
+          <button type="button" id="share-copy">링크 복사 / Copy link</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== FAQ ============== -->
+  <section class="ref-section faq">
+    <h2>자주 묻는 질문 <span class="en">/ FAQ</span></h2>
+    <details>
+      <summary>리퍼럴 프로그램은 어떻게 작동하나요? / How does it work?</summary>
+      <div class="answer">
+        내 리퍼럴 코드를 친구에게 공유하면, 친구가 가입할 때 그 코드를 입력합니다.
+        친구가 KYC를 완료하고 거래를 시작하면 즉시 보너스가 지급되고, 이후 친구의 거래
+        수수료의 20%가 평생 적립됩니다. 친구가 다른 친구를 초대하면 그 활동의 5%도 함께 받습니다.
+        <span class="en">Share your code. When a friend signs up with it, both of you earn rewards. After they complete KYC and their first qualifying trade, you start earning 20% of every fee they ever pay. If they also refer friends, you get 5% from that second tier.</span>
+      </div>
+    </details>
+    <details>
+      <summary>언제 보상이 지급되나요? / When am I paid?</summary>
+      <div class="answer">
+        보상은 60초마다 자동으로 USDT로 지갑에 입금됩니다. 거래량이 적은 시간엔 사소한 잔액이
+        누적될 수 있고, 1 USDT 이상이 모이면 다음 지급 사이클에 합산되어 지급됩니다.
+        <span class="en">Payouts run every 60 seconds straight to your wallet as USDT. Sub-1-USDT accruals batch into the next cycle to keep on-chain fees predictable.</span>
+      </div>
+    </details>
+    <details>
+      <summary>자격 거래는 무엇인가요? / What counts as a qualifying trade?</summary>
+      <div class="answer">
+        친구가 첫 가입 후 누적 거래 금액이 최소 $50 (USDT 환산)에 도달하면 자격 거래로 인정되고,
+        $20의 첫 거래 보너스가 지급됩니다. 평생 수수료 공유는 자격 충족 시점부터 시작됩니다.
+        <span class="en">A friend's first $50+ of cumulative USDT volume triggers the $20 first-trade bonus and starts the lifetime fee share.</span>
+      </div>
+    </details>
+    <details>
+      <summary>한도는 어떻게 되나요? / Are there limits?</summary>
+      <div class="answer">
+        한 사용자가 하루에 받을 수 있는 최대 보상은 $10,000 USDT입니다. 프로그램 전체 한도는
+        $1,000,000입니다. 한도에 도달하면 추가 보상은 다음 캠페인까지 보류됩니다.
+        <span class="en">A single referrer can earn up to $10,000 USDT per day. The lifetime program cap is $1M. Beyond that, accruals roll over to the next campaign.</span>
+      </div>
+    </details>
+    <details>
+      <summary>본인을 초대해도 되나요? / Can I refer myself?</summary>
+      <div class="answer">
+        아니요. 동일한 사용자가 본인의 코드를 사용하면 무효 처리되며, IP가 같거나 다른 형태로
+        본인 활동이 의심되면 보상이 환수될 수 있습니다.
+        <span class="en">No. Self-referrals are blocked at signup, and suspicious clusters (same IP, repeated devices, abnormal trade patterns) are reversed during routine audits.</span>
+      </div>
+    </details>
+  </section>
+
+  <section class="anon-shield">
+    <strong style="color:#fff;">개인정보 보호 / Privacy</strong>
+    초대받은 친구의 사용자 ID는 <span class="mono">u-***</span> 형태로 노출됩니다. 친구의 이메일이나
+    실제 ID는 절대 표시되지 않습니다. 거래 수수료 데이터도 익명화된 누적 통계로만 사용됩니다.
+    <span style="display:block;color:var(--ink-dim);font-size:12px;margin-top:6px;">
+      Your referees' user IDs are redacted to <span class="mono">u-***</span>. We never expose their email or unredacted ID to you, and we only count anonymized aggregate fee data toward your rewards.
+    </span>
+  </section>
+
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    getSession, escapeHtml, toast as appToast,
+  } from "./app.js";
+
+  renderHeader();
+  renderFooter();
+
+  const session = getSession();
+  if (!session || !session.token) {
+    location.href = "/app/signin.html?next=" + encodeURIComponent("/app/referral.html");
+    throw new Error("not authenticated");
+  }
+  const TOKEN = session.token;
+
+  // ---------- DOM ----------
+  const $myCode = document.getElementById("my-code");
+  const $shareLink = document.getElementById("share-link");
+  const $copyCode = document.getElementById("copy-code");
+  const $copyLink = document.getElementById("copy-link");
+  const $sTotal = document.getElementById("s-total");
+  const $sQual = document.getElementById("s-qual");
+  const $sEarn = document.getElementById("s-total-earn");
+  const $sMonth = document.getElementById("s-month");
+  const $brBar = document.getElementById("breakdown-bar");
+  const $brLeg = document.getElementById("breakdown-legend");
+  const $recentTbody = document.getElementById("recent-tbody");
+  const $lbTbody = document.getElementById("lb-tbody");
+  const $custInput = document.getElementById("custom-code-input");
+  const $custSubmit = document.getElementById("customize-submit");
+  const $custForm = document.getElementById("customize-form");
+  const $custHelp = document.getElementById("customize-help");
+  const $qr = document.getElementById("qr-host");
+  const $shareX = document.getElementById("share-x");
+  const $shareTg = document.getElementById("share-tg");
+  const $shareKt = document.getElementById("share-kt");
+  const $shareCopy = document.getElementById("share-copy");
+  const $toast = document.getElementById("toast");
+  const $campaign = document.getElementById("campaign-host");
+
+  function showToast(msg) {
+    $toast.textContent = msg;
+    $toast.classList.add("visible");
+    setTimeout(() => $toast.classList.remove("visible"), 1700);
+  }
+
+  function fmt(s) {
+    const n = Number(s || 0);
+    if (!Number.isFinite(n)) return s;
+    if (n === 0) return "$0";
+    if (n < 0.01) return "<$0.01";
+    return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+  function fmtTs(ts) {
+    if (!ts) return "—";
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString();
+  }
+
+  // ---------- QR (pure stdlib JS, no deps). Minimal numeric-Alphanumeric QR
+  // implementation would be overkill — we use a tiny Code-128/QR fallback by
+  // calling a 1×1 SVG that encodes the link visually via a deterministic grid
+  // derived from a hash. This is purely cosmetic (it's NOT scannable);
+  // we surface the link itself prominently as the canonical share medium.
+  // For a real QR we'd add a library; demo keeps it stdlib.
+  function renderPseudoQR(text) {
+    // Hash-grid pseudo-QR: SHA-like cheap hash → 25×25 grid.
+    const n = 25;
+    let h = 0;
+    const cells = [];
+    for (let i = 0; i < n * n; i++) {
+      const c = text.charCodeAt(i % text.length) || 1;
+      h = (h * 31 + c + i * 7) | 0;
+      cells.push(((h >> (i % 24)) & 1) === 1);
+    }
+    // Force corner anchors so it looks like a QR even though it's decorative.
+    const anchor = (r, c) => {
+      for (let dr = 0; dr < 7; dr++) for (let dc = 0; dc < 7; dc++) {
+        const i = (r + dr) * n + (c + dc);
+        const onRing = dr === 0 || dr === 6 || dc === 0 || dc === 6;
+        const center = dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4;
+        cells[i] = onRing || center;
+      }
+    };
+    anchor(0, 0); anchor(0, n - 7); anchor(n - 7, 0);
+    let rects = "";
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (cells[i * n + j]) {
+          rects += `<rect x="${j}" y="${i}" width="1" height="1" fill="#000"/>`;
+        }
+      }
+    }
+    return `<svg viewBox="0 0 ${n} ${n}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">${rects}</svg>`;
+  }
+
+  // ---------- Fetch + render ----------
+  async function api(path, opts) {
+    const r = await fetch(path, {
+      ...(opts || {}),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + TOKEN,
+        ...((opts && opts.headers) || {}),
+      },
+    });
+    return [r.status, await r.json().catch(() => ({}))];
+  }
+  async function apiPublic(path) {
+    const r = await fetch(path);
+    return [r.status, await r.json().catch(() => ({}))];
+  }
+
+  function renderCode(code, custom) {
+    $myCode.textContent = code;
+    const link = `${location.origin}/app/signin.html?tab=signup&ref=${encodeURIComponent(code)}`;
+    $shareLink.textContent = link;
+    $qr.innerHTML = renderPseudoQR(link);
+
+    const tweet = `zkCEX에서 거래 수수료를 함께 나누세요! 내 코드로 가입하면 둘 다 보너스를 받습니다: ${link}`;
+    $shareX.href  = `https://x.com/intent/tweet?text=${encodeURIComponent(tweet)}`;
+    $shareTg.href = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent("zkCEX referral")}`;
+    // KakaoTalk requires their SDK; we fall back to the share API.
+    $shareKt.href = `https://accounts.kakao.com/`;
+    $shareKt.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (navigator.share) {
+        navigator.share({ title: "zkCEX", text: tweet, url: link }).catch(() => {});
+      } else {
+        navigator.clipboard.writeText(link);
+        showToast("링크가 복사되었습니다 / Link copied");
+      }
+    });
+    $shareCopy.onclick = () => {
+      navigator.clipboard.writeText(link);
+      showToast("링크가 복사되었습니다 / Link copied");
+    };
+    $copyCode.onclick = () => {
+      navigator.clipboard.writeText(code);
+      showToast("코드가 복사되었습니다 / Code copied");
+    };
+    $copyLink.onclick = () => {
+      navigator.clipboard.writeText(link);
+      showToast("링크가 복사되었습니다 / Link copied");
+    };
+
+    if (custom) {
+      $custInput.value = code;
+      $custInput.disabled = true;
+      $custSubmit.disabled = true;
+      $custHelp.innerHTML =
+        '이미 변경하셨습니다. 코드는 한 번만 변경할 수 있습니다.' +
+        '<span style="display:block;color:var(--ink-dim);margin-top:4px;">' +
+        'You have already customized your code. Codes can only be changed once.</span>';
+    }
+  }
+
+  function renderStats(s) {
+    $sTotal.textContent = s.total_signups ?? 0;
+    $sQual.textContent  = s.qualified_signups ?? 0;
+    $sEarn.textContent  = fmt(s.total_earnings_usdt);
+    $sMonth.textContent = fmt(s.month_earnings_usdt);
+
+    // breakdown bar
+    const bd = s.lifetime_breakdown || {};
+    const types = [
+      { k: "signup_bonus",     label: "가입 보너스 / Signup",       color: "#0b3aff" },
+      { k: "kyc_bonus",        label: "KYC 보너스 / KYC",            color: "#5b8aff" },
+      { k: "first_trade_bonus",label: "첫 거래 / First trade",       color: "#2ee59b" },
+      { k: "fee_share_lvl1",   label: "수수료 공유 L1 / L1 share",   color: "#f0b429" },
+      { k: "fee_share_lvl2",   label: "수수료 공유 L2 / L2 share",   color: "#ff7a4a" },
+    ];
+    const vals = types.map(t => Number(bd[t.k] || 0));
+    const total = vals.reduce((a, b) => a + b, 0);
+    $brBar.innerHTML = "";
+    if (total <= 0) {
+      $brBar.innerHTML = `<div class="seg" style="flex:1;background:rgba(255,255,255,0.04);"></div>`;
+    } else {
+      types.forEach((t, i) => {
+        const v = vals[i];
+        if (v <= 0) return;
+        const seg = document.createElement("div");
+        seg.className = "seg";
+        seg.style.flex = String(v);
+        seg.style.background = t.color;
+        seg.title = `${t.label}: ${fmt(v)}`;
+        $brBar.appendChild(seg);
+      });
+    }
+    $brLeg.innerHTML = types.map((t, i) => `
+      <div class="pill">
+        <span class="sw" style="background:${t.color}"></span>
+        <span class="name">${t.label}</span>
+        <span class="v">${fmt(vals[i])}</span>
+      </div>
+    `).join("");
+
+    // recent
+    const rows = s.recent_referrals || [];
+    if (rows.length === 0) {
+      $recentTbody.innerHTML = `<tr><td colspan="4" style="color:var(--ink-mute); text-align:center; padding:24px;">아직 초대한 친구가 없습니다 / No referrals yet</td></tr>`;
+    } else {
+      $recentTbody.innerHTML = rows.map(r => `
+        <tr>
+          <td class="mono">${escapeHtml(r.referee || "u-***")}</td>
+          <td>${fmtTs(r.signup_at)}</td>
+          <td><span class="status-badge status-${escapeHtml(r.status || "pending")}">${escapeHtml(r.status || "pending")}</span></td>
+          <td class="r mono">${fmt(r.earned_usdt)}</td>
+        </tr>
+      `).join("");
+    }
+  }
+
+  function renderLeaderboard(lb) {
+    const rows = lb.leaderboard || [];
+    if (rows.length === 0) {
+      $lbTbody.innerHTML = `<tr><td colspan="4" style="color:var(--ink-mute); text-align:center; padding:24px;">아직 데이터가 없습니다 / No data yet</td></tr>`;
+      return;
+    }
+    $lbTbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.rank}</td>
+        <td class="mono">${escapeHtml(r.referrer)}</td>
+        <td class="r">${r.n_referees}</td>
+        <td class="r mono">${fmt(r.earnings_30d_usdt)}</td>
+      </tr>
+    `).join("");
+  }
+
+  function renderCampaign(c) {
+    if (!c) return;
+    $campaign.innerHTML = `
+      <div class="campaign-banner">
+        <div class="icon">★</div>
+        <div>
+          <div class="name">${escapeHtml(c.name)} <span style="color:var(--ink-dim);font-weight:500;">/ active campaign</span></div>
+          <div class="desc">${escapeHtml(c.description || "")} — 가입 ${fmt(c.signup_bonus_usdt)} · KYC ${fmt(c.kyc_bonus_usdt)} · 첫 거래 ${fmt(c.first_trade_bonus_usdt)} · 수수료 ${Math.round((c.fee_share_lvl1_bps || 0)/100)}% (L1) / ${Math.round((c.fee_share_lvl2_bps || 0)/100)}% (L2)</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Customize
+  $custForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const raw = ($custInput.value || "").trim().toUpperCase();
+    if (!/^[A-Z0-9]{4,12}$/.test(raw)) {
+      showToast("형식 오류: 4-12자 영문/숫자 / Use 4-12 uppercase letters or digits");
+      return;
+    }
+    $custSubmit.disabled = true;
+    const [status, body] = await api("/referral/customize", {
+      method: "POST", body: JSON.stringify({ custom_code: raw }),
+    });
+    $custSubmit.disabled = false;
+    if (status === 200 && body.ok) {
+      showToast("코드가 변경되었습니다 / Code customized");
+      await refreshAll();
+    } else if (body.error === "code_taken") {
+      showToast("이미 사용 중인 코드입니다 / Code already taken");
+    } else if (body.error === "already_customized") {
+      showToast("이미 변경하셨습니다 / Already customized");
+    } else {
+      showToast("변경 실패 / Failed: " + (body.error || status));
+    }
+  });
+
+  async function refreshAll() {
+    const [c1, b1] = await api("/referral/my-code");
+    if (c1 === 200) renderCode(b1.code, !!b1.custom_name);
+    const [c2, b2] = await api("/referral/stats");
+    if (c2 === 200) renderStats(b2);
+    const [c3, b3] = await apiPublic("/referral/leaderboard?limit=20");
+    if (c3 === 200) renderLeaderboard(b3);
+    const [c4, b4] = await apiPublic("/referral/campaigns");
+    if (c4 === 200 && b4.active) renderCampaign(b4.active);
+  }
+
+  refreshAll().catch(e => {
+    console.error("referral load failed:", e);
+    showToast("로딩 실패 / Failed to load");
+  });
+</script>
+
+</body>
+</html>

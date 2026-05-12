@@ -1,0 +1,47 @@
+# custody-coordinator authorization.
+# This service holds the most sensitive logic: it co-ordinates hot/warm/cold
+# wallet movements. Only chain, safu (anti-fraud) and ops may speak to it.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: custody-coordinator-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: custody-coordinator
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            paths:
+              - /custody/sign
+              - /custody/sign/*
+              - /custody/sweep
+              - /custody/sweep/*
+              - /custody/rebalance
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/chain
+              - cluster.local/ns/zkcex/sa/safu
+              - cluster.local/ns/zkcex/sa/ops
+    - to:
+        - operation:
+            methods: ["GET"]
+            paths:
+              - /custody/wallets
+              - /custody/wallets/*
+              - /custody/status
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/ops
+              - cluster.local/ns/zkcex/sa/metrics-aggregator
+              - cluster.local/ns/zkcex/sa/export
+    - to:
+        - operation:
+            paths: ["/custody/health"]
+      from:
+        - source:
+            namespaces: ["istio-system", "monitoring", "zkcex"]

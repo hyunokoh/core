@@ -1,0 +1,18 @@
+{{- if and .Values.ingress.enabled .Values.ingress.tls.enabled }}
+# ClusterIssuer for cert-manager (requires the cert-manager chart pre-installed).
+# Templated as a manifest so ArgoCD/Flux can apply it as part of the bundle.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.ingress.tls.issuer }}
+spec:
+  acme:
+    server: {{ .Values.ingress.certManager.server | quote }}
+    email: {{ .Values.ingress.certManager.email | quote }}
+    privateKeySecretRef:
+      name: {{ printf "%s-account-key" .Values.ingress.tls.issuer }}
+    solvers:
+      - http01:
+          ingress:
+            class: {{ .Values.ingress.className }}
+{{- end }}

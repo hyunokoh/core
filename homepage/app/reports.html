@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>리포트 / Reports — zkCEX</title>
+  <meta name="description" content="zkCEX 리포트 페이지. 거래/입출금 CSV 다운로드와 세금 원가 기준 리포트(FIFO/LIFO/HIFO)." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+</head>
+<body>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>리포트<span class="en">Reports</span></h1>
+  <p>거래/입출금 CSV 다운로드와 세금 원가 기준 리포트 / Download CSV exports and the cost-basis tax report.</p>
+</section>
+
+<main class="wallet-shell">
+
+  <section class="pol-card report-panel">
+    <h3>일반 리포트 / General reports</h3>
+    <p class="muted">아래 항목 중 하나를 선택해 CSV 파일로 받아보세요. 모든 파일은 UTF-8 BOM, ISO-8601 UTC, 로케일 독립적인 숫자 형식으로 작성됩니다.<br/>
+      Pick a report below; everything is UTF-8 with BOM, ISO-8601 UTC timestamps, and locale-independent numbers (Excel-friendly).</p>
+    <div class="report-list" id="report-list">
+      <div class="report-row muted">불러오는 중… / Loading…</div>
+    </div>
+  </section>
+
+  <section class="pol-card report-panel">
+    <h3>성능 / Performance</h3>
+    <p class="muted">최근 부하 테스트 결과를 확인합니다. 엔드포인트별 처리량·지연시간·오류율과 컨테이너 CPU 병목 분석.<br/>
+      Latest load-test report: per-endpoint throughput, latency, error rate, and a container-CPU bottleneck snapshot.</p>
+    <div class="report-row">
+      <span>
+        <strong>부하 테스트 리포트 / Load test report</strong>
+        <span class="dim mono" style="font-size:11px;">/app/load-report.html · k6 + python_runner</span>
+      </span>
+      <a class="btn btn-ghost btn-sm" href="/app/load-report.html" target="_blank" rel="noopener">
+        열기 / Open
+      </a>
+    </div>
+    <p class="muted" style="margin-top:14px;font-size:12px;line-height:1.55;">
+      리포트는 <code>tools/load_test/build_report.py</code> 실행 시 갱신됩니다.<br/>
+      <span class="dim">Regenerate by running <code>python3 tools/load_test/build_report.py</code> after a load run.</span>
+    </p>
+  </section>
+
+  <section class="pol-card report-panel">
+    <h3>세금 리포트 / Tax report</h3>
+    <p class="muted">자동 계산된 원가 기준(cost basis) 손익 보고서입니다. FIFO·LIFO·HIFO 중 회계 방식을 선택하세요.<br/>
+      Auto-generated realized P&amp;L. Choose an accounting method (FIFO / LIFO / HIFO).</p>
+
+    <div class="report-row">
+      <span>회계 방식 / Method</span>
+      <select id="tax-method">
+        <option value="fifo">FIFO (선입선출)</option>
+        <option value="lifo">LIFO (후입선출)</option>
+        <option value="hifo">HIFO (고가-우선)</option>
+      </select>
+    </div>
+    <div class="report-row">
+      <span>국가 / Country</span>
+      <select id="tax-country">
+        <option value="KR">대한민국 / South Korea</option>
+        <option value="US">미국 / United States</option>
+        <option value="JP">일본 / Japan</option>
+        <option value="SG">싱가포르 / Singapore</option>
+        <option value="OTHER">기타 / Other</option>
+      </select>
+    </div>
+    <div class="report-row">
+      <span>시작일 / From</span>
+      <input type="date" id="tax-from" />
+    </div>
+    <div class="report-row">
+      <span>종료일 / To</span>
+      <input type="date" id="tax-to" />
+    </div>
+
+    <div class="report-actions">
+      <button class="btn btn-primary" type="button" id="tax-download">
+        다운로드 / Download
+      </button>
+    </div>
+
+    <p class="muted" id="tax-disclaimer" style="margin-top:14px;font-size:12px;line-height:1.55;">
+      이 자료는 자동 계산된 참고용 산출물입니다. 정확한 신고는 회계사 또는 세무사와 상의하세요.<br/>
+      <span class="dim">This is a working draft, not tax advice. Consult a CPA.</span>
+    </p>
+  </section>
+
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter, escapeHtml, toast,
+    getSession, requireSession,
+  } from "./app.js";
+
+  const session = requireSession({ redirectTo: "/app/signin.html" });
+  if (session) {
+    renderHeader();
+    renderFooter();
+
+    // ----- Generic exports list ------------------------------------------
+    async function loadIndex() {
+      const host = document.getElementById("report-list");
+      try {
+        const res = await fetch("/export/index.json");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const j = await res.json();
+        const rows = (j.exports || []).map(e => {
+          const filters = (e.filters || []).map(f => escapeHtml(f)).join(", ") || "—";
+          // The /export/tax.csv row gets its own panel below; skip duplicate.
+          if (e.path === "/export/tax.csv") return "";
+          return `
+            <div class="report-row">
+              <span>
+                <strong>${escapeHtml(e.label)}</strong>
+                <span class="dim mono" style="font-size:11px;">${escapeHtml(e.path)} · ${filters}</span>
+              </span>
+              <button class="btn btn-ghost btn-sm" data-export-path="${escapeHtml(e.path)}">
+                다운로드 / Download
+              </button>
+            </div>
+          `;
+        }).join("");
+        host.innerHTML = rows || `<div class="report-row muted">사용 가능한 리포트가 없습니다 / No reports available.</div>`;
+        host.querySelectorAll("[data-export-path]").forEach(b => {
+          b.addEventListener("click", () => downloadExport(b.dataset.exportPath));
+        });
+      } catch (e) {
+        host.innerHTML = `<div class="report-row" style="color:var(--err,#ff5371);">불러오기 실패: ${escapeHtml(String(e.message || e))}</div>`;
+      }
+    }
+
+    async function downloadExport(path, query) {
+      const s = getSession();
+      if (!s) { toast("로그인 필요", "Sign in required"); return; }
+      const url = query ? `${path}?${query}` : path;
+      try {
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`);
+        }
+        const blob = await res.blob();
+        const cd = res.headers.get("Content-Disposition") || "";
+        const m = /filename="([^"]+)"/.exec(cd);
+        const fname = m ? m[1] : path.split("/").pop().replace(/\?.*$/, "");
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        toast("다운로드 시작 / Download started", fname);
+      } catch (e) {
+        console.warn("download failed", e);
+        toast("다운로드 실패", String(e.message || e));
+      }
+    }
+
+    // ----- Tax report ----------------------------------------------------
+    document.getElementById("tax-download").addEventListener("click", () => {
+      const method  = document.getElementById("tax-method").value;
+      const country = document.getElementById("tax-country").value;
+      const f = document.getElementById("tax-from").value;
+      const t = document.getElementById("tax-to").value;
+      const qs = new URLSearchParams();
+      qs.set("method", method);
+      if (country) qs.set("country_code", country);
+      if (f) qs.set("from_ms", String(Date.parse(f + "T00:00:00Z")));
+      if (t) qs.set("to_ms",   String(Date.parse(t + "T23:59:59Z")));
+      downloadExport("/export/tax.csv", qs.toString());
+    });
+
+    loadIndex();
+  }
+</script>
+
+</body>
+</html>

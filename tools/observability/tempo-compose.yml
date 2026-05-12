@@ -1,0 +1,16 @@
+services:
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: zkcex-tempo
+    ports:
+      - "3200:3200"   # tempo query API (used by Grafana datasource)
+      - "4317:4317"   # OTLP gRPC ingest
+      - "4318:4318"   # OTLP HTTP ingest (used by tools/otel/trace.py)
+    volumes:
+      - ./tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    command: -config.file=/etc/tempo/tempo.yml
+    restart: unless-stopped
+
+volumes:
+  tempo-data:

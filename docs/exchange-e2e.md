@@ -10,6 +10,56 @@ tools/e2e/run_exchange_e2e.sh --package --build --reset --keep-running
 
 Use `--package` after code changes so Docker images copy fresh service jars, and use `--build` when you want the app images rebuilt. Use `--reset` when you want a clean Kafka/Postgres/Redis/Vault state. Omit `--keep-running` if you want the script to stop the main app containers after the flow completes.
 
+## Light Profile
+
+For constrained local machines, use the light profile to verify the core signed API path without the full secondary-market and restart suite:
+
+```bash
+tools/e2e/run_exchange_e2e.sh --package --build --light-profile --reset
+```
+
+The light profile uses `preferences-e2e-light.yml`, keeps `ETH_USDT` and `BTC_USDT`, skips `matching-engine-duo` and the `SOL_USDT`/`DOGE_USDT`/`TON_USDT` waits, and exits after the signed Binance-compatible API core checks. This is the fastest Docker-backed path for MVP/demo validation. Keep `--package --build` when validating code changes so the `:e2e` Docker images cannot reuse stale service jars.
+
+On macOS where `/bin/bash` is 3.2, run the script from a Linux/bash 4+ container:
+
+```bash
+docker run --rm \
+  -v "$PWD:$PWD" \
+  -v "$HOME/.docker/run/docker.sock:/var/run/docker.sock" \
+  -w "$PWD" \
+  docker:cli \
+  sh -lc 'apk add --no-cache bash jq curl coreutils >/dev/null && OPEX_E2E_ALLOW_AMD64_EMULATION=1 bash tools/e2e/run_exchange_e2e.sh --light-profile --reset'
+```
+
+The Docker CLI wrapper is intended for rerunning an already packaged/built stack from a bash 4+ environment. For code-change validation, run the host command with `--package --build` first so the images contain the current jars.
+
+When the script runs inside Docker it resolves the host-published HTTP ports through `host.docker.internal`; set `E2E_HTTP_HOST` only if your Docker environment uses a different host name or IP.
+
+## Local Platform Caveat
+
+The full profile is the production-readiness gate, but it needs a sufficiently sized Docker environment. Older E2E Kafka/Zookeeper images were amd64-only and ran under emulation on Apple Silicon, which could make the full profile reach `ready: api` and then fail later because `core-kafka-1-1` was OOM-killed. The E2E stack now uses Confluent Platform `7.6.1` images, which publish both amd64 and arm64 manifests, so Apple Silicon no longer needs amd64 emulation for Kafka/Zookeeper when images are rebuilt.
+
+If a local override reintroduces `platform: linux/amd64` for Kafka/Zookeeper, the script fails fast for full-profile arm64 runs unless `OPEX_E2E_ALLOW_AMD64_EMULATION=1` is set. `--light-profile` is allowed as constrained demo/MVP evidence, but it is not production sign-off evidence.
+
+The script also checks Docker memory before starting the stack:
+
+- `--light-profile`: at least `4096 MiB` by default.
+- Full profile: at least `6144 MiB` by default.
+- Override with `OPEX_E2E_MIN_DOCKER_MEMORY_MB=<mb>` only when intentionally debugging an under-provisioned run.
+- Skip the check with `OPEX_E2E_SKIP_RESOURCE_CHECK=1` only when testing the preflight itself.
+
+Treat a light-profile pass as MVP/demo evidence, not production evidence. Production readiness still requires a full profile pass on an adequately sized amd64/Linux runner or an arm64-native Kafka/Zookeeper E2E stack.
+
+## CI Gate
+
+The `Exchange E2E` GitHub Actions workflow runs the full profile on an amd64 Ubuntu runner for pull requests and `main` pushes that touch exchange services, Docker/E2E configuration, or this runbook. This CI run is the production-readiness gate for the real Docker-backed exchange path:
+
+```bash
+tools/e2e/run_exchange_e2e.sh --package --build --reset
+```
+
+On failure the workflow uploads `/tmp/opex-e2e-*.json`, `docker compose ps`, and core service logs including Kafka, API, wallet, accountant, matching, market, eventlog, bc-gateway, Vault, and Consul.
+
 ## What It Verifies
 
 - Wallet preferences are loaded from `/preferences.yml` and seed ETH/USDT currencies.

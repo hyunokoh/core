@@ -1,0 +1,37 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require release tag to point at main history
+        run: |
+          git fetch origin main
+          TAG_COMMIT="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          git merge-base --is-ancestor "$TAG_COMMIT" origin/main || {
+            echo "Release tag $GITHUB_REF_NAME points at $TAG_COMMIT, which is not contained in origin/main." >&2
+            exit 1
+          }
+      - name: Build changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            git log --pretty=format:'- %s (%h)' "$PREV_TAG"..HEAD > CHANGELOG.md
+          else
+            git log --pretty=format:'- %s (%h)' > CHANGELOG.md
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            CHANGELOG.md
+            tools/deploy/k8s/charts/zkcex/Chart.yaml
+          body_path: CHANGELOG.md

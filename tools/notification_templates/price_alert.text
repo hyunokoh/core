@@ -1,0 +1,10 @@
+{title}
+
+{body}
+
+Symbol:    {symbol}
+Condition: {condition}
+Threshold: {threshold}
+Last:      {last_price}
+
+— zkCEX

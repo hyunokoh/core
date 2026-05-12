@@ -1,0 +1,205 @@
+{{- if .Values.patroni.enabled }}
+# Patroni StatefulSet — see tools/deploy/k8s/patroni/patroni-statefulset.yaml
+# for the standalone (non-templated) reference. This file mirrors that and
+# is gated by .Values.patroni.enabled.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: patroni
+  labels:
+    {{- include "zkcex.labels" (dict "name" "patroni" "Values" .Values "Release" .Release "Chart" .Chart) | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: patroni-headless
+  replicas: {{ .Values.patroni.replicas | default 3 }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "zkcex.selectorLabels" (dict "name" "patroni") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zkcex.selectorLabels" (dict "name" "patroni") | nindent 8 }}
+        app.kubernetes.io/component: postgres
+        spilo-role: replica
+    spec:
+      serviceAccountName: patroni
+      terminationGracePeriodSeconds: 600
+      affinity:
+        podAntiAffinity:
+          {{- if .Values.patroni.topology.requireSeparateNodes }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: patroni
+              topologyKey: kubernetes.io/hostname
+          {{- end }}
+          {{- if .Values.patroni.topology.preferSeparateZones }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: patroni
+                topologyKey: topology.kubernetes.io/zone
+          {{- end }}
+      securityContext:
+        fsGroup: 103
+      containers:
+        - name: patroni
+          image: {{ .Values.patroni.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+            - name: patroni-api
+              containerPort: 8008
+          env:
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: PATRONI_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: PATRONI_KUBERNETES_POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            - name: PATRONI_KUBERNETES_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: PATRONI_KUBERNETES_LABELS
+              value: '{"app.kubernetes.io/name":"patroni"}'
+            - name: PATRONI_KUBERNETES_USE_ENDPOINTS
+              value: "true"
+            - name: PATRONI_KUBERNETES_BYPASS_API_SERVICE
+              value: "true"
+            - name: PATRONI_RESTAPI_LISTEN
+              value: 0.0.0.0:8008
+            - name: PATRONI_RESTAPI_CONNECT_ADDRESS
+              value: $(POD_IP):8008
+            - name: PATRONI_POSTGRESQL_LISTEN
+              value: 0.0.0.0:5432
+            - name: PATRONI_POSTGRESQL_CONNECT_ADDRESS
+              value: $(POD_IP):5432
+            - name: PATRONI_POSTGRESQL_DATA_DIR
+              value: /home/postgres/pgdata/pgroot/data
+            - name: PATRONI_POSTGRESQL_PGPASS
+              value: /home/postgres/.pgpass
+
+            - name: SCOPE
+              value: {{ .Values.patroni.scope | quote }}
+            - name: PATRONI_SCOPE
+              value: {{ .Values.patroni.scope | quote }}
+            - name: PGVERSION
+              value: {{ .Values.patroni.pgVersion | quote }}
+
+            - name: PATRONI_SUPERUSER_USERNAME
+              valueFrom: {secretKeyRef: {name: postgres-superuser, key: username}}
+            - name: PATRONI_SUPERUSER_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres-superuser, key: password}}
+            - name: PATRONI_REPLICATION_USERNAME
+              valueFrom: {secretKeyRef: {name: postgres-replication-user, key: username}}
+            - name: PATRONI_REPLICATION_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres-replication-user, key: password}}
+            - name: PGUSER_SUPERUSER
+              valueFrom: {secretKeyRef: {name: postgres-superuser, key: username}}
+            - name: PGPASSWORD_SUPERUSER
+              valueFrom: {secretKeyRef: {name: postgres-superuser, key: password}}
+            - name: PGUSER_STANDBY
+              valueFrom: {secretKeyRef: {name: postgres-replication-user, key: username}}
+            - name: PGPASSWORD_STANDBY
+              valueFrom: {secretKeyRef: {name: postgres-replication-user, key: password}}
+            - name: PGUSER_ADMIN
+              valueFrom: {secretKeyRef: {name: postgres-superuser, key: username}}
+            - name: PGPASSWORD_ADMIN
+              valueFrom: {secretKeyRef: {name: postgres-superuser, key: password}}
+
+            - name: USE_WALG_BACKUP
+              value: {{ .Values.patroni.walg.enabled | quote }}
+            - name: USE_WALG_RESTORE
+              value: {{ .Values.patroni.walg.enabled | quote }}
+            {{- if .Values.patroni.walg.enabled }}
+            - name: WALG_S3_PREFIX
+              value: {{ .Values.patroni.walg.s3Prefix | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: {{ .Values.patroni.walg.secretName }}, key: access_key}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.patroni.walg.secretName }}, key: secret_key}}
+            {{- end }}
+            - name: ENABLE_PG_MON
+              value: "false"
+
+            - name: PATRONI_TTL
+              value: {{ .Values.patroni.ttl | quote }}
+            - name: PATRONI_LOOP_WAIT
+              value: {{ .Values.patroni.loop_wait | quote }}
+            - name: PATRONI_RETRY_TIMEOUT
+              value: {{ .Values.patroni.retry_timeout | quote }}
+            - name: PATRONI_MAXIMUM_LAG_ON_FAILOVER
+              value: {{ .Values.patroni.maximum_lag_on_failover | quote }}
+          volumeMounts:
+            - name: pgdata
+              mountPath: /home/postgres/pgdata
+            - name: patroni-config
+              mountPath: /etc/patroni
+              readOnly: true
+          resources:
+            {{- toYaml .Values.patroni.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8008
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: 8008
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - patronictl -c /etc/patroni/patroni.yaml switchover --master $POD_NAME --force || true
+      volumes:
+        - name: patroni-config
+          configMap:
+            name: patroni-config
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.patroni.storage.storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.patroni.storage.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: patroni-headless
+  labels:
+    {{- include "zkcex.labels" (dict "name" "patroni" "Values" .Values "Release" .Release "Chart" .Chart) | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "zkcex.selectorLabels" (dict "name" "patroni") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+    - name: patroni-api
+      port: 8008
+      targetPort: 8008
+{{- end }}

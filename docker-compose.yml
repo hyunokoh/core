@@ -1,5 +1,5 @@
 x-postgres-db: &postgres-db
-  image: ghcr.io/opexdev/postgres-opex
+  image: ghcr.io/opexdev/postgres-opex:${TAG:-latest}
   environment:
     - POSTGRES_USER=${DB_USER:-opex}
     - POSTGRES_PASSWORD=${DB_PASS:-hiopex}
@@ -12,10 +12,9 @@ x-postgres-db: &postgres-db
     restart_policy:
       condition: on-failure
 
-version: '3.8'
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.1.1
+    image: confluentinc/cp-zookeeper:7.6.1
     hostname: zookeeper
     volumes:
       - zookeeper-data:/var/lib/zookeeper/data
@@ -23,8 +22,6 @@ services:
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
       - ZOOKEEPER_CLIENT_PORT=2181
-    networks:
-      - default
     deploy:
       restart_policy:
         condition: on-failure
@@ -44,8 +41,6 @@ services:
       - KAFKA_OPTS=-javaagent:/opt/prometheus/jmx-exporter.jar=1234:/opt/prometheus/kafka-jmx-exporter.yml
     depends_on:
       - zookeeper
-    networks:
-      - default
     deploy:
       restart_policy:
         condition: on-failure
@@ -65,8 +60,6 @@ services:
       - KAFKA_OPTS=-javaagent:/opt/prometheus/jmx-exporter.jar=1234:/opt/prometheus/kafka-jmx-exporter.yml
     depends_on:
       - zookeeper
-    networks:
-      - default
     deploy:
       restart_policy:
         condition: on-failure
@@ -86,8 +79,6 @@ services:
       - KAFKA_OPTS=-javaagent:/opt/prometheus/jmx-exporter.jar=1234:/opt/prometheus/kafka-jmx-exporter.yml
     depends_on:
       - zookeeper
-    networks:
-      - default
     deploy:
       restart_policy:
         condition: on-failure
@@ -100,8 +91,6 @@ services:
             docker-kafka-server:
               properties:
                 bootstrap.servers: "kafka-1:29092,kafka-2:29092,kafka-3:29092"
-    networks:
-      - default
     depends_on:
       - kafka-1
       - kafka-2
@@ -135,8 +124,6 @@ services:
     image: hashicorp/consul
     environment:
       - CONSUL_BIND_INTERFACE=eth0
-    networks:
-      - default
     deploy:
       restart_policy:
         condition: on-failure
@@ -220,7 +207,9 @@ services:
     configs:
       - preferences.yml
     networks:
-      - default
+      default:
+        aliases:
+          - opex-accountant
     depends_on:
       - kafka-1
       - kafka-2
@@ -308,7 +297,9 @@ services:
       - KAFKA_IP_PORT=kafka-1:29092,kafka-2:29092,kafka-3:29092
       - CONSUL_HOST=consul
     networks:
-      - default
+      default:
+        aliases:
+          - opex-matching-gateway
     depends_on:
       - kafka-1
       - kafka-2
@@ -348,7 +339,9 @@ services:
       - vault
       - postgres-auth
     networks:
-      - default
+      default:
+        aliases:
+          - opex-auth
     labels:
       collect_logs: "true"
     deploy:
@@ -378,7 +371,9 @@ services:
       - vault
       - postgres-wallet
     networks:
-      - default
+      default:
+        aliases:
+          - opex-wallet
     labels:
       collect_logs: "true"
     deploy:
@@ -405,7 +400,9 @@ services:
       - postgres-market
       - redis-cache
     networks:
-      - default
+      default:
+        aliases:
+          - opex-market
     labels:
       collect_logs: "true"
     deploy:
@@ -464,7 +461,9 @@ services:
       - vault
       - postgres-bc-gateway
     networks:
-      - default
+      default:
+        aliases:
+          - opex-bc-gateway
     labels:
       collect_logs: "true"
     deploy:

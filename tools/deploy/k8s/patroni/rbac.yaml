@@ -1,0 +1,65 @@
+# Patroni in K8s-DCS mode talks directly to the Kubernetes API to:
+#   * read its own pod (to learn its IP, name, labels)
+#   * patch pod labels (to write `spilo-role=master|replica`)
+#   * read/write the cluster's Endpoints object (the DCS itself)
+#   * read other Patroni pods (member discovery)
+#   * read/list the headless Service (peer discovery)
+#
+# Without these RBAC rules, Patroni will boot but never converge — it will
+# log "Failed to update the cluster" and the StatefulSet pods sit in
+# CrashLoopBackOff. If you see that, check this Role first.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patroni
+  labels:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: zkcex
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: patroni
+  labels:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: zkcex
+rules:
+  # Endpoints == DCS storage in K8s mode. Patroni stores leader-lease + config
+  # in annotations on the headless Endpoints object.
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  # Services: read for peer discovery; patch for keeping our role-selector
+  # services in sync if Spilo wants to (it normally doesn't, but the upstream
+  # Patroni image expects the verb).
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  # Pods: patch own labels (spilo-role transitions) and list peers.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # ConfigMaps: Patroni falls back to ConfigMap-based DCS if
+  # use_endpoints=false; harmless to grant and matches upstream samples.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  # Events: nicer kubectl describe output during failover.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: patroni
+  labels:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: zkcex
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: patroni
+subjects:
+  - kind: ServiceAccount
+    name: patroni

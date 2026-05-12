@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#0f172a"/><ellipse cx="250" cy="130" rx="51" ry="101" fill="#06b6d4" opacity="0.80" transform="rotate(0.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="56" ry="77" fill="#facc15" opacity="0.80" transform="rotate(60.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="50" ry="94" fill="#facc15" opacity="0.62" transform="rotate(120.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="60" ry="109" fill="#facc15" opacity="0.63" transform="rotate(180.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="45" ry="74" fill="#06b6d4" opacity="0.63" transform="rotate(240.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="37" ry="96" fill="#a855f7" opacity="0.69" transform="rotate(300.0 250 250)"/>
+<circle cx="250" cy="250" r="32" fill="#a855f7"/><text x="480" y="490" font-family="JetBrains Mono, monospace" font-size="22" fill="#facc15" text-anchor="end" opacity="0.9">#20</text><text x="20" y="490" font-family="JetBrains Mono, monospace" font-size="14" fill="#a855f7" opacity="0.8">zkCEX</text></svg>

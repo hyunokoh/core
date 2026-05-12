@@ -1,140 +1,511 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>zkCEX — Verifiable Exchange Backend</title>
-<meta name="description" content="zkCEX is a compliance-friendly exchange backend: a Binance-compatible REST API, a real-time matching engine, 5-minute Proof-of-Liabilities, and integrated AML through zkAML." />
-<meta property="og:title" content="zkCEX — Verifiable CEX Backend" />
-<meta property="og:description" content="Binance-compatible REST + Merkle-sum PoL + zkAML-driven decisions in one stack." />
-<link rel="canonical" href="/en/" />
-<link rel="alternate" hreflang="ko" href="/" />
-<link rel="alternate" hreflang="en" href="/en/" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="../styles.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>zkCEX — Trade with confidence. Verify your balance yourself.</title>
+  <meta name="description" content="A verifiable cryptocurrency exchange. We publish a fresh proof of all customer funds every 5 minutes. You can confirm yours is included — no trust required." />
+  <meta property="og:title" content="zkCEX — The verifiable exchange" />
+  <meta property="og:description" content="Fresh proof of customer funds every 5 minutes. Verify your balance yourself." />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
 </head>
 <body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
 
-<header class="topbar">
-  <div class="topbar-inner">
-    <a class="brand" href="/en/"><span class="mark"></span>zkCEX</a>
-    <nav class="nav">
-      <a href="#features">Product</a>
-      <a href="#stack">Stack</a>
-      <a href="#integrations">Integrations</a>
-      <a href="#api">API</a>
-      <span class="lang-toggle">
-        <a href="/">KO</a>
-        <a class="active" href="/en/">EN</a>
-      </span>
+<!-- =================== Header =================== -->
+<header class="site-header">
+  <div class="container header-row">
+    <a class="brand" href="/en/">
+      <span class="brand-mark" aria-hidden="true">zk</span>
+      <span>zkCEX</span>
+    </a>
+
+    <nav class="site-nav" aria-label="Main">
+      <a href="#markets">Markets</a>
+      <a href="#verify">Verify Balance</a>
+      <a href="/app/proof-of-reserves.html">Transparency</a>
+      <a href="#fees">Fees</a>
+      <a href="#faq">Support</a>
     </nav>
+
+    <div class="header-cta">
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <a href="/">KO</a>
+        <a href="/en/" class="active" aria-current="page">EN</a>
+      </div>
+      <a class="btn-ghost-sm" href="/app/signin.html" data-onboard>Sign in</a>
+      <a class="btn btn-primary" href="/app/signin.html" data-onboard>Get started <span class="btn-arrow" aria-hidden="true">→</span></a>
+    </div>
   </div>
 </header>
 
-<main>
+<main id="main">
 
+<!-- =================== Hero =================== -->
 <section class="hero">
-  <div class="hero-inner">
-    <h1>Verifiable CEX backend</h1>
-    <p class="tagline">Binance-compatible REST + a real-time matching engine + 5-minute Proof-of-Liabilities + zkAML-driven deposit/withdraw decisions. Operators audit; users verify their own balance.</p>
-    <div class="cta-row">
-      <a class="cta primary" href="#api">API docs</a>
-      <a class="cta secondary" href="#integrations">Integration guide</a>
+  <div class="container hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow"><span class="pulse" aria-hidden="true"></span>Verifiable Exchange</span>
+      <h1>Trade with confidence.<br/><span class="accent">Verify your balance yourself.</span></h1>
+      <p class="lead">
+        We publish a fresh proof of all customer funds every five minutes.
+        You can confirm yours is included — no trust required, just open the app and check.
+      </p>
+
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/app/signin.html" data-onboard>Start trading <span class="btn-arrow" aria-hidden="true">→</span></a>
+        <a class="btn btn-ghost" href="#verify">See how verification works</a>
+      </div>
+
+      <div class="proof-strip" role="list">
+        <span class="pill" role="listitem">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 6v6c0 5 3.4 9.3 8 10 4.6-.7 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+          5-min proof of reserves
+        </span>
+        <span class="pill" role="listitem">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>
+          0.05% maker fees
+        </span>
+        <span class="pill" role="listitem">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13 13 0 0 1 0 18M12 3a13 13 0 0 0 0 18"/></svg>
+          24/7 support
+        </span>
+      </div>
     </div>
-    <p class="meta">Backend API + operator console. End-user trading UIs are built by integrators on top of this API.</p>
-  </div>
-</section>
 
-<section id="features" class="features">
-  <div class="section-inner">
-    <h2>Components</h2>
-    <div class="feature-grid">
-      <article class="card">
-        <h3>Binance-compatible REST</h3>
-        <p>Standard surface (<code>/v3/order</code>, <code>/v3/account</code>, <code>/v3/myTrades</code>, <code>/v3/depth</code>, <code>/v3/exchangeInfo</code>, <code>/v3/klines</code>). Existing Binance clients (SDKs and bots) plug in unchanged.</p>
-      </article>
-      <article class="card">
-        <h3>Real-time matching engine</h3>
-        <p>Kafka-driven order stream. GTC/IOC/FOK, MARKET orders, price/time priority, self-trade prevention (LIMIT and MARKET, both directions) — all covered end-to-end.</p>
-      </article>
-      <article class="card">
-        <h3>Proof-of-Liabilities (5-min epochs)</h3>
-        <p>Per-user nonce + Merkle-sum tree lets every user verify locally that their balance is included in the published total liability. Exposed via <code>/v3/pol/inclusion-proof</code>.</p>
-      </article>
-      <article class="card">
-        <h3>Integrated AML (zkAML)</h3>
-        <p>Every deposit and withdraw passes through zkAML for an ALLOW/REVIEW/BLOCK decision. Decisions are audit-logged; if zkAML is unreachable the system fails closed into the review queue.</p>
-      </article>
-      <article class="card">
-        <h3>Wallet + bc-gateway</h3>
-        <p>Multi-chain deposits and withdrawals, address provisioning, transferRef de-duplication, and a tested withdraw state machine (<code>CREATED → PROCESSING → DONE/REJECTED/CANCELED</code>).</p>
-      </article>
-      <article class="card">
-        <h3>Observability</h3>
-        <p>Spring Actuator, Prometheus metrics, structured logging, and Vault-backed secrets. A 25+ minute e2e validates correctness on every change.</p>
-      </article>
+    <div class="hero-visual" aria-hidden="true">
+      <div class="device-mock">
+        <div class="mock-head">
+          <div class="mock-pair"><span class="ico-eth"></span> ETH/USDT</div>
+          <div class="price-tag">
+            <span class="num">$2,341.52</span>
+            <span class="delta">+1.42%</span>
+          </div>
+        </div>
+
+        <div class="chart">
+          <svg viewBox="0 0 320 140" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="ga" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stop-color="#0b3aff" stop-opacity="0.22"/>
+                <stop offset="100%" stop-color="#0b3aff" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path d="M0 110 L24 95 L48 102 L72 80 L96 88 L120 70 L144 78 L168 56 L192 64 L216 48 L240 42 L264 50 L288 36 L320 28 L320 140 L0 140 Z" fill="url(#ga)"/>
+            <path d="M0 110 L24 95 L48 102 L72 80 L96 88 L120 70 L144 78 L168 56 L192 64 L216 48 L240 42 L264 50 L288 36 L320 28" fill="none" stroke="#0b3aff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <g>
+              <line x1="50" y1="78" x2="50" y2="118" stroke="#16a34a" stroke-width="1.2"/>
+              <rect x="46" y="92" width="8" height="18" fill="#16a34a" rx="1"/>
+              <line x1="86" y1="62" x2="86" y2="98" stroke="#c0303f" stroke-width="1.2"/>
+              <rect x="82" y="72" width="8" height="20" fill="#c0303f" rx="1"/>
+              <line x1="122" y1="48" x2="122" y2="84" stroke="#16a34a" stroke-width="1.2"/>
+              <rect x="118" y="58" width="8" height="20" fill="#16a34a" rx="1"/>
+              <line x1="158" y1="34" x2="158" y2="68" stroke="#16a34a" stroke-width="1.2"/>
+              <rect x="154" y="42" width="8" height="22" fill="#16a34a" rx="1"/>
+              <line x1="194" y1="40" x2="194" y2="74" stroke="#c0303f" stroke-width="1.2"/>
+              <rect x="190" y="50" width="8" height="18" fill="#c0303f" rx="1"/>
+              <line x1="230" y1="20" x2="230" y2="58" stroke="#16a34a" stroke-width="1.2"/>
+              <rect x="226" y="28" width="8" height="22" fill="#16a34a" rx="1"/>
+              <line x1="266" y1="22" x2="266" y2="56" stroke="#16a34a" stroke-width="1.2"/>
+              <rect x="262" y="32" width="8" height="20" fill="#16a34a" rx="1"/>
+            </g>
+          </svg>
+        </div>
+
+        <div class="book" aria-hidden="true">
+          <div class="b-row ask" style="--w:55%"><span class="px">2,343.10</span><span class="qt">0.842</span></div>
+          <div class="b-row bid" style="--w:62%"><span class="px">2,341.40</span><span class="qt">1.204</span></div>
+          <div class="b-row ask" style="--w:42%"><span class="px">2,343.65</span><span class="qt">0.318</span></div>
+          <div class="b-row bid" style="--w:48%"><span class="px">2,340.85</span><span class="qt">0.677</span></div>
+          <div class="b-row ask" style="--w:30%"><span class="px">2,344.20</span><span class="qt">0.215</span></div>
+          <div class="b-row bid" style="--w:38%"><span class="px">2,340.10</span><span class="qt">0.512</span></div>
+        </div>
+
+        <div class="verified-badge">
+          <span class="shield" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12 10 17 19 8"/></svg>
+          </span>
+          <span class="vb-text">
+            <span class="vb-title">Balance verified</span>
+            <span class="vb-sub">Just now · 14:32 UTC</span>
+          </span>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
-<section id="stack" class="how">
-  <div class="section-inner">
-    <h2>Architecture</h2>
-    <ol class="how-list">
-      <li><strong>API layer</strong> — <code>api-binance-rest</code> (Kotlin/Spring WebFlux). Surfaces the Binance-compatible endpoints to authenticated users.</li>
-      <li><strong>Matching gateway + engine</strong> — Kafka-routed orders and trades; supports per-market engine shards (<code>matching-engine-duo</code>).</li>
-      <li><strong>Wallet + Accountant</strong> — Balances, reservations, fees, transaction history. PostgreSQL persistence; restart resilience covered by e2e.</li>
-      <li><strong>bc-gateway</strong> — Synchronises deposits and withdrawals with external chains. Every deposit is recorded with its zkAML decision.</li>
-      <li><strong>Market</strong> — Public order book and recent-trades projections. Drives <code>/v3/depth</code>, <code>/v3/ticker/24h</code>, and <code>/v3/klines</code>.</li>
-      <li><strong>EventLog + zkPoL bridge</strong> — Streams balance deltas into the snapshot tree so a fresh PoL certificate is signed every five minutes.</li>
-    </ol>
-  </div>
-</section>
-
-<section id="integrations" class="trust">
-  <div class="section-inner">
-    <h2>Integrations</h2>
-    <div class="trust-grid">
-      <article class="trust-card">
-        <h3>zkAML</h3>
-        <p>Deposit/withdraw screening. Set <code>ZKAML_ENABLED=true</code>; default is fail-closed. Per-user audit rows, per-source sanctions freshness on <code>/ops/readiness</code>.</p>
-      </article>
-      <article class="trust-card">
-        <h3>pol-snapshot-server</h3>
-        <p>Ed25519-signed certificates over a Poseidon2 / Keccak256 Merkle-sum tree. Users verify locally with the <code>@pol-snapshot/client</code> SDK.</p>
-      </article>
-      <article class="trust-card">
-        <h3>Keycloak / user management</h3>
-        <p>Sign-up, email verification, OTP, sessions, and password reset all run through the standard Keycloak gateway.</p>
-      </article>
+<!-- =================== Market preview =================== -->
+<section class="market-preview" id="markets" aria-label="Top markets">
+  <div class="container">
+    <div class="market-row">
+      <div class="market-card">
+        <div class="market-head">
+          <span class="symbol-ico btc" aria-hidden="true">B</span>
+          <span class="symbol-name">BTC <span class="quote">/USDT</span></span>
+        </div>
+        <span class="last">$67,240.18</span>
+        <span class="change up">▲ 1.24%</span>
+      </div>
+      <div class="market-card">
+        <div class="market-head">
+          <span class="symbol-ico eth" aria-hidden="true">E</span>
+          <span class="symbol-name">ETH <span class="quote">/USDT</span></span>
+        </div>
+        <span class="last">$2,341.52</span>
+        <span class="change up">▲ 0.86%</span>
+      </div>
+      <div class="market-card">
+        <div class="market-head">
+          <span class="symbol-ico sol" aria-hidden="true">S</span>
+          <span class="symbol-name">SOL <span class="quote">/USDT</span></span>
+        </div>
+        <span class="last">$148.93</span>
+        <span class="change down">▼ 2.10%</span>
+      </div>
+      <div class="market-card">
+        <div class="market-head">
+          <span class="symbol-ico doge" aria-hidden="true">D</span>
+          <span class="symbol-name">DOGE <span class="quote">/USDT</span></span>
+        </div>
+        <span class="last">$0.142</span>
+        <span class="change up">▲ 3.71%</span>
+      </div>
+      <div class="market-card">
+        <div class="market-head">
+          <span class="symbol-ico ton" aria-hidden="true">T</span>
+          <span class="symbol-name">TON <span class="quote">/USDT</span></span>
+        </div>
+        <span class="last">$5.43</span>
+        <span class="change up">▲ 0.55%</span>
+      </div>
+      <a class="market-card view-all" href="/app/">View all markets →</a>
     </div>
   </div>
 </section>
 
-<section id="api" class="demo">
-  <div class="section-inner demo-inner">
-    <h2>Getting started</h2>
-    <p>This is the operator/integrator backend. End-user trading UIs build on top of these APIs.</p>
-    <ol class="demo-steps">
-      <li>Clone the repo: <code>git clone https://github.com/zkrypto-inc/zkCEX</code></li>
-      <li>Inside <code>core/</code>, run <code>tools/e2e/run_exchange_e2e.sh --reset</code>. The 25+ minute e2e brings up the full stack and validates every correctness scenario.</li>
-      <li>Base URL: <code>http://127.0.0.1:8094/v3/...</code> (Binance-compatible). Auth uses <code>X-Opex-User</code> plus Binance-style HMAC SHA256.</li>
-      <li>zkAML wiring: point <code>app.zkaml.url</code> at a running zkAML instance to gate deposits and withdrawals.</li>
-      <li>PoL wiring: point <code>app.pol.url</code> at a running pol-snapshot-server so <code>/v3/pol/inclusion-proof</code> can return per-user balance proofs.</li>
-    </ol>
-    <p class="meta">See <code>docs/exchange-e2e.md</code> in the repo for the full operator runbook.</p>
+<!-- =================== Trust pillars =================== -->
+<section class="block pillars" id="why">
+  <div class="container">
+    <div class="block-head">
+      <span class="kicker">Why zkCEX</span>
+      <h2>The four things<br/>that actually matter.</h2>
+      <p class="block-lead">
+        Speed, trust, ease of use, and peace of mind. What other exchanges only promise, zkCEX proves — every five minutes, every day.
+      </p>
+    </div>
+
+    <div class="pillars-grid">
+      <div class="pillar">
+        <span class="pillar-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.4 9.3 8 10 4.6-.7 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg>
+        </span>
+        <h3>Provable reserves</h3>
+        <p>Other exchanges promise their reserves are real. We prove it every five minutes. Anyone can confirm their own balance is included — no spreadsheets, no faith.</p>
+        <p style="margin-top:10px;">
+          <a href="/app/proof-of-reserves.html" style="color:#0b3aff;font-weight:600;text-decoration:none;border-bottom:1px solid rgba(11,58,255,0.4);">
+            See live reserves &amp; liabilities →
+          </a>
+        </p>
+      </div>
+
+      <div class="pillar">
+        <span class="pillar-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>
+        </span>
+        <h3>Fast, reliable matching</h3>
+        <p>A battle-tested matching engine that handles tens of thousands of orders per second. Your trades fill on time, even when markets move fast.</p>
+      </div>
+
+      <div class="pillar">
+        <span class="pillar-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="11" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 5.5 8 12 8 12s8-6.5 8-12a8 8 0 0 0-8-8Z"/></svg>
+        </span>
+        <h3>Built for global traders</h3>
+        <p>USDT and KRW markets, 24/7 multilingual support, and local on-ramps that just work. Designed from day one for traders in Korea and beyond.</p>
+      </div>
+
+      <div class="pillar">
+        <span class="pillar-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        </span>
+        <h3>Compliance-first</h3>
+        <p>Identity checks and anti-money-laundering reviews are part of the platform — not bolted on. Deposit, trade, and withdraw with confidence.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== Verify highlight =================== -->
+<section class="block verify" id="verify">
+  <div class="container verify-grid">
+    <div class="verify-copy">
+      <span class="kicker">Balance verification</span>
+      <h2>What makes us<br/>different?</h2>
+      <p class="block-lead">
+        Most exchanges say “your funds are safe.” zkCEX proves it — mathematically — every five minutes.
+        And anyone can check.
+      </p>
+
+      <ul class="verify-steps">
+        <li><span class="v-num">1</span><span><strong>Every 5 minutes</strong>, a cryptographic snapshot of all customer balances is published.</span></li>
+        <li><span class="v-num">2</span><span>Tap <strong>“Verify Balance”</strong> in the app.</span></li>
+        <li><span class="v-num">3</span><span>Receive a <strong>certificate</strong> showing your balance is included — and verify it yourself.</span></li>
+      </ul>
+
+      <a class="btn btn-primary verify-cta" href="/app/">Try it yourself <span class="btn-arrow" aria-hidden="true">→</span></a>
+    </div>
+
+    <div class="verify-visual" aria-hidden="true">
+      <div class="phone">
+        <div class="phone-inner">
+          <span class="check-circle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12 10 17 19 8"/></svg>
+          </span>
+          <div class="ph-title">Balance verified</div>
+          <div class="ph-sub">Your funds are included in reserves</div>
+
+          <div class="phone-meta">
+            <div class="pm-row"><span class="k">Time</span><span class="v">2026-05-10 14:32</span></div>
+            <div class="pm-row"><span class="k">Snapshot</span><span class="v">#284,591</span></div>
+            <div class="pm-row"><span class="k">Proof ID</span><span class="v">a91f…c4d2</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== Stats band =================== -->
+<section class="stats-band" id="fees" aria-label="zkCEX by the numbers">
+  <div class="container stats-grid">
+    <div class="stat">
+      <span class="stat-num">5 min</span>
+      <span class="stat-label">Proof refresh</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">0.05%</span>
+      <span class="stat-label">Maker fee</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">&lt;10ms</span>
+      <span class="stat-label">Match latency</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">24/7</span>
+      <span class="stat-label">Customer support</span>
+    </div>
+  </div>
+</section>
+
+<!-- =================== Onboarding =================== -->
+<section class="block onboard" id="start">
+  <div class="container">
+    <div class="block-head">
+      <span class="kicker">Start in 60 seconds</span>
+      <h2>From sign-up to first trade — fast.</h2>
+      <p class="block-lead">No paperwork, no waiting. You can be trading today.</p>
+    </div>
+
+    <div class="onboard-steps">
+      <div class="onboard-step">
+        <span class="step-num">1</span>
+        <h3>Sign up</h3>
+        <p>Email and password is all you need. Account ready in under a minute — no credit card required.</p>
+      </div>
+      <div class="onboard-step">
+        <span class="step-num">2</span>
+        <h3>Verify identity</h3>
+        <p>Secure KYC takes about 5 minutes on average. Your data is encrypted in transit and at rest.</p>
+      </div>
+      <div class="onboard-step">
+        <span class="step-num">3</span>
+        <h3>Trade</h3>
+        <p>First deposit credits instantly and your orders fill right away. Verify your balance from day one.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== FAQ =================== -->
+<section class="block faq" id="faq">
+  <div class="container">
+    <div class="block-head">
+      <span class="kicker">Frequently asked</span>
+      <h2>Got a question?</h2>
+      <p class="block-lead">If you don't find your answer here, our support team is online 24/7.</p>
+    </div>
+
+    <div class="faq-list">
+      <details class="faq-item">
+        <summary>What does "balance verification" mean?</summary>
+        <div class="faq-body">
+          Every five minutes, zkCEX publishes a cryptographic snapshot that totals all customer balances.
+          Tap "Verify Balance" in the app and you'll see a proof that your funds are included in the exchange's reserves.
+          It's a safeguard backed by math, not promises.
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>What are the fees?</summary>
+        <div class="faq-body">
+          Spot trading is 0.05% maker and 0.10% taker — among the lowest in the industry.
+          Deposits are free; withdrawal fees vary by asset and reflect on-chain network costs.
+          High-volume traders automatically receive additional discounts.
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>What assets can I trade?</summary>
+        <div class="faq-body">
+          BTC, ETH, SOL, USDT and more than 100 other major digital assets across USDT and KRW markets.
+          New listings go through a strict security, liquidity and compliance review. We email you when new markets open.
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How is my account secured?</summary>
+        <div class="faq-body">
+          The vast majority of customer assets are held in offline cold storage and require multi-signature approval to withdraw.
+          Accounts get two-factor authentication, withdrawal address allowlists, and real-time anomaly detection.
+          And on top of all that — we prove our reserves every five minutes.
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How long do withdrawals take?</summary>
+        <div class="faq-body">
+          For verified accounts, standard withdrawals are processed in about 10 minutes on average.
+          Your first withdrawal or any large amount may go through additional security review; you can track the status live in the app.
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- =================== Final CTA band =================== -->
+<section class="cta-band">
+  <div class="container cta-band-inner">
+    <div>
+      <h2>Don't trust.<br/>Verify.</h2>
+      <p>Sign up now and confirm your funds are part of the exchange's reserves yourself. It only takes 60 seconds.</p>
+    </div>
+    <div class="cta-actions">
+      <a class="btn btn-primary-bright" href="/app/signin.html" data-onboard>Get started <span class="btn-arrow" aria-hidden="true">→</span></a>
+      <a class="btn btn-ghost-light" href="#markets">Explore markets</a>
+    </div>
   </div>
 </section>
 
 </main>
 
-<footer>
-  <div class="footer-inner">
-    <p>© zkCEX. Backend stack for compliance-friendly digital asset exchanges.</p>
+<!-- =================== Footer =================== -->
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/en/">
+          <span class="brand-mark" aria-hidden="true">zk</span>
+          <span>zkCEX</span>
+        </a>
+        <p>The verifiable digital asset exchange. We prove our reserves every five minutes.</p>
+      </div>
+
+      <div class="footer-col">
+        <h3>Company</h3>
+        <ul>
+          <li><a href="#">About</a></li>
+          <li><a href="#">Security</a></li>
+          <li><a href="#">Careers</a></li>
+          <li><a href="#">Press</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h3>Trade</h3>
+        <ul>
+          <li><a href="#markets">Markets</a></li>
+          <li><a href="#fees">Fees</a></li>
+          <li><a href="#">API for institutions</a></li>
+          <li><a href="#faq">Help center</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h3>Legal</h3>
+        <ul>
+          <li><a href="#">Terms of service</a></li>
+          <li><a href="#">Privacy policy</a></li>
+          <li><a href="#">AML policy</a></li>
+          <li><a href="/app/safu.html">Customer Protection Fund / 고객 자산 보호 펀드</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h3>Support</h3>
+        <ul>
+          <li><a href="#">Contact us</a></li>
+          <li><a href="/app/status.html">System status</a></li>
+          <li><a href="mailto:support@zkcex.io">support@zkcex.io</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <span>© 2026 zkCEX. All rights reserved.</span>
+      <span class="disclaimer">Trading involves risk. Digital assets are highly volatile and you may lose some or all of your principal. Read carefully before investing and trade only with funds you can afford to lose.</span>
+      <span class="disclaimer" id="geo-restricted-line">
+        Restricted regions: US, IR, KP, CU, SY (subject to change).
+      </span>
+    </div>
   </div>
 </footer>
 
+<script>
+  // If the user already has a zkCEX session, fast-track CTAs straight into /app/.
+  // No JS = the underlying /app/signin.html link is the safe fallback.
+  (function () {
+    try {
+      var raw = localStorage.getItem("zkcex_session");
+      if (!raw) return;
+      var s = JSON.parse(raw);
+      if (!s || !s.user) return;
+      var nodes = document.querySelectorAll("a[data-onboard]");
+      for (var i = 0; i < nodes.length; i++) nodes[i].setAttribute("href", "/app/");
+    } catch (e) { /* never break the page */ }
+  })();
+
+  // Refresh the geo restricted-regions footer line from the live blocklist.
+  (function () {
+    var line = document.getElementById("geo-restricted-line");
+    if (!line) return;
+    fetch("/auth/geo/blocklist", { cache: "no-store" }).then(function (r) {
+      if (!r.ok) return null;
+      return r.json();
+    }).then(function (j) {
+      if (!j || !j.countries || !j.countries.length) return;
+      var names = j.countries.map(function (c) { return c.iso2; }).join(", ");
+      line.textContent = "Restricted regions: " + names + " (subject to change).";
+    }).catch(function () { /* keep the hard-coded fallback */ });
+  })();
+</script>
+
+
+<script>
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .catch(err => console.warn('SW reg failed', err));
+  }
+</script>
 </body>
 </html>

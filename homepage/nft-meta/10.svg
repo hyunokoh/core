@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#0a0f1e"/><rect x="0" y="83" width="83" height="83" fill="#2563eb" opacity="0.98"/>
+<rect x="0" y="166" width="83" height="83" fill="#22c55e" opacity="0.97"/>
+<rect x="0" y="415" width="83" height="83" fill="#2563eb" opacity="0.91"/>
+<rect x="83" y="332" width="83" height="83" fill="#22c55e" opacity="0.98"/>
+<rect x="83" y="415" width="83" height="83" fill="#22c55e" opacity="0.95"/>
+<rect x="166" y="0" width="83" height="83" fill="#22c55e" opacity="0.67"/>
+<rect x="166" y="83" width="83" height="83" fill="#fde047" opacity="0.64"/>
+<rect x="166" y="166" width="83" height="83" fill="#2563eb" opacity="0.84"/>
+<rect x="166" y="249" width="83" height="83" fill="#2563eb" opacity="0.78"/>
+<rect x="249" y="83" width="83" height="83" fill="#fde047" opacity="0.85"/>
+<rect x="249" y="166" width="83" height="83" fill="#fde047" opacity="0.99"/>
+<rect x="249" y="249" width="83" height="83" fill="#2563eb" opacity="0.60"/>
+<rect x="249" y="415" width="83" height="83" fill="#22c55e" opacity="0.93"/>
+<rect x="332" y="83" width="83" height="83" fill="#2563eb" opacity="0.94"/>
+<rect x="332" y="249" width="83" height="83" fill="#22c55e" opacity="0.86"/>
+<rect x="332" y="332" width="83" height="83" fill="#22c55e" opacity="0.95"/>
+<rect x="332" y="415" width="83" height="83" fill="#22c55e" opacity="0.87"/>
+<rect x="415" y="0" width="83" height="83" fill="#2563eb" opacity="0.88"/>
+<rect x="415" y="166" width="83" height="83" fill="#2563eb" opacity="0.84"/>
+<rect x="415" y="249" width="83" height="83" fill="#fde047" opacity="0.68"/>
+<rect x="415" y="332" width="83" height="83" fill="#fde047" opacity="0.72"/>
+<rect x="415" y="415" width="83" height="83" fill="#2563eb" opacity="0.83"/><text x="480" y="490" font-family="JetBrains Mono, monospace" font-size="22" fill="#fde047" text-anchor="end" opacity="0.9">#10</text><text x="20" y="490" font-family="JetBrains Mono, monospace" font-size="14" fill="#22c55e" opacity="0.8">zkCEX</text></svg>

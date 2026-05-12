@@ -1,0 +1,44 @@
+{{- if .Values.patroni.enabled }}
+# Read-write Service. Patroni updates the master pod's `spilo-role` label
+# on each loop_wait tick, and the Service selector follows.
+apiVersion: v1
+kind: Service
+metadata:
+  name: patroni-primary
+  labels:
+    {{- include "zkcex.labels" (dict "name" "patroni" "Values" .Values "Release" .Release "Chart" .Chart) | nindent 4 }}
+    zkcex.io/postgres-role: primary
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "zkcex.selectorLabels" (dict "name" "patroni") | nindent 4 }}
+    spilo-role: master
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+    - name: patroni-api
+      port: 8008
+      targetPort: 8008
+---
+# Read-only fanout. Load-balanced across all replicas.
+apiVersion: v1
+kind: Service
+metadata:
+  name: patroni-replica
+  labels:
+    {{- include "zkcex.labels" (dict "name" "patroni" "Values" .Values "Release" .Release "Chart" .Chart) | nindent 4 }}
+    zkcex.io/postgres-role: replica
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "zkcex.selectorLabels" (dict "name" "patroni") | nindent 4 }}
+    spilo-role: replica
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+    - name: patroni-api
+      port: 8008
+      targetPort: 8008
+{{- end }}

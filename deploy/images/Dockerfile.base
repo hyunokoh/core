@@ -1,0 +1,79 @@
+# syntax=docker/dockerfile:1.7
+#
+# Shared base for every zkCEX Python service image.
+#
+# Runtime: gcr.io/distroless/python3-debian12:nonroot
+#   - Debian 12 Python 3.11 runtime + ca-certificates + tzdata
+#   - non-root user uid 65532 (gid 65532)
+#   - no shell, no apt, no curl, no package manager
+#
+# Why distroless?
+#   - ~92 MB vs ~218 MB for python:3.12-slim (60%+ smaller)
+#   - drastically smaller attack surface: no /bin/sh, no busybox, no apt
+#   - non-root by default
+#
+# Trade-offs (see DISTROLESS.md):
+#   - no `kubectl exec -it sh` — use `kubectl debug` ephemeral container
+#   - HEALTHCHECK must be python-based (no curl); k8s httpGet is preferred
+#   - subprocess.run of OS commands no longer works (no shell, no coreutils);
+#     services that previously called out to shell utilities must be reworked.
+
+# ── Stage 1: builder with full slim Python ────────────────────────────────────
+# We use python:3.11-slim-bookworm to MATCH the distroless runtime exactly
+# (debian-12 ships Python 3.11). Mismatched .pyc versions get silently
+# regenerated at runtime — wasting startup time and rendering the build-stage
+# compileall useless. Pin to a digest in CI for reproducibility.
+FROM python:3.11-slim-bookworm AS builder
+WORKDIR /build
+
+# pg8000 is the ONLY pip dependency in the entire fleet. It is pure-Python
+# (~500 KB installed) so we ship it in every image to keep base/service layers
+# uniform; only the auth service actually imports it.
+RUN pip install --no-cache-dir --target /build/site-packages pg8000==1.31.2
+
+# Copy source so we can pre-bytecode-compile to speed runtime imports.
+# Compile with Python 3.11 to match the distroless runtime — otherwise .pyc
+# files are silently regenerated on first import.
+COPY tools/    /build/tools/
+COPY homepage/ /build/homepage/
+
+# compileall is best-effort: a syntax error in any one file should not fail
+# the build. Tests run separately and gate the merge.
+RUN python -m compileall -q /build/tools /build/site-packages 2>/dev/null || true
+
+# Healthcheck shim used by every service image (replaces curl-based probes).
+COPY deploy/images/healthcheck.py /build/healthcheck.py
+
+# ── Stage 2: distroless runtime ───────────────────────────────────────────────
+# `:nonroot` variant runs as uid 65532 by default.
+FROM gcr.io/distroless/python3-debian12:nonroot AS final
+ARG SERVICE=base
+LABEL org.opencontainers.image.title="zkcex-${SERVICE}"
+LABEL org.opencontainers.image.vendor="zkCEX"
+LABEL org.opencontainers.image.source="zkcex"
+LABEL org.opencontainers.image.base.name="gcr.io/distroless/python3-debian12:nonroot"
+
+# Bring in pg8000 + bytecode-compiled stdlib copies.
+# /app/site-packages is appended to PYTHONPATH so any service can import pg8000.
+# We chown to the numeric uid because COPY --chown looks up the username from
+# the BUILDER stage's /etc/passwd, where "nonroot" does not exist. 65532 is the
+# uid of the "nonroot" account baked into the distroless image.
+COPY --from=builder --chown=65532:65532 /build/site-packages /app/site-packages
+COPY --from=builder --chown=65532:65532 /build/healthcheck.py /app/healthcheck.py
+
+# /etc/ssl and /usr/share/zoneinfo already live in the distroless image
+# (ca-certificates + tzdata are baked in). We don't need to re-copy them.
+
+USER nonroot
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONHASHSEED=random \
+    PYTHONPATH=/app/site-packages:/app/tools \
+    HOME=/home/nonroot
+
+# Distroless's default ENTRYPOINT is ["/usr/bin/python3"]; we re-state it
+# explicitly so service Dockerfiles only need CMD with script + args. There
+# is no tini in distroless — Python itself reaps its direct children, and
+# both docker and Kubernetes deliver SIGTERM to PID 1.
+ENTRYPOINT ["/usr/bin/python3"]

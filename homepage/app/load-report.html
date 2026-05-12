@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Load Test Report — zkCEX</title>
+<style>
+:root {
+  --bg:#0a0d14; --panel:#11151f; --line:#1d2330; --muted:#7a869a;
+  --fg:#e6e9f0; --accent:#5b8cff; --ok:#3ecf8e; --warn:#ffb454; --err:#ff5371;
+}
+* { box-sizing: border-box; }
+body { background:var(--bg); color:var(--fg); font-family:Inter,system-ui,sans-serif;
+       margin:0; padding:32px; }
+h1, h2, h3 { margin-top: 0; }
+.muted { color: var(--muted); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+         gap: 16px; margin-bottom: 24px; }
+.card { background: var(--panel); border:1px solid var(--line); border-radius: 12px;
+        padding: 18px; }
+.card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+.card .delta { font-size: 12px; margin-top: 2px; }
+.delta.up   { color: var(--ok); }
+.delta.down { color: var(--err); }
+table { width: 100%; border-collapse: collapse; background: var(--panel);
+        border:1px solid var(--line); border-radius: 12px; overflow: hidden; }
+th, td { padding: 10px 14px; text-align: right; font-variant-numeric: tabular-nums;
+         border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; }
+th { background: #0e131e; font-weight: 600; font-size: 12px; text-transform: uppercase;
+     color: var(--muted); }
+tr:last-child td { border-bottom: none; }
+.bad  { color: var(--err); font-weight: 600; }
+.warn { color: var(--warn); }
+.ok   { color: var(--ok); }
+.section { margin: 32px 0; }
+.section h2 { border-left: 3px solid var(--accent); padding-left: 10px; }
+small.note { color: var(--muted); font-size: 11px; }
+.meta { color: var(--muted); font-size: 12px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 6px;
+        font-size: 11px; background: #1c2435; color: var(--muted); margin-left: 6px; }
+</style>
+</head>
+<body>
+<h1>Load Test Report</h1>
+<p class="meta">Generated 2026-05-11T04:38:11+00:00 from 1 scenario file(s).</p>
+
+<div class="cards">
+  <div class="card"><div class="label">Total Requests</div>
+    <div class="value">1,200</div></div>
+  <div class="card"><div class="label">Combined RPS</div>
+    <div class="value">237</div></div>
+  <div class="card"><div class="label">Avg Error Rate</div>
+    <div class="value ok">0.00%</div></div>
+  <div class="card"><div class="label">Worst p95</div>
+    <div class="value ok">11.9 ms</div></div>
+</div>
+
+<div class="section">
+  <h2>Per-Scenario Results</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Scenario</th><th>Reqs</th><th>RPS</th>
+        <th>avg</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th>
+        <th>err</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td>python-market-data
+              <span class="pill">python_runner</span></td>
+          <td>1,200</td>
+          <td>236.6</td>
+          <td>7.8 ms</td>
+          <td>6.8 ms</td>
+          <td>10.3 ms</td>
+          <td class="ok">11.9 ms
+              <span class="delta up">&#9660; 17.7%</span></td>
+          <td>26.1 ms</td>
+          <td class="ok">0.00%
+              </td>
+        </tr>
+        </tbody>
+  </table>
+  <p><small class="note">p95 colours: green &lt;500 ms, orange &lt;2 s, red ≥2 s.&nbsp;
+     Error colours: green &lt;1%, orange &lt;5%, red ≥5%.&nbsp;
+     Δ vs previous run is shown next to p95 and err.</small></p>
+</div>
+
+<div class="section">
+  <h2>Bottleneck Snapshot</h2>
+  <p>Hottest container during snapshot: <strong>core-wallet-1</strong> at 7.2% CPU.  If you saw degradation above this point, this is the first place to look.</p>
+  <table>
+    <thead><tr><th>Container</th><th>CPU</th><th>Memory</th><th>Net I/O</th><th>Disk I/O</th></tr></thead>
+    <tbody><tr><td>core-wallet-1</td><td>7.2%</td><td>515.9MiB / 7.652GiB</td><td>52.9MB / 25.1MB</td><td>458MB / 246kB</td></tr><tr><td>core-kafka-1-1</td><td>3.5%</td><td>566.7MiB / 7.652GiB</td><td>4.27MB / 11.6MB</td><td>607MB / 2.32MB</td></tr><tr><td>core-market-1</td><td>3.1%</td><td>518.9MiB / 7.652GiB</td><td>9.87MB / 11.1MB</td><td>4.98GB / 20.1MB</td></tr><tr><td>core-postgres-wallet-1</td><td>2.0%</td><td>77.7MiB / 7.652GiB</td><td>1.82GB / 5.82GB</td><td>14.4GB / 182MB</td></tr><tr><td>core-api-1</td><td>1.6%</td><td>592.1MiB / 7.652GiB</td><td>22.9MB / 20.5MB</td><td>12.3GB / 8.31MB</td></tr><tr><td>core-postgres-market-1</td><td>1.1%</td><td>108.2MiB / 7.652GiB</td><td>20.4MB / 50.2MB</td><td>13.7GB / 172MB</td></tr><tr><td>core-accountant-1</td><td>1.1%</td><td>533.3MiB / 7.652GiB</td><td>253MB / 206MB</td><td>77.2GB / 107MB</td></tr><tr><td>core-consul-1</td><td>0.9%</td><td>57.83MiB / 7.652GiB</td><td>192MB / 300MB</td><td>613GB / 23.1MB</td></tr><tr><td>zkcex-promtail</td><td>0.7%</td><td>57.91MiB / 7.652GiB</td><td>609kB / 195MB</td><td>44.3GB / 1.02MB</td></tr><tr><td>core-eventlog-1</td><td>0.5%</td><td>374.6MiB / 7.652GiB</td><td>110MB / 93.3MB</td><td>63.6GB / 88.1MB</td></tr></tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>How to read this</h2>
+  <ul>
+    <li><strong>p95</strong> matters most — it's the latency your slowest 5% of users see.</li>
+    <li><strong>Error rate</strong> &gt; 1% on read endpoints almost always means a downstream
+        service is saturated or down.</li>
+    <li><strong>Bottleneck</strong>: the container with the highest CPU during the run is
+        the first place to optimize; everything else is usually downstream of it.</li>
+    <li>Re-run with <code>build_report.py</code> after a change to see the Δ.</li>
+  </ul>
+</div>
+
+</body>
+</html>

@@ -1,4 +1,3 @@
-version: '3.8'
 services:
 
   postgres-wallet:
@@ -19,5 +18,4 @@ services:
   postgres-bc-gateway:
     ports:
       - "5437:5432"
-
 

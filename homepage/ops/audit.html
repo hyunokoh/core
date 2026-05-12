@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Audit log — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>Audit log</h1>
+    <div class="panel" style="margin-bottom:12px;">
+      <div class="row" style="gap:12px; align-items:flex-end;">
+        <div class="field" style="flex:1;"><label>Action (e.g. kyc.approve)</label><input id="filterAction"></div>
+        <div class="field" style="flex:1;"><label>Actor operator_id</label><input id="filterActor" type="number"></div>
+        <div class="field" style="width:140px;"><label>Limit</label><input id="filterLimit" type="number" value="200"></div>
+        <button class="btn primary" id="goBtn">Refresh</button>
+      </div>
+    </div>
+    <table class="dense" id="t">
+      <thead><tr><th>when</th><th>operator</th><th>action</th><th>target</th><th>reason</th><th>ip</th></tr></thead>
+      <tbody><tr><td colspan="6" class="loading">loading…</td></tr></tbody>
+    </table>
+  </main>
+
+  <script type="module">
+    import { requireOpsSession, opsFetch, renderChrome,
+             fmtTs, escapeHtml } from "/ops/ops.js";
+    if (!requireOpsSession()) {} else {
+      renderChrome("audit");
+      async function load() {
+        const q = new URLSearchParams();
+        const a = document.getElementById("filterAction").value.trim();
+        const ac = document.getElementById("filterActor").value.trim();
+        const lim = document.getElementById("filterLimit").value.trim() || "200";
+        if (a) q.set("action", a);
+        if (ac) q.set("actor", ac);
+        q.set("limit", lim);
+        const r = await opsFetch("/audit?" + q.toString());
+        const tbody = document.querySelector("#t tbody");
+        if (!r || !r.ok) { tbody.innerHTML = `<tr><td colspan="6" class="empty">failed</td></tr>`; return; }
+        const rows = r.body.actions || [];
+        if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">no rows</td></tr>`; return; }
+        tbody.innerHTML = rows.map(r => `
+          <tr>
+            <td class="mono">${fmtTs(r.ts)}</td>
+            <td>${escapeHtml(r.display_name || ("#" + r.operator_id))}</td>
+            <td><b>${escapeHtml(r.action)}</b></td>
+            <td class="mono">${escapeHtml(r.target_kind)}/${escapeHtml(r.target_id)}</td>
+            <td>${escapeHtml(r.reason || "")}</td>
+            <td class="mono">${escapeHtml(r.ip_redacted || "")}</td>
+          </tr>`).join("");
+      }
+      document.getElementById("goBtn").addEventListener("click", load);
+      load();
+    }
+  </script>
+</body>
+</html>

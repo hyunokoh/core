@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Errors — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+  <style>
+    .grid4 { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; }
+    .stat { padding:10px 14px; border-radius:8px; background:#11162b; }
+    .stat .v { font-size:24px; font-weight:600; color:#e6ecff; }
+    .stat .l { font-size:11px; color:#9aa6c7; text-transform:uppercase; letter-spacing:.04em; }
+    .stat .hint { font-size:11px; color:#9aa6c7; margin-top:2px; }
+    .filterbar { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;
+                 margin-bottom:12px; }
+    .filterbar .field { min-width:140px; }
+    .filterbar select, .filterbar input {
+      padding:6px; background:#0f1429; color:#e6ecff;
+      border:1px solid #2a3258; border-radius:4px;
+    }
+    table.dense td.code { font-family:ui-monospace, Menlo, monospace; font-size:11px; }
+    .fp { color:#9aa6c7; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:9px;
+            font-size:11px; background:#1d2444; color:#cfd6f3; margin-right:4px; }
+    .pill.open { background:#5a1f24; color:#ffd1d4; }
+    .pill.resolved { background:#1f5a2b; color:#cdf3d4; }
+    .pill.muted { background:#33384a; color:#cfd6f3; }
+    .pill.browser { background:#1f3a5a; color:#a5cdff; }
+    .pill.python { background:#5a3a1f; color:#ffd9a5; }
+    .pill.manual { background:#3a1f5a; color:#cfa5ff; }
+    .modal-backdrop {
+      position:fixed; inset:0; background:rgba(8,11,28,0.82);
+      display:none; align-items:flex-start; justify-content:center;
+      z-index:1000; padding:40px 16px; overflow:auto;
+    }
+    .modal-backdrop.open { display:flex; }
+    .modal {
+      background:#0f1429; border:1px solid #2a3258; border-radius:8px;
+      max-width:920px; width:100%; padding:18px;
+    }
+    .modal h3 { margin-top:0; }
+    pre.stack {
+      background:#08091a; color:#cfd6f3; padding:10px; border-radius:6px;
+      font-size:11px; overflow:auto; max-height:340px; white-space:pre-wrap;
+      word-break:break-word;
+    }
+    .kv dt { color:#9aa6c7; font-size:11px; text-transform:uppercase;
+             letter-spacing:.04em; }
+    .kv dd { margin:0 0 8px 0; color:#e6ecff; font-size:13px; word-break:break-word; }
+    .row { display:flex; gap:8px; }
+    .top5 li { font-size:12px; color:#cfd6f3; margin:4px 0;
+               font-family:ui-monospace, Menlo, monospace; }
+    .top5 li .c { color:#ffd1d4; font-weight:600; margin-right:8px; }
+  </style>
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>Error tracking</h1>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <div class="grid4">
+        <div class="stat">
+          <div class="l">Collector status</div>
+          <div class="v" id="s-status">—</div>
+          <div class="hint" id="s-uptime">uptime —</div>
+        </div>
+        <div class="stat">
+          <div class="l">Open issues</div>
+          <div class="v" id="s-open">—</div>
+          <div class="hint" id="s-total-agg">— total groups</div>
+        </div>
+        <div class="stat">
+          <div class="l">Events (24h)</div>
+          <div class="v" id="s-24h">—</div>
+          <div class="hint" id="s-1h">— in the last hour</div>
+        </div>
+        <div class="stat">
+          <div class="l">Events total</div>
+          <div class="v" id="s-total">—</div>
+          <div class="hint" id="s-retention">— day retention</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Top 5 noisy issues</h2>
+      <ol class="top5" id="top5"><li class="loading">loading…</li></ol>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Issues</h2>
+      <div class="filterbar">
+        <div class="field"><label>Source</label>
+          <select id="f-source">
+            <option value="">all</option>
+            <option value="browser-js">browser-js</option>
+            <option value="python-service">python-service</option>
+            <option value="manual">manual</option>
+          </select>
+        </div>
+        <div class="field"><label>Status</label>
+          <select id="f-status">
+            <option value="open">open</option>
+            <option value="">all</option>
+            <option value="resolved">resolved</option>
+            <option value="muted">muted</option>
+          </select>
+        </div>
+        <div class="field"><label>Level</label>
+          <select id="f-level">
+            <option value="">all</option>
+            <option value="error">error</option>
+            <option value="warning">warning</option>
+            <option value="info">info</option>
+          </select>
+        </div>
+        <div class="field"><label>Window</label>
+          <select id="f-window">
+            <option value="">all time</option>
+            <option value="3600">last hour</option>
+            <option value="86400" selected>last 24h</option>
+            <option value="604800">last 7d</option>
+          </select>
+        </div>
+        <button class="btn" id="refreshBtn">Refresh</button>
+      </div>
+      <table class="dense" id="t-agg">
+        <thead><tr>
+          <th>last seen</th><th>first seen</th><th>count</th>
+          <th>source</th><th>type</th>
+          <th>message</th><th>status</th><th></th>
+        </tr></thead>
+        <tbody><tr><td colspan="8" class="loading">loading…</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="modal">
+    <div class="modal">
+      <h3 id="m-title">Issue</h3>
+      <dl class="kv" id="m-meta"></dl>
+      <h4>Stack trace</h4>
+      <pre class="stack" id="m-stack">(none)</pre>
+      <h4>Recent events for this fingerprint</h4>
+      <table class="dense" id="m-events">
+        <thead><tr><th>ts</th><th>id</th><th>url</th><th>release</th></tr></thead>
+        <tbody><tr><td colspan="4" class="loading">loading…</td></tr></tbody>
+      </table>
+      <div class="row" style="margin-top:14px;">
+        <button class="btn ok" id="m-resolve">Resolve</button>
+        <button class="btn" id="m-mute">Mute</button>
+        <button class="btn" id="m-note">Add note</button>
+        <button class="btn danger" id="m-close" style="margin-left:auto;">Close</button>
+      </div>
+      <div id="m-notes" style="margin-top:10px; color:#cfd6f3; font-size:12px;"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireOpsSession, renderChrome, renderActionToast,
+             fmtTs, fmtRelative, escapeHtml } from "/ops/ops.js";
+
+    // error_collector runs on :5690 but is also reachable through the
+    // same-origin proxy at /errors/. We prefer the proxy so the operator
+    // never has to deal with cross-origin auth headers.
+    const BASE = "/errors";
+    const TOK_KEY = "zkcex.errors.admin_token";
+
+    function getAdminToken() {
+      let t = localStorage.getItem(TOK_KEY) || "";
+      if (!t) {
+        t = prompt("Error collector admin token (printed on startup as ERROR_ADMIN_TOKEN):") || "";
+        if (t) localStorage.setItem(TOK_KEY, t.trim());
+      }
+      return t.trim();
+    }
+
+    async function errFetch(path, opts = {}) {
+      const tok = getAdminToken();
+      const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+      if (tok) headers["Authorization"] = "Bearer " + tok;
+      try {
+        const res = await fetch(BASE + path, { ...opts, headers });
+        let body = null; try { body = await res.json(); } catch {}
+        if (res.status === 401) {
+          localStorage.removeItem(TOK_KEY);
+        }
+        return { ok: res.ok, status: res.status, body };
+      } catch (e) {
+        return { ok: false, status: 0, body: { error: String(e) } };
+      }
+    }
+
+    function sourcePill(src) {
+      if (!src) return `<span class="pill">—</span>`;
+      if (src.startsWith("python-service")) return `<span class="pill python">${escapeHtml(src)}</span>`;
+      if (src === "browser-js") return `<span class="pill browser">browser</span>`;
+      if (src === "manual") return `<span class="pill manual">manual</span>`;
+      return `<span class="pill">${escapeHtml(src)}</span>`;
+    }
+
+    function statusPill(s) {
+      const kind = (s === "open") ? "open" :
+                   (s === "resolved") ? "resolved" :
+                   (s === "muted") ? "muted" : "";
+      return `<span class="pill ${kind}">${escapeHtml(s || "open")}</span>`;
+    }
+
+    async function loadStats() {
+      const r = await errFetch("/stats");
+      if (!r.ok) {
+        document.getElementById("s-status").textContent = "unreachable";
+        document.getElementById("top5").innerHTML = '<li class="empty">collector unreachable</li>';
+        return;
+      }
+      const b = r.body;
+      document.getElementById("s-status").textContent = "OK";
+      document.getElementById("s-uptime").textContent =
+        "uptime " + Math.round(b.uptime_s / 60) + "m";
+      document.getElementById("s-open").textContent = b.open_aggregates;
+      document.getElementById("s-total-agg").textContent =
+        b.total_aggregates + " total groups";
+      document.getElementById("s-24h").textContent = b.events_last_24h;
+      document.getElementById("s-1h").textContent =
+        b.events_last_1h + " in the last hour";
+      document.getElementById("s-total").textContent = b.total_events;
+      document.getElementById("s-retention").textContent =
+        b.retention_days + " day retention";
+      const t5 = document.getElementById("top5");
+      const rows = b.top_5_fingerprints || [];
+      if (!rows.length) {
+        t5.innerHTML = '<li class="empty">no issues recorded yet</li>';
+      } else {
+        t5.innerHTML = rows.map(r =>
+          `<li><span class="c">${r.count}</span>` +
+          `${sourcePill(r.source)} ` +
+          `${escapeHtml((r.message || "").slice(0, 140))} ` +
+          `<span class="fp">${escapeHtml((r.fingerprint || "").slice(0, 12))}</span></li>`
+        ).join("");
+      }
+    }
+
+    async function loadAggregates() {
+      const status = document.getElementById("f-status").value;
+      const tbody = document.querySelector("#t-agg tbody");
+      const qs = new URLSearchParams();
+      if (status) qs.set("status", status);
+      qs.set("limit", "200");
+      const r = await errFetch("/aggregates?" + qs.toString());
+      if (!r.ok) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty">failed: ${escapeHtml(r.body?.error || r.status)}</td></tr>`;
+        return;
+      }
+      let rows = r.body.aggregates || [];
+      const sourceFilter = document.getElementById("f-source").value;
+      const levelFilter = document.getElementById("f-level").value;
+      const win = parseInt(document.getElementById("f-window").value || "0", 10);
+      if (sourceFilter) rows = rows.filter(r =>
+        sourceFilter === "python-service"
+          ? (r.source || "").startsWith("python-service")
+          : r.source === sourceFilter);
+      if (levelFilter) rows = rows.filter(r => r.level === levelFilter);
+      if (win > 0) {
+        const cut = Math.floor(Date.now() / 1000) - win;
+        rows = rows.filter(r => (r.last_seen || 0) >= cut);
+      }
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty">no issues match</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = rows.map(r => `
+        <tr class="selectable" data-fp="${escapeHtml(r.fingerprint)}">
+          <td>${fmtRelative(r.last_seen)}</td>
+          <td>${fmtRelative(r.first_seen)}</td>
+          <td><strong>${r.count}</strong></td>
+          <td>${sourcePill(r.source)}</td>
+          <td class="code">${escapeHtml(r.exception_type || "—")}</td>
+          <td>${escapeHtml((r.message || "").slice(0, 200))}</td>
+          <td>${statusPill(r.status)}</td>
+          <td><button class="btn small" data-act="open">View</button></td>
+        </tr>
+      `).join("");
+      tbody.querySelectorAll("tr.selectable").forEach(tr => {
+        tr.addEventListener("click", () => openModal(tr.dataset.fp,
+          rows.find(r => r.fingerprint === tr.dataset.fp)));
+      });
+    }
+
+    async function openModal(fp, row) {
+      const m = document.getElementById("modal");
+      m.classList.add("open");
+      document.getElementById("m-title").textContent =
+        (row.exception_type ? row.exception_type + ": " : "") +
+        (row.message || "(no message)").slice(0, 200);
+      document.getElementById("m-meta").innerHTML = `
+        <dt>fingerprint</dt><dd>${escapeHtml(fp)}</dd>
+        <dt>source</dt><dd>${escapeHtml(row.source || "—")}</dd>
+        <dt>environment</dt><dd>${escapeHtml(row.environment || "—")}</dd>
+        <dt>release</dt><dd>${escapeHtml(row.release_version || "—")}</dd>
+        <dt>level</dt><dd>${escapeHtml(row.level || "—")}</dd>
+        <dt>status</dt><dd>${statusPill(row.status)}</dd>
+        <dt>first seen</dt><dd>${fmtTs(row.first_seen)} (${fmtRelative(row.first_seen)})</dd>
+        <dt>last seen</dt><dd>${fmtTs(row.last_seen)} (${fmtRelative(row.last_seen)})</dd>
+        <dt>count</dt><dd>${row.count}</dd>
+        <dt>sample url</dt><dd>${escapeHtml(row.url || "—")}</dd>
+      `;
+      document.getElementById("m-stack").textContent =
+        row.stack_trace || "(no stack trace)";
+      document.getElementById("m-notes").textContent =
+        row.notes ? "Notes: " + row.notes : "";
+
+      // Recent events for this fingerprint.
+      const r = await errFetch("/events?fingerprint=" + encodeURIComponent(fp) + "&limit=20");
+      const tb = document.querySelector("#m-events tbody");
+      const evs = (r.body && r.body.events) || [];
+      if (!evs.length) {
+        tb.innerHTML = `<tr><td colspan="4" class="empty">none</td></tr>`;
+      } else {
+        tb.innerHTML = evs.map(e => `
+          <tr><td>${fmtTs(e.ts)}</td><td>${e.id}</td>
+              <td>${escapeHtml((e.url || "").slice(0, 80))}</td>
+              <td>${escapeHtml(e.release_version || "—")}</td></tr>
+        `).join("");
+      }
+
+      document.getElementById("m-resolve").onclick = async () => {
+        await errFetch("/aggregates/" + encodeURIComponent(fp) + "/resolve", { method: "POST" });
+        renderActionToast("resolved", "ok");
+        closeModal();
+        loadAggregates();
+        loadStats();
+      };
+      document.getElementById("m-mute").onclick = async () => {
+        await errFetch("/aggregates/" + encodeURIComponent(fp) + "/mute", { method: "POST" });
+        renderActionToast("muted", "info");
+        closeModal();
+        loadAggregates();
+      };
+      document.getElementById("m-note").onclick = async () => {
+        const note = prompt("Note for this issue:") || "";
+        if (!note) return;
+        await errFetch("/aggregates/" + encodeURIComponent(fp) + "/note", {
+          method: "POST", body: JSON.stringify({ note }),
+        });
+        renderActionToast("note saved", "ok");
+        closeModal();
+        loadAggregates();
+      };
+    }
+
+    function closeModal() {
+      document.getElementById("modal").classList.remove("open");
+    }
+
+    if (requireOpsSession()) {
+      renderChrome("errors");
+      document.getElementById("m-close").addEventListener("click", closeModal);
+      document.getElementById("modal").addEventListener("click", (e) => {
+        if (e.target.id === "modal") closeModal();
+      });
+      document.getElementById("refreshBtn").addEventListener("click", () => {
+        loadStats(); loadAggregates();
+      });
+      ["f-source", "f-status", "f-level", "f-window"].forEach(id =>
+        document.getElementById(id).addEventListener("change", loadAggregates));
+      loadStats();
+      loadAggregates();
+      setInterval(loadStats, 30000);
+    }
+  </script>
+</body>
+</html>

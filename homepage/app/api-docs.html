@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>API 문서 / API docs — zkCEX</title>
+  <meta name="description" content="zkCEX REST + WebSocket API 문서. Try-it-out 콘솔로 라이브 서버에 직접 요청을 보낼 수 있습니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+
+  <!-- Swagger UI 5.x assets from the canonical, vendor-owned CDN. We embed
+       it untouched and apply a dark-theme override below so it picks up
+       our /app/ color tokens. -->
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+
+  <style>
+    :root {
+      --doc-bg: #0c0e16;
+      --doc-bg-2: #11141d;
+      --doc-fg: #e7e9ee;
+      --doc-fg-dim: #aab1c4;
+      --doc-border: #1c2030;
+      --doc-accent: #6da7ff;
+      --doc-accent-2: #8df0c9;
+      --doc-danger: #ff7a8c;
+    }
+    html, body { background: var(--doc-bg); color: var(--doc-fg); }
+    body { font-family: "Inter", system-ui, -apple-system, sans-serif; }
+
+    .docs-shell { max-width: 1280px; margin: 0 auto; padding: 28px 22px 80px; }
+    .docs-shell h1 { margin: 4px 0 4px; font-size: 26px; }
+    .docs-shell .docs-sub { color: var(--doc-fg-dim); font-size: 13px; margin: 0 0 16px; }
+    .docs-quick { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; }
+    .docs-quick a {
+      display: inline-block; padding: 8px 12px; border-radius: 8px;
+      background: var(--doc-bg-2); border: 1px solid var(--doc-border);
+      color: var(--doc-fg); text-decoration: none; font-size: 12px;
+    }
+    .docs-quick a:hover { border-color: var(--doc-accent); color: var(--doc-accent); }
+    .docs-quick a.primary {
+      background: linear-gradient(180deg, #143dff, #0b3aff);
+      border-color: transparent; color: white; font-weight: 600;
+    }
+
+    #swagger-ui {
+      background: transparent;
+      border: 1px solid var(--doc-border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    /* --- Dark-theme overrides for Swagger UI --- */
+    .swagger-ui, .swagger-ui .info, .swagger-ui .scheme-container,
+    .swagger-ui .opblock, .swagger-ui .opblock-tag, .swagger-ui section.models {
+      background: transparent !important;
+      color: var(--doc-fg) !important;
+    }
+    .swagger-ui .info .title,
+    .swagger-ui .opblock-tag,
+    .swagger-ui .opblock .opblock-summary-path,
+    .swagger-ui .opblock .opblock-summary-description,
+    .swagger-ui .opblock .opblock-summary-operation-id,
+    .swagger-ui table thead tr th,
+    .swagger-ui table thead tr td,
+    .swagger-ui .parameter__name,
+    .swagger-ui .parameter__type,
+    .swagger-ui .parameter__in,
+    .swagger-ui .response-col_status,
+    .swagger-ui .response-col_description,
+    .swagger-ui .responses-table .response-col_links,
+    .swagger-ui .model-title,
+    .swagger-ui .model,
+    .swagger-ui .model-toggle,
+    .swagger-ui label,
+    .swagger-ui .tab li,
+    .swagger-ui .markdown p,
+    .swagger-ui .renderedMarkdown p {
+      color: var(--doc-fg) !important;
+    }
+    .swagger-ui .info .description,
+    .swagger-ui .info .description p,
+    .swagger-ui .opblock-description-wrapper p,
+    .swagger-ui .opblock-section-header h4,
+    .swagger-ui .opblock-tag small {
+      color: var(--doc-fg-dim) !important;
+    }
+    .swagger-ui .opblock {
+      border: 1px solid var(--doc-border) !important;
+      background: var(--doc-bg-2) !important;
+      margin: 0 0 10px !important;
+      border-radius: 10px !important;
+    }
+    .swagger-ui .opblock .opblock-summary { border-bottom-color: var(--doc-border) !important; }
+    .swagger-ui .opblock-tag { border-bottom: 1px solid var(--doc-border) !important; }
+    .swagger-ui .opblock-section-header,
+    .swagger-ui .opblock .tab-header,
+    .swagger-ui .responses-wrapper,
+    .swagger-ui .response-control-media-type,
+    .swagger-ui .parameters-container,
+    .swagger-ui .responses-inner,
+    .swagger-ui .model-box,
+    .swagger-ui .body-param,
+    .swagger-ui section.models {
+      background: var(--doc-bg-2) !important;
+    }
+    .swagger-ui input[type="text"],
+    .swagger-ui input[type="password"],
+    .swagger-ui input[type="email"],
+    .swagger-ui input[type="number"],
+    .swagger-ui textarea,
+    .swagger-ui select {
+      background: #0a0c14 !important;
+      color: var(--doc-fg) !important;
+      border: 1px solid var(--doc-border) !important;
+      border-radius: 6px !important;
+    }
+    .swagger-ui .btn { background: var(--doc-bg-2); color: var(--doc-fg); border: 1px solid var(--doc-border); }
+    .swagger-ui .btn.execute {
+      background: linear-gradient(180deg, #143dff, #0b3aff);
+      color: white; border-color: transparent;
+    }
+    .swagger-ui .btn.execute:hover { filter: brightness(1.08); }
+    .swagger-ui .btn.try-out__btn,
+    .swagger-ui .btn.authorize {
+      color: var(--doc-accent); border-color: var(--doc-accent);
+    }
+    .swagger-ui .highlight-code, .swagger-ui pre, .swagger-ui code,
+    .swagger-ui .microlight {
+      background: #06080d !important;
+      color: var(--doc-fg) !important;
+      font-family: "JetBrains Mono", ui-monospace, monospace !important;
+    }
+    .swagger-ui table tbody tr td { border-color: var(--doc-border) !important; }
+    .swagger-ui .opblock-summary-method { box-shadow: none !important; }
+    .swagger-ui svg { fill: var(--doc-fg) !important; }
+    .swagger-ui .arrow { stroke: var(--doc-fg) !important; }
+    .swagger-ui section.models .model-container { background: var(--doc-bg-2) !important; }
+    .swagger-ui .info .base-url, .swagger-ui .info .url { color: var(--doc-accent) !important; }
+    .swagger-ui .servers > label select { color: var(--doc-fg) !important; }
+    .swagger-ui .auth-wrapper .authorize { color: var(--doc-fg); }
+    .swagger-ui .topbar { display: none; }
+    .swagger-ui .auth-container input,
+    .swagger-ui .dialog-ux .modal-ux-content { background: var(--doc-bg-2) !important; color: var(--doc-fg) !important; }
+    .swagger-ui .dialog-ux .modal-ux { background: var(--doc-bg) !important; border: 1px solid var(--doc-border) !important; }
+  </style>
+</head>
+<body>
+
+<main class="docs-shell">
+  <h1>API 문서 <span style="font-weight:400; color:var(--doc-fg-dim); font-size:18px;">/ API docs</span></h1>
+  <p class="docs-sub">
+    공개 REST 엔드포인트 전체와 인증 흐름. 아래 <em>Try it out</em> 버튼으로 실서버에 직접 요청을 보낼 수 있습니다.
+    <br/>The full public REST surface plus auth flow. Use the <em>Try it out</em> button to send requests against the live server.
+  </p>
+
+  <div class="docs-quick">
+    <a class="primary" href="/openapi.json" download>openapi.json</a>
+    <a href="/openapi.yaml" download>openapi.yaml</a>
+    <a href="/sdks/python/">Python SDK</a>
+    <a href="/sdks/javascript/">JavaScript SDK</a>
+    <a href="/sdks/go/">Go SDK</a>
+    <a href="api-keys.html">API 키 발급 / Get an API key</a>
+  </div>
+
+  <div id="swagger-ui"></div>
+</main>
+
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" charset="UTF-8"></script>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
+<script type="module">
+  // The shared header (with the user-pill dropdown) is rendered by app.js.
+  // It self-injects so we just call it.
+  import { renderHeader, renderFooter } from "./app.js";
+  try {
+    renderHeader("api-docs");
+    renderFooter && renderFooter();
+  } catch (e) { /* if app.js evolves, the docs page still works without it */ }
+</script>
+<script>
+  window.addEventListener("load", function () {
+    window.ui = SwaggerUIBundle({
+      url: "/openapi.json",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      docExpansion: "none",
+      defaultModelsExpandDepth: 0,
+      tryItOutEnabled: true,
+      persistAuthorization: true,
+      presets: [
+        SwaggerUIBundle.presets.apis,
+        SwaggerUIStandalonePreset,
+      ],
+      plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+      layout: "BaseLayout",
+      // Stay on the same origin so cookies and our proxy's API-key
+      // verification middleware behave the same way as the real UI.
+      requestInterceptor: function (req) {
+        try {
+          const u = new URL(req.url, window.location.origin);
+          if (u.origin !== window.location.origin) {
+            u.protocol = window.location.protocol;
+            u.host = window.location.host;
+            req.url = u.toString();
+          }
+        } catch (e) { /* leave req.url alone */ }
+        return req;
+      },
+    });
+  });
+</script>
+
+</body>
+</html>

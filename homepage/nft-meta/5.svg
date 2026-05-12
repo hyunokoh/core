@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#0b1020"/><circle cx="223" cy="336" r="4" fill="#f472b6"/>
+<line x1="223" y1="336" x2="47" y2="151" stroke="#7c4dff" stroke-width="1.42" opacity="0.6"/>
+<line x1="223" y1="336" x2="433" y2="194" stroke="#7c4dff" stroke-width="1.29" opacity="0.6"/>
+<circle cx="102" cy="239" r="6" fill="#f472b6"/>
+<line x1="102" y1="239" x2="428" y2="89" stroke="#7c4dff" stroke-width="1.23" opacity="0.6"/>
+<line x1="102" y1="239" x2="459" y2="270" stroke="#7c4dff" stroke-width="0.60" opacity="0.6"/>
+<line x1="102" y1="239" x2="433" y2="194" stroke="#7c4dff" stroke-width="0.98" opacity="0.6"/>
+<circle cx="406" cy="448" r="8" fill="#f472b6"/>
+<line x1="406" y1="448" x2="47" y2="151" stroke="#7c4dff" stroke-width="1.14" opacity="0.6"/>
+<line x1="406" y1="448" x2="459" y2="270" stroke="#7c4dff" stroke-width="1.43" opacity="0.6"/>
+<line x1="406" y1="448" x2="433" y2="194" stroke="#7c4dff" stroke-width="1.22" opacity="0.6"/>
+<circle cx="428" cy="89" r="5" fill="#f472b6"/>
+<line x1="428" y1="89" x2="433" y2="194" stroke="#7c4dff" stroke-width="0.94" opacity="0.6"/>
+<circle cx="47" cy="151" r="8" fill="#f472b6"/>
+<line x1="47" y1="151" x2="135" y2="154" stroke="#7c4dff" stroke-width="0.63" opacity="0.6"/>
+<line x1="47" y1="151" x2="459" y2="270" stroke="#7c4dff" stroke-width="1.27" opacity="0.6"/>
+<circle cx="41" cy="134" r="5" fill="#f472b6"/>
+<line x1="41" y1="134" x2="135" y2="154" stroke="#7c4dff" stroke-width="0.69" opacity="0.6"/>
+<line x1="41" y1="134" x2="459" y2="270" stroke="#7c4dff" stroke-width="0.89" opacity="0.6"/>
+<circle cx="135" cy="154" r="7" fill="#f472b6"/>
+<circle cx="459" cy="270" r="5" fill="#f472b6"/>
+<line x1="459" y1="270" x2="433" y2="194" stroke="#7c4dff" stroke-width="1.21" opacity="0.6"/>
+<circle cx="433" cy="194" r="7" fill="#f472b6"/>
+<line x1="433" y1="194" x2="47" y2="345" stroke="#7c4dff" stroke-width="0.87" opacity="0.6"/>
+<circle cx="47" cy="345" r="6" fill="#f472b6"/><text x="480" y="490" font-family="JetBrains Mono, monospace" font-size="22" fill="#f472b6" text-anchor="end" opacity="0.9">#5</text><text x="20" y="490" font-family="JetBrains Mono, monospace" font-size="14" fill="#22d3ee" opacity="0.8">zkCEX</text></svg>

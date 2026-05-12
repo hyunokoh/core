@@ -1,0 +1,127 @@
+groups:
+  - name: zkcex.core
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: zkcex_service_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: 'Service {{ $labels.service }} is down'
+          description: 'zkcex_service_up{{"{{"}}service="{{ $labels.service }}"{{"}}"}} has been 0 for 30s. Check the service process and its dependencies.'
+          runbook: 'https://runbooks.internal/zkcex/service-down'
+
+      - alert: AggregatorDown
+        expr: absent(zkcex_aggregator_up) or zkcex_aggregator_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: 'Metrics aggregator is down (no visibility into anything else)'
+          description: 'The aggregator on :5640 has not reported for 1 minute. Restart it before investigating further.'
+
+      - alert: HighAmlBlockRate
+        expr: rate(zkcex_aml_decisions_total{decision="block"}[5m]) > 0.1
+        for: 1m
+        labels:
+          severity: warning
+          team: compliance
+        annotations:
+          summary: 'AML block rate elevated ({{ $value }}/s)'
+          description: 'More than 6 blocks/min over 5m. Possible coordinated bad-actor influx or a false-positive in a new sanctions list update.'
+
+      - alert: PoRLRatioBelow1
+        expr: zkcex_porl_ratio < 1
+        for: 0s
+        labels:
+          severity: critical
+          team: treasury
+        annotations:
+          summary: 'CRITICAL: Reserves below liabilities ({{ $value }})'
+          description: 'The Proof of Reserves/Liabilities ratio is below 1. Trading should be halted IMMEDIATELY pending investigation.'
+
+      - alert: PoRLRatioBelow105
+        expr: zkcex_porl_ratio < 1.05 and zkcex_porl_ratio >= 1
+        for: 5m
+        labels:
+          severity: warning
+          team: treasury
+        annotations:
+          summary: 'Reserves margin tight ({{ $value }}x)'
+
+      - alert: PoLStale
+        expr: time() - zkcex_pol_epoch_started_at > 600
+        for: 1m
+        labels:
+          severity: critical
+          team: pol
+        annotations:
+          summary: 'PoL snapshot stale ({{ $value }}s old)'
+          description: 'No new PoL commit in 10 minutes. Customers cannot independently verify their balance.'
+
+      - alert: CustodyDegraded
+        expr: zkcex_custody_nodes_reachable < zkcex_custody_threshold_n
+        for: 1m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: 'Custody fleet degraded ({{ $value }} reachable)'
+
+      - alert: CustodyBelowThreshold
+        expr: zkcex_custody_nodes_reachable < zkcex_custody_threshold_m
+        for: 30s
+        labels:
+          severity: critical
+          team: custody
+        annotations:
+          summary: 'CRITICAL: Custody below signing threshold ({{ $value }} < m={{ $labels.m }})'
+          description: 'Withdrawals will fail to sign. Restore at least one node now.'
+
+      - alert: WithdrawSpike
+        expr: rate(zkcex_chain_withdraws_total[5m]) > (rate(zkcex_chain_withdraws_total[1h]) * 5 + 0.01)
+        for: 2m
+        labels:
+          severity: warning
+          team: risk
+        annotations:
+          summary: 'Withdrawal rate spike detected ({{ $value }}/s vs 1h baseline)'
+
+      - alert: WSDroppedFrames
+        expr: rate(zkcex_ws_dropped_frames_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: 'WebSocket dropping frames ({{ $value }}/s)'
+
+      - alert: SpotLatencyP99High
+        expr: histogram_quantile(0.99, sum by (le) (rate(zkcex_request_latency_ms_bucket[5m]))) > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: 'Spot API p99 latency above 500ms ({{ $value }}ms)'
+
+      - alert: ChainRPCStale
+        expr: zkcex_chain_stale_seconds > 120
+        for: 2m
+        labels:
+          severity: warning
+          team: chain
+        annotations:
+          summary: 'Chain {{ $labels.chain }} RPC head is stale ({{ $value }}s)'
+
+      - alert: BridgeTickStale
+        expr: time() - zkcex_bridge_last_tick_at > 120
+        for: 1m
+        labels:
+          severity: warning
+          team: pol
+        annotations:
+          summary: 'zkpol bridge has not ticked in {{ $value }}s'

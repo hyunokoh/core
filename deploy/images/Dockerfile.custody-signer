@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=custody-signer
+
+COPY --chown=65532:65532 tools/custody/ /app/tools/custody/
+
+# Each signer instance binds one port from 5520-5524 at runtime.
+ENV PORT=5520
+EXPOSE 5520 5521 5522 5523 5524
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5520", "/health"]
+# Real deployments override CMD per replica with --node-id / --port / --token.
+CMD ["-u", "-m", "custody.signer_node", "--bind", "0.0.0.0", "--port", "5520", "--node-id", "n0"]

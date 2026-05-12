@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>출금 / Withdraw — zkCEX</title>
+  <meta name="description" content="zkCEX 거래소 출금. KYC 인증 후 외부 주소로 자산을 보낼 수 있습니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <link rel="stylesheet" href="ramp.css" />
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>출금<span class="en">Withdraw</span></h1>
+  <p>인증된 사용자는 본인 외부 주소로 자산을 출금할 수 있습니다 / Verified users can withdraw to any external address.</p>
+</section>
+
+<main id="main" class="ramp-shell">
+
+  <!-- ==========================================================
+       Multi-chain selector. Withdrawals are only available on the
+       Demo Hardhat chain in this build; other chains show a
+       "available at mainnet launch" notice.
+       ========================================================== -->
+  <section class="chain-picker-card" id="chain-picker-card" style="
+       margin: 0 0 18px;
+       padding: 14px 16px;
+       background: var(--surface, #11131a);
+       border: 1px solid var(--line, #1d2230);
+       border-radius: 12px;
+       display: flex; flex-direction: column; gap: 10px;">
+    <div id="chain-status-row" style="font-size:12px;color:var(--ink-mute,#8c93a8);font-family:'JetBrains Mono',monospace;">
+      <span id="chain-status-dot">⚪</span>
+      <span id="chain-status-text">체인 상태 확인 중… / Probing chain RPC…</span>
+    </div>
+    <div role="tablist" aria-label="Chain" id="chain-pill-row" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+    <div id="chain-readonly-banner" hidden style="
+         font-size: 13px; padding: 8px 12px; border-radius: 8px;
+         background: rgba(245, 158, 11, 0.12);
+         color: #f59e0b;
+         border: 1px solid rgba(245,158,11,0.35);">
+      이 체인 출금은 메인넷 출시 시 활성됩니다 / Withdrawals on this chain go live at mainnet launch.
+    </div>
+  </section>
+
+  <!-- ==========================================================
+       Custody mode card.
+       Surfaces whether withdrawals go through the M-of-N threshold
+       custody fleet or the legacy single-key demo path. The actual
+       state comes from /chain/info -> info.custody. We render an
+       optimistic placeholder until the first refresh comes back.
+       ========================================================== -->
+  <section class="custody-card" id="custody-card" style="
+       margin: 0 0 18px;
+       padding: 14px 16px;
+       background: var(--surface, #11131a);
+       border: 1px solid var(--line, #1d2230);
+       border-radius: 12px;
+       display: flex; align-items: flex-start; gap: 14px;">
+    <div id="custody-icon" aria-hidden="true" style="
+         flex: 0 0 auto; width: 36px; height: 36px;
+         border-radius: 10px;
+         display:flex; align-items:center; justify-content:center;
+         background: rgba(120,128,160,0.18);
+         color: #8c93a8;
+         font-size: 20px; font-weight: 700;
+         font-family: 'JetBrains Mono', monospace;">·</div>
+    <div style="flex:1 1 auto; min-width:0;">
+      <div style="font-size:13px;font-weight:600;color:var(--ink, #e5e7ee);">
+        커스터디 / Custody
+        <span class="dim" id="custody-mode-pill" style="
+             margin-left:8px; padding:2px 8px; border-radius:999px;
+             font-size:11px; font-family:'JetBrains Mono',monospace;
+             border:1px solid rgba(120,128,160,0.35);
+             color: #8c93a8;">— · checking</span>
+      </div>
+      <div id="custody-blurb" style="font-size:12px;color:var(--ink-mute,#8c93a8);margin-top:4px;">
+        커스터디 상태 확인 중… / Checking custody mode…
+      </div>
+      <div style="margin-top:6px;font-size:12px;">
+        <a href="custody.html" id="custody-link" style="text-decoration:none;color:#7cc1ff;">
+          노드 상태 보기 → / View node status →
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="ramp-kyc-card" id="kyc-gate" hidden>
+    <div class="ramp-kyc-icon" aria-hidden="true">!</div>
+    <div class="ramp-kyc-text">
+      <h2>출금에는 본인 인증이 필요합니다 / KYC verification required</h2>
+      <p>한국 휴대폰 본인 인증(통신사 PASS)을 통해 빠르게 인증을 완료한 뒤 출금할 수 있습니다.<br/>
+        Complete the Korean carrier-PASS KYC flow once and you're set. Takes ~30 seconds.</p>
+    </div>
+    <a class="btn btn-primary" href="kyc.html">지금 인증하기 / Verify now →</a>
+  </section>
+
+  <section class="ramp-grid" id="form-block">
+    <div class="ramp-card ramp-main">
+      <div class="ramp-tabs" role="tablist">
+        <button class="ramp-tab active" data-asset="ZETH" type="button">zkETH <span class="tab-en">ZETH</span></button>
+        <button class="ramp-tab" data-asset="ZUSDT" type="button">zkUSDT <span class="tab-en">ZUSDT</span></button>
+      </div>
+
+      <form class="ramp-form" id="w-form">
+
+        <div class="ramp-field">
+          <label for="w-amount" class="ramp-field-label">
+            <span>출금 금액 <span class="en">/ Amount</span></span>
+            <span class="muted dim">
+              사용 가능 / Available: <span class="mono" id="avail-amount">—</span>
+            </span>
+          </label>
+          <div class="ramp-amount-row">
+            <input type="text" inputmode="decimal" id="w-amount" placeholder="0.0" step="0.000001" />
+            <span class="ramp-amount-asset" id="amount-asset">ZETH</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="max-btn">전체 / Max</button>
+          </div>
+          <div class="ramp-field-hint dim" id="amount-precision-hint">
+            최소 0.001 ZETH · step 0.000001 · 6dp · 수수료 0.001 ZETH<br/>
+            <span class="dim">Min 0.001 ZETH, step 0.000001, 6 decimals, fee 0.001 ZETH</span>
+          </div>
+          <div class="ramp-field-hint dim" id="amount-net-hint" hidden>
+            수수료 차감 후 실수령 <span class="mono" id="amount-net">—</span><br/>
+            <span class="dim">After fee, you receive <span class="mono" id="amount-net-en">—</span></span>
+          </div>
+        </div>
+
+        <div class="ramp-field">
+          <label for="w-dest" class="ramp-field-label">
+            <span>출금 주소 <span class="en">/ Destination address</span></span>
+          </label>
+          <input type="text" id="w-dest" placeholder="0x…" autocomplete="off" spellcheck="false" />
+          <div class="ramp-field-hint dim">
+            로컬 hardhat 체인 주소 (40-hex)만 허용됩니다 · Local hardhat address only
+          </div>
+        </div>
+
+        <div class="ramp-field">
+          <label for="w-memo" class="ramp-field-label">
+            <span>메모 <span class="en">/ Memo (optional)</span></span>
+          </label>
+          <input type="text" id="w-memo" placeholder="—" />
+        </div>
+
+        <div class="ramp-eta-line">
+          <span class="muted">예상 도착 시간 / Estimated arrival</span>
+          <span class="ramp-eta-pill mono">1초 미만 · under 1s · local chain</span>
+        </div>
+
+        <!-- ==========================================================
+             Travel Rule attestation panel.
+             Appears (display: block) once the user has entered an
+             amount >= the configured USDT threshold (default $1000).
+             The user must declare what the destination address is
+             — their own self-hosted wallet, or a customer account at
+             another exchange. The submit button is disabled until a
+             valid attestation is captured.
+             ========================================================== -->
+        <div class="ramp-field" id="tr-attest-panel" hidden style="
+             background: rgba(124, 193, 255, 0.06);
+             border: 1px solid rgba(124, 193, 255, 0.35);
+             border-radius: 10px;
+             padding: 12px 14px;
+             margin-top: 4px;">
+          <label class="ramp-field-label">
+            <span>여행규칙 신고 / Travel Rule declaration</span>
+            <span class="muted dim" id="tr-threshold-pill">≥ $1,000</span>
+          </label>
+          <p class="dim" style="font-size:12px;margin:4px 0 10px;">
+            이 주소가 어디인가요? 국제 자금세탁방지(FATF) 규정에 따라 출금 전에 수취 정보가 필요합니다.<br/>
+            <span class="dim">Where does this address belong? FATF Travel Rule requires recipient info before transfer.</span>
+          </p>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+            <label for="tr-kind-self" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+              <input type="radio" name="tr-kind" id="tr-kind-self" value="self" />
+              <span>
+                <strong>자신의 자체 보관 지갑</strong> <span class="dim">/ My own self-hosted wallet</span><br/>
+                <span class="dim" style="font-size:12px;">MetaMask, Ledger, Trezor 등 본인이 직접 관리하는 지갑 / Wallets you control yourself</span>
+              </span>
+            </label>
+            <label for="tr-kind-vasp" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+              <input type="radio" name="tr-kind" id="tr-kind-vasp" value="vasp" />
+              <span>
+                <strong>다른 거래소 계정</strong> <span class="dim">/ Another exchange account</span><br/>
+                <span class="dim" style="font-size:12px;">규제된 다른 가상자산 사업자(VASP)에 있는 계정 / Account at another regulated VASP</span>
+              </span>
+            </label>
+          </div>
+          <div id="tr-vasp-fields" hidden style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+            <label for="tr-vasp-select" class="ramp-field-label" style="font-size:12px;">
+              수취 거래소 <span class="dim">/ Recipient exchange</span>
+            </label>
+            <select id="tr-vasp-select" style="
+                 background:var(--surface, #11131a);
+                 color:var(--ink,#dfe2ee);
+                 border:1px solid var(--line,#1d2230);
+                 border-radius:8px;padding:8px 10px;font-size:13px;">
+              <option value="">선택하세요 / Select…</option>
+            </select>
+            <label for="tr-vasp-name" class="ramp-field-label" style="font-size:12px;">
+              수취인 이름 <span class="dim">/ Recipient name (as on KYC)</span>
+            </label>
+            <input type="text" id="tr-vasp-name" placeholder="홍길동 / John Doe" />
+            <label for="tr-vasp-country" class="ramp-field-label" style="font-size:12px;">
+              수취인 국가 <span class="dim">/ Recipient country (ISO-2)</span>
+            </label>
+            <input type="text" id="tr-vasp-country" placeholder="KR" maxlength="2" style="text-transform:uppercase;" />
+          </div>
+          <div id="tr-attest-status" class="dim" style="margin-top:10px;font-size:12px;">
+            <span class="mono">대기 / Waiting…</span>
+          </div>
+          <details style="margin-top:8px;">
+            <summary class="dim" style="font-size:12px;cursor:pointer;">Travel Rule이란? / What is Travel Rule?</summary>
+            <p class="dim" style="font-size:12px;margin:6px 0 0;">
+              국제자금세탁방지기구(FATF)가 정한 표준으로, 가상자산 사업자는 $1,000 이상 송금 시 송신자/수신자 KYC 정보를 상대 사업자와 교환해야 합니다.
+              자체 보관 지갑으로 보내는 경우 본인 소유 확인서만 받습니다.<br/>
+              <em>The FATF Travel Rule requires VASPs to exchange originator and beneficiary KYC data
+              with the counterparty VASP for crypto transfers ≥ $1,000. Self-hosted wallets only require
+              a self-attestation of ownership.</em>
+            </p>
+          </details>
+        </div>
+
+        <div class="ramp-actions">
+          <button type="submit" class="btn btn-primary" id="w-submit">
+            출금 요청 <span class="btn-en">/ Submit withdraw</span>
+          </button>
+        </div>
+
+        <details class="ramp-aml-details" id="aml-details" hidden>
+          <summary class="muted dim">자세히 / Details</summary>
+          <pre class="mono dim" id="aml-details-body" style="white-space:pre-wrap;margin:6px 0 0;font-size:12px;">—</pre>
+        </details>
+      </form>
+
+      <!-- 2FA step-up modal. Hidden until /chain/withdraw returns 401
+           {error:"totp_required"}; we re-POST with totp_code or recovery_code. -->
+      <div role="dialog" aria-modal="true" id="totp-modal" hidden style="
+           position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+           display: flex; align-items: center; justify-content: center;
+           z-index: 50; padding: 18px;">
+        <div style="background: var(--panel, #11131a); border: 1px solid var(--line,#1d2230);
+                    border-radius: 14px; max-width: 380px; width: 100%; padding: 22px;">
+          <h3 style="margin:0 0 4px;">2단계 인증 / Two-factor authentication</h3>
+          <p style="font-size:13px;color:var(--ink-dim,#7e8ba2);margin:0 0 12px;">
+            출금을 완료하려면 인증 앱의 6자리 코드를 입력하세요. / Enter the 6-digit code from your authenticator to authorize this withdraw.
+          </p>
+          <input id="wd-totp-code" type="text" inputmode="numeric" pattern="[0-9]{6}"
+                 maxlength="6" autocomplete="one-time-code" placeholder="000000"
+                 aria-label="2단계 인증 코드 6자리 / 6-digit two-factor code"
+                 style="width:100%;padding:12px;font-size:22px;letter-spacing:6px;text-align:center;
+                        font-family:'JetBrains Mono',monospace;border-radius:10px;
+                        background: var(--panel,#11131a); color: var(--ink,#e6ecf5);
+                        border:1px solid var(--line,#1d2230);" />
+          <div id="wd-totp-help" style="font-size:12px;color:var(--ink-dim,#7e8ba2);margin-top:8px;">6자리 숫자 / 6 digits</div>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+            <button class="btn btn-primary" type="button" id="wd-totp-confirm">확인 / Confirm</button>
+            <button class="btn btn-quiet" type="button" id="wd-totp-recovery">복구 코드 / Use recovery</button>
+            <button class="btn btn-quiet" type="button" id="wd-totp-cancel">취소 / Cancel</button>
+          </div>
+          <p style="font-size:11px;color:var(--ink-dim,#7e8ba2);margin-top:10px;">
+            2단계 인증 설정 / Configure 2FA: <a href="security.html" style="color:#7cc1ff;">security</a>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <aside class="ramp-card ramp-side">
+      <div class="ramp-label">출금 안내 <span class="en">/ Notes</span></div>
+      <ul class="ramp-side-list">
+        <li>자산별 최소·소수 자릿수 규정에 따라 부분 출금이 가능합니다.<br/><span class="dim">Fractional amounts allowed, per asset min &amp; precision.</span></li>
+        <li>거래소가 본인의 자체 지갑에서 직접 서명·전송합니다.<br/><span class="dim">The exchange custodial wallet signs the transfer.</span></li>
+        <li>로컬 hardhat 체인이라 가스비가 없고, 1블록(~1초)이면 컨펌됩니다.<br/><span class="dim">No gas on hardhat; 1 block ≈ 1 second.</span></li>
+      </ul>
+
+      <div class="ramp-label" style="margin-top:18px;">거래소 보관 주소 <span class="en">/ Custodial wallet</span></div>
+      <code class="mono ramp-addr" id="cust-addr">—</code>
+    </aside>
+  </section>
+
+  <section class="ramp-history">
+    <div class="ramp-history-head">
+      <h2>최근 출금 <span class="en">/ Recent withdrawals</span></h2>
+      <span class="muted dim" id="w-tick">—</span>
+    </div>
+    <div class="ramp-table-wrap">
+      <table class="ramp-table" aria-label="최근 출금 내역 / Recent withdrawal history">
+        <thead>
+          <tr>
+            <th scope="col">상태 / Status</th>
+            <th scope="col">자산 / Asset</th>
+            <th scope="col" class="r">금액 / Amount</th>
+            <th scope="col">AML</th>
+            <th scope="col">도착지 / Destination</th>
+            <th scope="col">트랜잭션 / Tx</th>
+            <th scope="col" class="r">시간 / Time</th>
+          </tr>
+        </thead>
+        <tbody id="w-body">
+          <tr class="ramp-empty"><td colspan="7">불러오는 중… / Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    requireSession, getSession, refreshMe, setSession,
+    api, authedFetch, chain, toast, escapeHtml,
+    fmtAmount, fmtRelative, poll,
+  } from "./app.js";
+  import {
+    KNOWN_CHAINS, listChains,
+    getCurrentChainSlug, setCurrentChainSlug, isWritable, findChain,
+    chainStatusLine, CHAIN_CHANGE_EVENT,
+  } from "./chains.js";
+
+  const session = requireSession({ redirectTo: "/app/signin.html" });
+  if (session) {
+    renderHeader("wallet");
+    renderFooter();
+
+    const tabs = document.querySelectorAll(".ramp-tab");
+    const kycGate = document.getElementById("kyc-gate");
+    const formBlock = document.getElementById("form-block");
+    const availEl = document.getElementById("avail-amount");
+    const amountAssetEl = document.getElementById("amount-asset");
+    const wAmount = document.getElementById("w-amount");
+    const wDest = document.getElementById("w-dest");
+    const wForm = document.getElementById("w-form");
+    const wSubmit = document.getElementById("w-submit");
+    const maxBtn = document.getElementById("max-btn");
+    const wBody = document.getElementById("w-body");
+    const wTick = document.getElementById("w-tick");
+    const custAddrEl = document.getElementById("cust-addr");
+    const precHintEl = document.getElementById("amount-precision-hint");
+    const netHintEl = document.getElementById("amount-net-hint");
+    const netSpan = document.getElementById("amount-net");
+    const netSpanEn = document.getElementById("amount-net-en");
+
+    // Per-asset precision / minimum / fee. Mirrors tools/asset_precisions.py
+    // so the UI can show "min 0.001 ETH" and prevent invalid form submits
+    // before they reach the server. The server is still the source of truth.
+    const ASSET_SPEC = {
+      ZETH:  { decimals: 6, min: "0.001", step: "0.000001", fee: "0.001" },
+      ZUSDT: { decimals: 2, min: "1",     step: "0.01",     fee: "1" },
+    };
+
+    let activeAsset = "ZETH";
+    let avail = { ZETH: 0, ZUSDT: 0 };  // available in internal ledger (units)
+
+    function specFor(asset) {
+      return ASSET_SPEC[asset] || ASSET_SPEC.ZETH;
+    }
+
+    // Round-down toward zero, to `decimals` fractional digits, as a string.
+    // Uses plain string ops to avoid float drift on inputs like "0.1".
+    function quantizeDown(value, decimals) {
+      const s = String(value).trim();
+      if (!s) return "0";
+      // Allow signed but treat negatives as 0 (max-button context).
+      const neg = s.startsWith("-");
+      const v = neg ? s.slice(1) : s;
+      if (neg) return "0";
+      if (!/^\d*\.?\d*$/.test(v)) return "0";
+      const [whole, frac = ""] = v.split(".");
+      if (decimals <= 0) return whole || "0";
+      const truncated = (frac + "0".repeat(decimals)).slice(0, decimals).replace(/0+$/, "");
+      return truncated ? `${whole || "0"}.${truncated}` : (whole || "0");
+    }
+
+    // Subtract `b` from `a` (both decimal strings) using BigInt over a
+    // common scale. Returns a decimal string clipped to `decimals` dp.
+    function subDecimal(a, b, decimals) {
+      const scale = 10n ** BigInt(decimals);
+      const toScaled = (s) => {
+        const [w, f = ""] = String(s).split(".");
+        const fpad = (f + "0".repeat(decimals)).slice(0, decimals);
+        return BigInt((w || "0") + fpad);
+      };
+      const r = toScaled(a) - toScaled(b);
+      if (r <= 0n) return "0";
+      const s = r.toString().padStart(decimals + 1, "0");
+      const w = s.slice(0, -decimals) || "0";
+      const f = s.slice(-decimals).replace(/0+$/, "");
+      return f ? `${w}.${f}` : w;
+    }
+
+    function refreshPrecisionHint() {
+      const spec = specFor(activeAsset);
+      precHintEl.innerHTML =
+        `최소 ${spec.min} ${activeAsset} · step ${spec.step} · ${spec.decimals}dp · 수수료 ${spec.fee} ${activeAsset}<br/>` +
+        `<span class="dim">Min ${spec.min} ${activeAsset}, step ${spec.step}, ${spec.decimals} decimals, fee ${spec.fee} ${activeAsset}</span>`;
+      wAmount.step = spec.step;
+      wAmount.min = spec.min;
+    }
+
+    function refreshNetHint() {
+      const raw = (wAmount.value || "").trim();
+      if (!raw) { netHintEl.hidden = true; return; }
+      const spec = specFor(activeAsset);
+      const net = subDecimal(raw, spec.fee, spec.decimals);
+      netSpan.textContent = `${net} ${activeAsset}`;
+      netSpanEn.textContent = `${net} ${activeAsset}`;
+      netHintEl.hidden = false;
+    }
+
+    // ---- Travel Rule attestation panel state -------------------------
+    // We treat 1 ZETH ≈ $2,400 USDT for the demo (matches chain_server's
+    // amount_usdt computation). The TR threshold (default $1,000) is
+    // fetched from /travel-rule/server-info on first show.
+    const trPanel = document.getElementById("tr-attest-panel");
+    const trVaspFields = document.getElementById("tr-vasp-fields");
+    const trVaspSelect = document.getElementById("tr-vasp-select");
+    const trVaspName = document.getElementById("tr-vasp-name");
+    const trVaspCountry = document.getElementById("tr-vasp-country");
+    const trStatusEl = document.getElementById("tr-attest-status");
+    const trThresholdPill = document.getElementById("tr-threshold-pill");
+    const trKindSelf = document.getElementById("tr-kind-self");
+    const trKindVasp = document.getElementById("tr-kind-vasp");
+    let TR_THRESHOLD_USDT = 1000;
+    const TR_RATE_ZETH = 2400;  // demo-only USDT-per-ZETH conversion
+    let trVaspList = [];
+
+    function amountUsdtPreview() {
+      const a = Number(wAmount.value || 0);
+      if (!a) return 0;
+      return activeAsset === "ZUSDT" ? a : a * TR_RATE_ZETH;
+    }
+
+    function trPanelRequired() {
+      return amountUsdtPreview() >= TR_THRESHOLD_USDT;
+    }
+
+    function attestationOk() {
+      if (!trPanelRequired()) return true;
+      if (trKindSelf?.checked) return true;
+      if (trKindVasp?.checked) {
+        if (!trVaspSelect.value) return false;
+        if (!trVaspName.value.trim()) return false;
+        if (!/^[A-Z]{2}$/.test((trVaspCountry.value || "").trim().toUpperCase())) return false;
+        return true;
+      }
+      return false;
+    }
+
+    function renderTrStatus() {
+      const ok = attestationOk();
+      if (!trPanelRequired()) {
+        trStatusEl.innerHTML = `<span class="mono dim">금액이 임계값 미만 · below threshold</span>`;
+      } else if (ok) {
+        trStatusEl.innerHTML = `<span class="mono" style="color:#10b981;">신고 완료 · attestation ready</span>`;
+      } else {
+        trStatusEl.innerHTML = `<span class="mono" style="color:#f59e0b;">신고 필요 · attestation required</span>`;
+      }
+      wSubmit.disabled = !ok || !chainSlugAllowsForm();
+    }
+
+    function chainSlugAllowsForm() {
+      // We don't have chains.js's writable check in scope here — defer to
+      // the existing class toggle done by applyChainView(). If the form
+      // block has ramp-locked, the chain is read-only.
+      return !formBlock.classList.contains("ramp-locked");
+    }
+
+    async function loadTrVasps() {
+      try {
+        const info = await fetch("/travel-rule/server-info").then(r => r.json());
+        if (info?.threshold_usdt) TR_THRESHOLD_USDT = Number(info.threshold_usdt) || 1000;
+        trThresholdPill.textContent = `≥ $${TR_THRESHOLD_USDT.toLocaleString()}`;
+      } catch { /* keep default */ }
+      try {
+        const r = await fetch("/travel-rule/vasps").then(r => r.json());
+        trVaspList = r?.vasps || [];
+        trVaspSelect.innerHTML = `<option value="">선택하세요 / Select…</option>` +
+          trVaspList.map(v => `<option value="${v.vasp_id}">${escapeHtml(v.name)} (${escapeHtml(v.country||"--")})</option>`).join("");
+      } catch (e) { console.warn("vasp fetch failed", e); }
+    }
+
+    function updateTrPanel() {
+      const need = trPanelRequired();
+      trPanel.hidden = !need;
+      if (!need) {
+        wSubmit.disabled = !chainSlugAllowsForm();
+        return;
+      }
+      trVaspFields.hidden = !trKindVasp.checked;
+      renderTrStatus();
+    }
+
+    wAmount?.addEventListener("input", updateTrPanel);
+    document.querySelectorAll("input[name='tr-kind']").forEach(r => r.addEventListener("change", updateTrPanel));
+    [trVaspSelect, trVaspName, trVaspCountry].forEach(el => el?.addEventListener("input", renderTrStatus));
+    loadTrVasps();
+
+    function gateForKyc() {
+      const fresh = getSession();
+      const verified = fresh?.user?.kyc_status === "verified";
+      kycGate.hidden = verified;
+      formBlock.classList.toggle("ramp-locked", !verified);
+      // Disable form fields when locked.
+      [wAmount, wDest, wSubmit, maxBtn].forEach(el => { if (el) el.disabled = !verified; });
+    }
+
+    async function syncSessionFromAuthMe() {
+      // refreshSession() pulls /auth/me and updates localStorage; we use the
+      // result so the gate reflects the latest kyc_status.
+      try { await refreshMe(); } catch { /* ignore */ }
+      gateForKyc();
+    }
+
+    async function refreshAvail() {
+      try {
+        const wallets = await api(`/v1/owner/${encodeURIComponent(session.user.opex_user)}/wallets`);
+        const list = Array.isArray(wallets) ? wallets : [];
+        const get = (sym) => {
+          const w = list.find(x => (x.asset || x.symbol) === sym);
+          if (!w) return 0;
+          return Math.max(0, Number(w.balance || 0) - Number(w.locked || 0));
+        };
+        avail.ZETH = get("ETH");      // internal symbol
+        avail.ZUSDT = get("USDT");
+        renderAvail();
+      } catch (e) {
+        availEl.textContent = "—";
+      }
+    }
+
+    function renderAvail() {
+      const a = avail[activeAsset];
+      availEl.textContent = `${a} ${activeAsset === "ZETH" ? "zkETH" : "zkUSDT"}`;
+      amountAssetEl.textContent = activeAsset;
+    }
+
+    async function refreshInfo() {
+      try {
+        const info = await chain.info();
+        if (info?.custodial) custAddrEl.textContent = info.custodial;
+        renderCustodyCard(info?.custody);
+      } catch { /* ignore */ }
+    }
+
+    function renderCustodyCard(c) {
+      const card = document.getElementById("custody-card");
+      const icon = document.getElementById("custody-icon");
+      const pill = document.getElementById("custody-mode-pill");
+      const blurb = document.getElementById("custody-blurb");
+      if (!card || !c) return;
+      if (c.mode === "threshold") {
+        const reach = c.coordinator_health?.n_nodes_reachable ?? "?";
+        const total = c.total ?? "?";
+        const ok = c.coordinator_health?.ok ? true : false;
+        const greenBg = "rgba(16, 185, 129, 0.14)";
+        const greenFg = "#10b981";
+        icon.style.background = greenBg;
+        icon.style.color = greenFg;
+        icon.textContent = "✓"; // check
+        pill.style.borderColor = "rgba(16,185,129,0.45)";
+        pill.style.color = greenFg;
+        pill.textContent = `M-of-N ${c.m_of_n || (c.threshold + "-of-" + c.total)} · ${ok ? "online" : "degraded"}`;
+        blurb.innerHTML =
+          `<strong>임계 커스터디 활성</strong> · ${reach}/${total} 노드 정상 동작.<br/>` +
+          `<span class="dim">M-of-N threshold custody enabled (${reach} of ${total} nodes online). ` +
+          `Withdrawals require quorum approval before broadcast.</span>`;
+      } else {
+        const amberBg = "rgba(245, 158, 11, 0.14)";
+        const amberFg = "#f59e0b";
+        icon.style.background = amberBg;
+        icon.style.color = amberFg;
+        icon.textContent = "!";
+        pill.style.borderColor = "rgba(245,158,11,0.45)";
+        pill.style.color = amberFg;
+        pill.textContent = "single-key · demo";
+        blurb.innerHTML =
+          `<strong>데모 모드</strong>: 단일 키 커스터디 서명입니다.<br/>` +
+          `<span class="dim">Demo mode: single-key custodial signing. ` +
+          `Production deployment switches to threshold custody (M-of-N quorum).</span>`;
+      }
+    }
+
+    function ensureAmlDetails() {
+      const d = document.getElementById("aml-details");
+      const body = document.getElementById("aml-details-body");
+      if (d) d.hidden = false;
+      return body;
+    }
+
+    function amlPill(r) {
+      const s = (r.aml_status || "").toLowerCase();
+      const reasons = Array.isArray(r.aml_reasons) ? r.aml_reasons.join(", ") : "";
+      const score = r.aml_risk_score == null ? "" : ` · ${r.aml_risk_score}`;
+      const tip = reasons ? ` title="${escapeHtml(reasons)}"` : "";
+      if (s === "allow") {
+        return `<span class="ramp-status ok"${tip}>AML 통과 <span class="dim">AML clear${escapeHtml(score)}</span></span>`;
+      }
+      if (s === "review") {
+        return `<span class="ramp-status warn"${tip}>AML 검토 <span class="dim">AML review${escapeHtml(score)}</span></span>`;
+      }
+      if (s === "block") {
+        return `<span class="ramp-status err"${tip}>AML 차단 <span class="dim">AML blocked${escapeHtml(score)}</span></span>`;
+      }
+      return `<span class="dim mono">—</span>`;
+    }
+
+    async function refreshWithdraws() {
+      try {
+        const rows = await chain.withdraws();
+        if (!rows.length) {
+          wBody.innerHTML = `<tr class="ramp-empty"><td colspan="7">아직 출금 내역이 없습니다 / No withdrawals yet</td></tr>`;
+        } else {
+          wBody.innerHTML = rows.map(r => {
+            const cls = r.status === "confirmed" ? "ok" : (r.status === "failed" ? "err" : "warn");
+            const ko = r.status === "confirmed" ? "확정됨" : (r.status === "failed" ? "실패" : "전송됨");
+            const tx = String(r.tx || "");
+            const txShort = tx ? tx.slice(0, 10) + "…" + tx.slice(-6) : "(pending)";
+            const dest = String(r.destination || "");
+            const destShort = dest ? dest.slice(0, 8) + "…" + dest.slice(-6) : "—";
+            return `<tr>
+              <td><span class="ramp-status ${cls}">${escapeHtml(ko)} <span class="dim">${escapeHtml(r.status)}</span></span></td>
+              <td><span class="ramp-asset-pill">${escapeHtml(r.asset)}</span></td>
+              <td class="r mono">${escapeHtml(String(r.amount))}</td>
+              <td>${amlPill(r)}</td>
+              <td><code class="mono dim" title="${escapeHtml(dest)}">${escapeHtml(destShort)}</code></td>
+              <td>${tx ? `<button type="button" class="ramp-tx-link mono" data-copy-tx="${escapeHtml(tx)}" title="${escapeHtml(tx)}">${escapeHtml(txShort)}</button>` : "—"}</td>
+              <td class="r mono dim">${escapeHtml(fmtRelative((r.submitted_at || 0) * 1000))}</td>
+            </tr>`;
+          }).join("");
+        }
+        wTick.textContent = `갱신 ${new Date().toLocaleTimeString()} · refreshed`;
+      } catch (e) {
+        wBody.innerHTML = `<tr class="ramp-empty"><td colspan="7">불러오기 실패 / Failed</td></tr>`;
+      }
+    }
+
+    document.addEventListener("click", async (ev) => {
+      const t = ev.target.closest?.("[data-copy-tx]");
+      if (!t) return;
+      try {
+        await navigator.clipboard.writeText(t.dataset.copyTx);
+        toast("Tx 해시 복사됨", "Tx hash copied");
+      } catch { toast("복사 실패", "Copy failed"); }
+    });
+
+    tabs.forEach(b => b.addEventListener("click", () => {
+      tabs.forEach(x => x.classList.toggle("active", x === b));
+      activeAsset = b.dataset.asset;
+      renderAvail();
+      refreshPrecisionHint();
+      refreshNetHint();
+      updateTrPanel();
+    }));
+
+    maxBtn.addEventListener("click", () => {
+      // Real exchanges fill `available - fee`, quantized DOWN to the asset's
+      // withdraw precision -- never up, or the wallet API would 400 on a
+      // balance the user doesn't actually have. `avail` is a JS number from
+      // the wallet API JSON, so we stringify before precision math to avoid
+      // 0.30000000000000004-style float-format leaks.
+      const spec = specFor(activeAsset);
+      const availStr = String(avail[activeAsset] || 0);
+      const afterFee = subDecimal(availStr, spec.fee, spec.decimals);
+      wAmount.value = quantizeDown(afterFee, spec.decimals);
+      refreshNetHint();
+      updateTrPanel();
+    });
+
+    wAmount.addEventListener("input", refreshNetHint);
+
+    wForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const amount = (wAmount.value || "").trim();
+      const destination = (wDest.value || "").trim();
+      if (!amount || Number(amount) <= 0) { toast("금액 입력", "Enter amount"); return; }
+      if (!/^0x[0-9a-fA-F]{40}$/.test(destination)) {
+        toast("주소 형식 오류", "Bad address (40-hex)");
+        return;
+      }
+      // If above the TR threshold, POST the attestation first so the
+      // travel_rule_server has a row to consult when chain_server screens.
+      if (trPanelRequired()) {
+        if (!attestationOk()) {
+          toast("Travel Rule 신고 필요", "Travel Rule attestation required");
+          return;
+        }
+        const isSelf = trKindSelf.checked;
+        const body = {
+          address: destination.toLowerCase(),
+          self_hosted: isSelf,
+        };
+        if (!isSelf) {
+          body.vasp_id = trVaspSelect.value;
+          body.beneficiary_name = trVaspName.value.trim();
+          body.beneficiary_country = trVaspCountry.value.trim().toUpperCase();
+        }
+        try {
+          await authedFetch("/travel-rule/attest-address", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+        } catch (err) {
+          toast("Travel Rule 신고 실패", "Travel Rule attestation failed");
+          return;
+        }
+      }
+      wSubmit.disabled = true;
+      wSubmit.textContent = "전송 중… / Submitting…";
+      // The chain.withdraw helper sends {asset, amount, destination}. When 2FA
+      // is enrolled and REQUIRE_2FA_WITHDRAW=1 on chain_server we get back
+      // 401 {error: "totp_required"} -- the modal below collects the code and
+      // re-POSTs with totp_code or recovery_code.
+      function postWithdraw(extra) {
+        return authedFetch("/chain/withdraw", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            asset: activeAsset,
+            amount: String(amount),
+            destination,
+            ...(extra || {}),
+          }),
+        });
+      }
+      async function askForTotp() {
+        return new Promise((resolve) => {
+          const modal = document.getElementById("totp-modal");
+          const codeEl = document.getElementById("wd-totp-code");
+          const helpEl = document.getElementById("wd-totp-help");
+          const confirmBtn = document.getElementById("wd-totp-confirm");
+          const recovBtn = document.getElementById("wd-totp-recovery");
+          const cancelBtn = document.getElementById("wd-totp-cancel");
+          let useRecovery = false;
+          codeEl.value = "";
+          codeEl.setAttribute("inputmode", "numeric");
+          codeEl.setAttribute("maxlength", "6");
+          codeEl.placeholder = "000000";
+          helpEl.textContent = "6자리 숫자 / 6 digits";
+          modal.hidden = false;
+          setTimeout(() => codeEl.focus(), 30);
+          function close(val) {
+            modal.hidden = true;
+            confirmBtn.onclick = recovBtn.onclick = cancelBtn.onclick = null;
+            resolve(val);
+          }
+          confirmBtn.onclick = () => {
+            const raw = codeEl.value.trim();
+            if (!raw) return;
+            close(useRecovery ? { recovery_code: raw.toUpperCase() } : { totp_code: raw });
+          };
+          recovBtn.onclick = () => {
+            useRecovery = !useRecovery;
+            codeEl.value = "";
+            if (useRecovery) {
+              codeEl.setAttribute("inputmode", "text");
+              codeEl.setAttribute("maxlength", "20");
+              codeEl.placeholder = "ABCDE12345";
+              helpEl.textContent = "복구 코드 / Recovery code";
+            } else {
+              codeEl.setAttribute("inputmode", "numeric");
+              codeEl.setAttribute("maxlength", "6");
+              codeEl.placeholder = "000000";
+              helpEl.textContent = "6자리 숫자 / 6 digits";
+            }
+            codeEl.focus();
+          };
+          cancelBtn.onclick = () => close(null);
+        });
+      }
+      try {
+        let r;
+        try {
+          r = await postWithdraw();
+        } catch (firstErr) {
+          let body = null;
+          try { body = firstErr.body ? JSON.parse(firstErr.body) : null; } catch { body = null; }
+          if (firstErr.status === 401 && body && (body.error === "totp_required" || body.step === "totp_required")) {
+            const extra = await askForTotp();
+            if (!extra) throw firstErr;
+            r = await postWithdraw(extra);
+          } else {
+            throw firstErr;
+          }
+        }
+        // chain_server returns 202 with status=pending_travel_rule when the
+        // TR check sent us to ops review. The chain.withdraw wrapper turns
+        // non-2xx codes into thrown errors but 202 is still OK; surface it.
+        if (r && r.status === "pending_travel_rule") {
+          toast("Travel Rule 검토 중", "Held for Travel Rule review");
+        } else {
+          toast(`출금 요청됨 · tx ${r.tx?.slice(0, 10)}…`, "Withdraw submitted");
+        }
+        wAmount.value = "";
+        setTimeout(refreshWithdraws, 800);
+        setTimeout(refreshAvail, 800);
+        setTimeout(refreshWithdraws, 3500);
+        updateTrPanel();
+      } catch (e) {
+        let body = null;
+        try { body = e.body ? JSON.parse(e.body) : null; } catch { body = null; }
+        const msg = body && body.error;
+        if (msg === "totp_required" || msg === "totp_wrong") {
+          toast("2단계 인증 필요", "Two-factor required");
+        } else if (msg === "travel_rule_blocked") {
+          toast("Travel Rule 차단", "Withdraw blocked by Travel Rule");
+        } else if (msg === "kyc_required") {
+          toast("KYC 필요", "KYC required");
+          syncSessionFromAuthMe();
+        } else if (msg === "insufficient_internal_balance") {
+          toast("잔고 부족", "Insufficient balance");
+        } else if (msg === "amount_below_minimum") {
+          const min = body?.min_withdraw || "?";
+          toast(`최소 출금 금액은 ${min} ${activeAsset} 입니다`, `Min withdraw is ${min} ${activeAsset}`);
+        } else if (msg === "amount_precision_exceeded") {
+          const dp = body?.withdraw_precision ?? "?";
+          toast(`소수 ${dp}자리까지만 허용됩니다`, `Up to ${dp} decimal places allowed`);
+        } else if (msg === "amount_invalid") {
+          toast("금액 형식 오류", "Invalid amount");
+        } else if (msg === "aml_blocked" || msg === "aml_review") {
+          const score = (body && body.risk_score != null) ? body.risk_score : "?";
+          const reasons = Array.isArray(body && body.reasons) ? body.reasons.join(", ") : "";
+          if (msg === "aml_blocked") {
+            toast(
+              `이 출금 주소가 AML 정책에 의해 차단되었습니다. 위험점수 ${score}.`,
+              `Withdrawal blocked by AML policy. Risk score ${score}.`,
+            );
+          } else {
+            toast(
+              `이 출금 주소는 AML 검토 대상입니다. 위험점수 ${score}.`,
+              `Withdrawal address flagged for AML review. Risk score ${score}.`,
+            );
+          }
+          // Stash details on a small disclosure under the form so the user
+          // can dig in if they want without us shouting raw reasons.
+          ensureAmlDetails().textContent = reasons || "(no details)";
+        } else {
+          toast("출금 실패", msg || e.message || "Failed");
+        }
+      } finally {
+        wSubmit.disabled = false;
+        wSubmit.innerHTML = '출금 요청 <span class="btn-en">/ Submit withdraw</span>';
+      }
+    });
+
+    // =================================================================
+    // CHAIN SELECTOR
+    // The withdraw form is only enabled on Hardhat (the demo chain).
+    // On every other chain we disable the form, hide its actions, and
+    // show the "mainnet launch" banner.
+    // =================================================================
+    const chainPillRow = document.getElementById("chain-pill-row");
+    const chainStatusDot = document.getElementById("chain-status-dot");
+    const chainStatusText = document.getElementById("chain-status-text");
+    const chainReadonlyBanner = document.getElementById("chain-readonly-banner");
+    const formBlockEl = document.getElementById("form-block");
+    let chainList = [];
+
+    function renderChainPills() {
+      const current = getCurrentChainSlug();
+      const sourceList = (chainList && chainList.length) ? chainList : KNOWN_CHAINS;
+      chainPillRow.innerHTML = sourceList.map(c => {
+        const slug = c.slug;
+        const active = slug === current;
+        const dot = c.rpc_status === "ok" ? "🟢"
+                  : c.rpc_status === "degraded" ? "🟡" : "⚪";
+        const name = c.name || slug;
+        const label = c.is_demo ? `${dot} Demo Hardhat` : `${dot} ${escapeHtml(name)}`;
+        return `<button type="button" data-chain-pill="${escapeHtml(slug)}"
+            role="tab" aria-selected="${active ? "true" : "false"}"
+            style="
+              padding: 7px 14px; border-radius: 999px;
+              border: 1px solid ${active ? "var(--brand,#5471ff)" : "var(--line,#1d2230)"};
+              background: ${active ? "rgba(84,113,255,0.12)" : "transparent"};
+              color: ${active ? "var(--ink,#dfe2ee)" : "var(--ink-mute,#8c93a8)"};
+              font-size: 13px; font-weight: 500; cursor: pointer;">
+          ${label}
+        </button>`;
+      }).join("");
+      chainPillRow.querySelectorAll("[data-chain-pill]").forEach(b => {
+        b.addEventListener("click", () => setCurrentChainSlug(b.dataset.chainPill));
+      });
+    }
+
+    function renderChainStatus() {
+      const slug = getCurrentChainSlug();
+      const c = findChain(chainList, slug);
+      if (!c) {
+        chainStatusDot.textContent = "⚪";
+        chainStatusText.textContent = "체인 정보 없음 / Chain info pending";
+        return;
+      }
+      const line = chainStatusLine(c);
+      chainStatusDot.textContent = line.dot;
+      chainStatusText.textContent = line.text;
+    }
+
+    function applyChainView() {
+      const slug = getCurrentChainSlug();
+      const writable = isWritable(chainList, slug) || slug === "hardhat";
+      // When the chain is read-only: disable every input/button in the form
+      // and show the launch banner. We don't hide the form so users still
+      // see the planned UX.
+      const inputs = formBlockEl.querySelectorAll("input, button");
+      inputs.forEach(el => { el.disabled = !writable; });
+      chainReadonlyBanner.hidden = writable;
+      formBlockEl.classList.toggle("ramp-locked", !writable);
+      // When toggling back to hardhat, the KYC gate may still want to lock.
+      if (writable) gateForKyc();
+    }
+
+    async function refreshChainList() {
+      try {
+        const info = await listChains();
+        chainList = info?.chains || [];
+        renderChainPills();
+        renderChainStatus();
+        applyChainView();
+      } catch (e) {
+        console.warn("listChains failed", e);
+      }
+    }
+
+    window.addEventListener(CHAIN_CHANGE_EVENT, () => {
+      renderChainPills();
+      renderChainStatus();
+      applyChainView();
+    });
+
+    renderChainPills();
+    refreshChainList();
+    poll(refreshChainList, 30000, { immediate: false });
+
+    syncSessionFromAuthMe();
+    refreshInfo();
+    refreshAvail();
+    refreshWithdraws();
+    refreshPrecisionHint();
+    updateTrPanel();
+
+    // Honor ?asset=ZUSDT&max=true from the wallet page deep-link. We pick
+    // the matching tab and (once balances are loaded) press the Max button.
+    (function applyQueryDeepLink() {
+      const params = new URLSearchParams(window.location.search);
+      const askedAsset = (params.get("asset") || "").toUpperCase();
+      if (askedAsset === "ZETH" || askedAsset === "ZUSDT") {
+        const btn = Array.from(tabs).find(t => t.dataset.asset === askedAsset);
+        if (btn) btn.click();
+      }
+      if ((params.get("max") || "").toLowerCase() === "true") {
+        // Wait for the first wallet-balance fetch to land, then press Max.
+        const tryMax = (n) => {
+          if (n <= 0) return;
+          if ((avail[activeAsset] || 0) > 0) { maxBtn.click(); return; }
+          setTimeout(() => tryMax(n - 1), 300);
+        };
+        tryMax(10);
+      }
+    })();
+    poll(refreshAvail, 5000, { immediate: false });
+    poll(refreshWithdraws, 5000, { immediate: false });
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,847 @@
+/* =========================================================================
+   ramp.css — styles for /app/deposit.html and /app/withdraw.html
+   The on-chain ramp UI (deposit & withdraw). Uses tokens from app.css.
+   ========================================================================= */
+
+.ramp-shell {
+  max-width: 1080px;
+  margin: 0 auto 80px;
+  padding: 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.ramp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 880px) {
+  .ramp-grid { grid-template-columns: 1fr; }
+}
+
+.ramp-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ramp-section {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ramp-section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.ramp-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+.ramp-label .en {
+  color: var(--ink-dim);
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.ramp-tabs {
+  display: flex;
+  gap: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+
+.ramp-tab {
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-mute);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 140ms ease, color 140ms ease;
+  text-align: center;
+}
+.ramp-tab .tab-en {
+  font-size: 11px;
+  margin-left: 4px;
+  color: var(--ink-dim);
+}
+.ramp-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+.ramp-tab.active .tab-en {
+  color: rgba(255, 255, 255, 0.78);
+}
+.ramp-tab:not(.active):hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+
+.ramp-addr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ramp-addr {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.ramp-note {
+  font-size: 12.5px;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.ramp-helper-note {
+  font-size: 12px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid rgba(240, 180, 41, 0.18);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  margin: 0;
+  line-height: 1.5;
+}
+.ramp-helper-note .dim {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ramp-qr-row {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.ramp-qr-frame {
+  background: #fff;
+  padding: 10px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 200px;
+  min-height: 200px;
+}
+.ramp-qr-frame canvas {
+  display: block;
+}
+
+.ramp-qr-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ramp-meta-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 6px;
+}
+.ramp-meta-line:last-child { border-bottom: 0; }
+.ramp-meta-line .mono { overflow-wrap: anywhere; word-break: break-all; text-align: right; }
+
+.ramp-send-form .ramp-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.ramp-input {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+.ramp-input span { font-size: 11px; }
+.ramp-input input {
+  font-size: 18px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- side panel ----------- */
+.ramp-side .ramp-side-note {
+  font-size: 12.5px;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.ramp-balances {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.ramp-bal {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.ramp-bal-asset {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-mute);
+}
+.ramp-bal-amount {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ramp-faucet {
+  width: 100%;
+}
+
+.ramp-foot-note {
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ramp-side-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  line-height: 1.5;
+}
+
+/* ---------- forms (withdraw) ----------- */
+.ramp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ramp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ramp-field-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.ramp-field-label .en {
+  color: var(--ink-dim);
+  font-weight: 400;
+  margin-left: 4px;
+}
+.ramp-field-hint {
+  font-size: 11.5px;
+}
+.ramp-field input {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 11px 13px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--ink);
+  transition: border-color 140ms ease;
+}
+.ramp-field input:focus { border-color: var(--accent-bright); }
+
+.ramp-amount-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 4px 4px 10px;
+}
+.ramp-amount-row input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  padding: 8px 0;
+  color: var(--ink);
+}
+.ramp-amount-asset {
+  align-self: center;
+  font-size: 12px;
+  color: var(--ink-mute);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.ramp-eta-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+.ramp-eta-pill {
+  background: var(--bid-soft);
+  color: var(--bid);
+  border: 1px solid var(--bid-strong);
+  padding: 4px 10px;
+  border-radius: var(--pill);
+  font-size: 12px;
+}
+
+.ramp-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ramp-locked {
+  pointer-events: none;
+  opacity: 0.45;
+  filter: grayscale(0.45);
+}
+
+/* ---------- KYC gate card ---------- */
+.ramp-kyc-card {
+  background: linear-gradient(180deg, rgba(240, 180, 41, 0.10), rgba(240, 180, 41, 0.04));
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.ramp-kyc-card[hidden] { display: none; }
+.ramp-kyc-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--warn);
+  color: #1a1300;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.ramp-kyc-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ramp-kyc-text h2 {
+  font-size: 15px;
+  margin: 0;
+  color: var(--ink);
+}
+.ramp-kyc-text p {
+  font-size: 13px;
+  color: var(--ink-mute);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ---------- history table ---------- */
+.ramp-history {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+}
+.ramp-history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ramp-history-head h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--ink);
+}
+.ramp-history-head h2 .en {
+  color: var(--ink-dim);
+  font-weight: 500;
+  margin-left: 4px;
+  font-size: 13px;
+}
+.ramp-table-wrap {
+  overflow-x: auto;
+}
+.ramp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ramp-table th, .ramp-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.ramp-table th.r, .ramp-table td.r { text-align: right; }
+.ramp-table th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--panel-2);
+}
+.ramp-table tbody tr:hover {
+  background: var(--hover);
+}
+
+.ramp-empty td {
+  color: var(--ink-mute);
+  text-align: center;
+  padding: 24px 12px;
+  font-size: 13px;
+}
+
+.ramp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: var(--pill);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.ramp-status.ok {
+  background: var(--bid-soft);
+  color: var(--bid);
+  border: 1px solid var(--bid-strong);
+}
+.ramp-status.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border: 1px solid rgba(240, 180, 41, 0.32);
+}
+.ramp-status.err {
+  background: var(--ask-soft);
+  color: var(--ask);
+  border: 1px solid var(--ask-strong);
+}
+.ramp-status .dim { font-size: 10.5px; }
+
+.ramp-asset-pill {
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: var(--pill);
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.ramp-tx-link {
+  background: transparent;
+  border: 0;
+  color: var(--accent-bright);
+  cursor: pointer;
+  font-size: 12.5px;
+  padding: 0;
+}
+.ramp-tx-link:hover { color: #fff; text-decoration: underline; }
+
+/* Wallet table mini buttons + tab links (used from wallet.html). */
+.btn-row-mini {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-mute);
+  margin-left: 4px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.btn-row-mini:hover {
+  background: var(--accent-soft);
+  color: #fff;
+  border-color: rgba(42, 85, 255, 0.45);
+}
+.btn-row-mini .en-mini {
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+.btn-row-mini:hover .en-mini { color: rgba(255,255,255,0.65); }
+
+.wallet-tab-link {
+  display: inline-flex;
+  align-items: center;
+}
+.wallet-tab-link:hover {
+  text-decoration: none;
+}
+
+/* =====================================================================
+   Wallet-mode tabs (Demo wallet vs MetaMask) at the top of /deposit.
+   The tabs are larger than the asset tabs and carry a brand-color
+   accent so the user instinctively picks them apart.
+   ===================================================================== */
+
+.ramp-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.ramp-mode-tab {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.ramp-mode-tab:hover { background: var(--hover); }
+.ramp-mode-tab.active {
+  background: var(--panel-2);
+  border-color: var(--accent-bright);
+  box-shadow: 0 0 0 1px var(--accent-bright) inset;
+}
+.ramp-mode-tab.metamask.active {
+  border-color: #f6851b;
+  box-shadow: 0 0 0 1px #f6851b inset;
+}
+
+.ramp-mode-icon {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--panel-3);
+}
+.ramp-mode-tab.demo .ramp-mode-icon { background: var(--accent-soft); color: var(--accent-bright); }
+.ramp-mode-tab.metamask .ramp-mode-icon { background: rgba(246, 133, 27, 0.14); }
+
+.ramp-mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.25;
+  flex: 1;
+  min-width: 0;
+}
+.ramp-mode-text .ko {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ramp-mode-text .en {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  font-weight: 500;
+}
+
+.ramp-mode-state {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  padding: 3px 8px;
+  border-radius: var(--pill);
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+}
+.ramp-mode-tab.metamask.active .ramp-mode-state {
+  background: rgba(246, 133, 27, 0.14);
+  border-color: rgba(246, 133, 27, 0.5);
+  color: #f6851b;
+}
+.ramp-mode-tab.demo.active .ramp-mode-state {
+  background: var(--accent-soft);
+  border-color: rgba(42, 85, 255, 0.5);
+  color: var(--accent-bright);
+}
+
+@media (max-width: 720px) {
+  .ramp-mode-tabs { grid-template-columns: 1fr; }
+}
+
+/* Mode panels — only one is shown at a time. The hidden one is collapsed
+   visually but a small "Switch" affordance remains visible at the top of
+   the active panel. */
+.ramp-mode-panel { display: none; }
+.ramp-mode-panel.active { display: block; }
+
+.ramp-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-mute);
+  margin-bottom: 12px;
+}
+.ramp-mode-switch button {
+  background: transparent;
+  border: 0;
+  color: var(--accent-bright);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+.ramp-mode-switch button:hover { color: #fff; text-decoration: underline; }
+
+/* MetaMask-specific styling. Orange accent. */
+.mm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.mm-state-disconnected {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+.mm-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #f6851b;
+  color: #1a1300;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+.mm-connect-btn:hover { background: #ff9b3d; transform: translateY(-1px); }
+.mm-connect-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+.mm-fox-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.mm-help {
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  line-height: 1.55;
+}
+.mm-help a { color: var(--accent-bright); }
+.mm-help a:hover { color: #fff; text-decoration: underline; }
+.mm-note {
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  line-height: 1.5;
+}
+
+.mm-state-connecting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-mute);
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.mm-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,0.18);
+  border-top-color: #f6851b;
+  border-radius: 50%;
+  animation: mm-spin 0.9s linear infinite;
+}
+@keyframes mm-spin { to { transform: rotate(360deg); } }
+
+.mm-wrong-net {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--warn-soft);
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.mm-wrong-net .mm-wrong-msg {
+  font-size: 13px;
+  color: var(--warn);
+  font-weight: 600;
+}
+.mm-wrong-net .mm-wrong-en {
+  font-size: 12px;
+  color: rgba(255,255,255,0.55);
+}
+
+.mm-connected-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.mm-conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f6851b;
+  box-shadow: 0 0 0 3px rgba(246, 133, 27, 0.18);
+  flex-shrink: 0;
+}
+.mm-conn-addr {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+}
+.mm-conn-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.mm-balances {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.mm-faucet-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.mm-faucet-btn {
+  background: rgba(246, 133, 27, 0.14);
+  color: #f6851b;
+  border: 1px solid rgba(246, 133, 27, 0.4);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.mm-faucet-btn:hover { background: rgba(246, 133, 27, 0.28); color: #fff; }
+.mm-faucet-btn:disabled { opacity: 0.55; cursor: default; }
+
+.mm-send-btn {
+  background: #f6851b;
+  color: #1a1300;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+}
+.mm-send-btn:hover { background: #ff9b3d; transform: translateY(-1px); }
+.mm-send-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+.mm-asset-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 3px;
+  gap: 2px;
+}
+.mm-asset-toggle button {
+  background: transparent;
+  border: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-mute);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.mm-asset-toggle button.active {
+  background: rgba(246, 133, 27, 0.18);
+  color: #f6851b;
+}
+
+.mm-tx-status {
+  font-size: 12.5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  line-height: 1.55;
+  color: var(--ink-mute);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mm-tx-status[hidden] { display: none; }
+.mm-tx-status .mm-tx-line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mm-tx-status .mm-tx-hash {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.mm-tx-status.ok { border-color: var(--bid-strong); }
+.mm-tx-status.err { border-color: var(--ask-strong); color: var(--ask); }
+

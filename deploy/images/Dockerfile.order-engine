@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=order-engine
+
+COPY --chown=65532:65532 tools/order_engine.py /app/tools/order_engine.py
+
+ENV PORT=5570
+EXPOSE 5570
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5570", "/orders/health"]
+CMD ["-u", "/app/tools/order_engine.py", "5570"]

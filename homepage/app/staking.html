@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>스테이킹 / Staking — zkCEX</title>
+  <meta name="description" content="zkCEX 스테이킹. 자산을 일정 기간 락업하여 연이율 수익을 받으세요. Lock assets, earn yield." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <style>
+    body.staking { background: #07090f; }
+    .stk-shell {
+      max-width: 1180px; margin: 0 auto; padding: 8px 28px 80px;
+      display: flex; flex-direction: column; gap: 22px;
+    }
+
+    /* --- Hero card --- */
+    .stk-hero {
+      padding: 30px 34px; border-radius: var(--radius-lg);
+      background:
+        radial-gradient(900px 320px at 100% 0%, rgba(11,58,255,0.14), transparent 60%),
+        radial-gradient(700px 260px at 0% 100%, rgba(46,229,155,0.10), transparent 60%),
+        linear-gradient(180deg, rgba(11,58,255,0.06), rgba(11,58,255,0.02));
+      border: 1px solid var(--line-strong);
+      display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: center;
+    }
+    .stk-hero .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: #9aa3b3; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      font-weight: 600;
+    }
+    .stk-hero .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #2ee59b;
+      box-shadow: 0 0 0 4px rgba(46,229,155,0.18);
+    }
+    .stk-hero h1 {
+      margin: 12px 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -0.02em;
+      color: #fff; line-height: 1.14;
+    }
+    .stk-hero h1 .en {
+      display: block; color: var(--ink-mute); font-weight: 500; font-size: 14px; margin-top: 4px;
+    }
+    .stk-hero .lede {
+      color: var(--ink-mute); font-size: 13px; line-height: 1.55; max-width: 440px; margin: 0;
+    }
+    .stk-mega {
+      display: flex; flex-direction: column; gap: 12px;
+      background: rgba(7,9,15,0.55); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 20px 22px;
+    }
+    .stk-mega-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .stk-mega-row .label { color: var(--ink-mute); font-size: 12px; }
+    .stk-mega-row .label .en { color: var(--ink-dim); font-size: 11px; display: block; }
+    .stk-mega-row .v {
+      font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: #fff;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+    }
+    .stk-mega-row.yield .v { color: #2ee59b; }
+    .stk-mega .hint { color: var(--ink-dim); font-size: 11px; margin-top: 4px; font-family: var(--font-mono); }
+
+    /* --- Sections --- */
+    .stk-section {
+      padding: 22px 26px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+    }
+    .stk-section h2 {
+      margin: 0 0 14px; font-size: 16px; font-weight: 700; color: #fff;
+      letter-spacing: -0.005em;
+    }
+    .stk-section h2 .en { color: var(--ink-dim); font-weight: 500; font-size: 13px; margin-left: 8px; }
+    .stk-section h2 .count {
+      font-family: var(--font-mono); color: var(--ink-mute); font-size: 12px; font-weight: 500; margin-left: 6px;
+    }
+
+    /* --- Product grid --- */
+    .asset-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .asset-pill {
+      padding: 6px 14px; border-radius: var(--pill);
+      background: var(--panel-2); border: 1px solid var(--line);
+      color: var(--ink-mute); font-size: 12px; font-weight: 500; cursor: pointer;
+      font-family: var(--font-sans);
+    }
+    .asset-pill.active { color: #fff; background: rgba(11,58,255,0.18); border-color: rgba(11,58,255,0.55); }
+    .asset-pill:hover:not(.active) { color: var(--ink); border-color: var(--line-strong); }
+
+    .product-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 12px;
+    }
+    .product-card {
+      background: var(--panel-2); border: 1px solid var(--line);
+      border-radius: var(--radius-sm); padding: 16px 18px;
+      display: flex; flex-direction: column; gap: 10px; cursor: pointer;
+      transition: border-color 0.12s ease, transform 0.08s ease;
+    }
+    .product-card:hover { border-color: rgba(46,229,155,0.42); transform: translateY(-1px); }
+    .product-card.selected { border-color: #2ee59b; box-shadow: 0 0 0 2px rgba(46,229,155,0.18); }
+    .product-card .pc-head { display: flex; justify-content: space-between; align-items: baseline; }
+    .product-card .pc-asset { color: #fff; font-weight: 700; font-size: 15px; }
+    .product-card .pc-term {
+      font-family: var(--font-mono); font-size: 11px; color: var(--ink-mute);
+      padding: 2px 8px; border-radius: 99px;
+      background: var(--panel-3); border: 1px solid var(--line);
+    }
+    .product-card .pc-term.flex { color: #2ee59b; border-color: rgba(46,229,155,0.32); background: rgba(46,229,155,0.08); }
+    .product-card .pc-apy {
+      font-family: var(--font-mono); font-size: 30px; font-weight: 700; color: #2ee59b;
+      letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums;
+    }
+    .product-card .pc-apy .unit { font-size: 14px; color: var(--ink-mute); margin-left: 4px; font-weight: 500; }
+    .product-card .pc-meta { display: flex; flex-direction: column; gap: 3px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-mute); }
+    .product-card .pc-meta .row { display: flex; justify-content: space-between; gap: 8px; }
+    .product-card .pc-meta .row .v { color: var(--ink); }
+    .product-card .pc-bar {
+      height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;
+    }
+    .product-card .pc-bar > span { display: block; height: 100%; background: linear-gradient(90deg,#0b3aff,#2ee59b); }
+    .product-card .pc-desc { color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
+
+    /* --- Stake form --- */
+    .stake-form {
+      display: flex; flex-direction: column; gap: 14px;
+      max-width: 540px;
+    }
+    .stake-form .field { display: flex; flex-direction: column; gap: 6px; }
+    .stake-form label { color: var(--ink-mute); font-size: 12px; font-weight: 600; }
+    .stake-form label .en { color: var(--ink-dim); font-weight: 400; margin-left: 4px; font-size: 11px; }
+    .stake-form input[type=number], .stake-form input[type=text] {
+      background: #0a0d14; border: 1px solid var(--line); color: #fff;
+      padding: 10px 12px; border-radius: var(--radius-sm); font-family: var(--font-mono);
+      font-size: 14px; outline: none;
+    }
+    .stake-form input:focus { border-color: rgba(11,58,255,0.55); box-shadow: 0 0 0 3px rgba(11,58,255,0.10); }
+    .stake-form .preview {
+      background: rgba(46,229,155,0.04); border: 1px solid rgba(46,229,155,0.22);
+      border-radius: var(--radius-sm); padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 6px; font-family: var(--font-mono); font-size: 12px;
+    }
+    .stake-form .preview .row { display: flex; justify-content: space-between; }
+    .stake-form .preview .row .k { color: var(--ink-mute); font-family: var(--font-sans); }
+    .stake-form .preview .row .v { color: #fff; }
+    .stake-form .preview .row.total .v { color: #2ee59b; font-weight: 700; font-size: 14px; }
+    .stake-form .actions { display: flex; gap: 10px; }
+    .stake-msg {
+      font-size: 12px; padding: 8px 12px; border-radius: var(--radius-sm); display: none;
+    }
+    .stake-msg.error { display: block; background: rgba(255,77,99,0.08); color: #ff6b85; border: 1px solid rgba(255,77,99,0.32); }
+    .stake-msg.ok    { display: block; background: rgba(46,229,155,0.08); color: #2ee59b; border: 1px solid rgba(46,229,155,0.32); }
+
+    /* --- Positions table --- */
+    .pos-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .pos-table th {
+      text-align: left; color: var(--ink-mute); font-weight: 500; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 10px 12px; border-bottom: 1px solid var(--line);
+    }
+    .pos-table th.r { text-align: right; }
+    .pos-table td {
+      padding: 14px 12px; border-bottom: 1px solid var(--line);
+      color: var(--ink); font-family: var(--font-mono); vertical-align: middle;
+    }
+    .pos-table tr:last-child td { border-bottom: none; }
+    .pos-table td.r { text-align: right; }
+    .pos-table .asset-cell { color: #fff; font-weight: 700; font-family: var(--font-sans); }
+    .pos-table .yield-cell { color: #2ee59b; font-weight: 600; }
+    .pos-table .countdown { color: var(--ink-mute); font-size: 11px; }
+    .pos-table .badge {
+      display: inline-flex; padding: 2px 8px; border-radius: 99px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; font-family: var(--font-sans);
+    }
+    .pos-table .badge.s-active    { background: rgba(11,58,255,0.14); color: #6c8cff; border: 1px solid rgba(11,58,255,0.32); }
+    .pos-table .badge.s-pending   { background: rgba(46,229,155,0.10); color: #2ee59b; border: 1px solid rgba(46,229,155,0.32); animation: stk-pulse 1.8s ease-in-out infinite; }
+    .pos-table .badge.s-redeemed  { background: var(--panel-3); color: var(--ink-dim); border: 1px solid var(--line); }
+    @keyframes stk-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(46,229,155,0); } 50% { box-shadow: 0 0 0 5px rgba(46,229,155,0.08); } }
+    .pos-table .btn-sm {
+      padding: 5px 10px; border-radius: var(--radius-sm);
+      background: var(--panel-2); border: 1px solid var(--line);
+      color: var(--ink); font-size: 11px; font-family: var(--font-sans); cursor: pointer;
+    }
+    .pos-table .btn-sm:hover { color: #fff; border-color: var(--line-strong); }
+    .pos-table .btn-sm.primary { background: rgba(46,229,155,0.10); color: #2ee59b; border-color: rgba(46,229,155,0.42); }
+    .pos-table .btn-sm.danger  { background: rgba(255,77,99,0.04); color: #ff6b85; border-color: rgba(255,77,99,0.22); }
+    .pos-table .empty { text-align: center; padding: 24px; color: var(--ink-mute); }
+
+    /* --- Education / disclosure --- */
+    .stk-disclosure details {
+      padding: 14px 18px; border-radius: var(--radius-sm);
+      background: var(--panel-2); border: 1px solid var(--line);
+      margin-bottom: 8px;
+    }
+    .stk-disclosure details summary {
+      cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 14px;
+    }
+    .stk-disclosure details summary .en { color: var(--ink-dim); font-weight: 400; margin-left: 6px; font-size: 12px; }
+    .stk-disclosure details[open] summary { margin-bottom: 10px; }
+    .stk-disclosure .body { color: var(--ink-mute); font-size: 13px; line-height: 1.65; }
+    .stk-disclosure ul { padding-left: 18px; margin: 6px 0 12px; }
+    .stk-disclosure li { margin: 4px 0; }
+    .stk-disclosure .disclaimer {
+      margin-top: 10px; padding: 10px 12px;
+      border-left: 3px solid rgba(240,180,41,0.55);
+      background: rgba(240,180,41,0.05);
+      color: var(--ink-mute); font-size: 12px; line-height: 1.5;
+      border-radius: 0 4px 4px 0;
+    }
+
+    @media (max-width: 820px) {
+      .stk-hero { grid-template-columns: 1fr; padding: 22px; }
+      .stk-shell { padding: 8px 16px 64px; }
+      .product-grid { grid-template-columns: 1fr; }
+      .pos-table th, .pos-table td { padding: 10px 8px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body class="staking">
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main class="stk-shell" id="main">
+
+  <!-- ============== Hero ============== -->
+  <section class="stk-hero">
+    <div>
+      <span class="eyebrow"><span class="dot"></span> Earn / 스테이킹</span>
+      <h1>
+        토큰 스테이킹
+        <span class="en">Lock assets, earn yield</span>
+      </h1>
+      <p class="lede">
+        ETH·USDT·BTC를 일정 기간 락업하고 매일 수익을 적립받으세요.
+        자유 입출금형(Flex)과 30/90/180일 고정형 중 선택할 수 있습니다.
+        <span style="display:block; color: var(--ink-dim); font-size:12px; margin-top:4px;">
+          Lock ETH/USDT/BTC for a term and accrue yield daily. Choose Flexible (withdraw anytime)
+          or 30/90/180-day fixed-term for higher APY.
+        </span>
+      </p>
+    </div>
+    <div class="stk-mega">
+      <div class="stk-mega-row">
+        <div class="label">총 스테이크<span class="en">Total staked</span></div>
+        <div class="v" id="my-total-staked">—</div>
+      </div>
+      <div class="stk-mega-row yield">
+        <div class="label">누적 수익<span class="en">Accrued yield</span></div>
+        <div class="v" id="my-total-yield">—</div>
+      </div>
+      <div class="hint" id="my-positions-count">— 활성 포지션 / active positions</div>
+    </div>
+  </section>
+
+  <!-- ============== My positions ============== -->
+  <section class="stk-section" id="positions-section">
+    <h2>내 포지션<span class="en">My positions</span><span class="count" id="positions-count"></span></h2>
+    <div style="overflow-x: auto;">
+      <table class="pos-table" aria-label="내 스테이킹 포지션 / My staking positions">
+        <thead>
+          <tr>
+            <th scope="col">자산 / Asset</th>
+            <th scope="col">상품 / Product</th>
+            <th scope="col" class="r">원금 / Principal</th>
+            <th scope="col" class="r">수익 / Yield</th>
+            <th scope="col" class="r">APY</th>
+            <th scope="col">만기 / Matures</th>
+            <th scope="col">상태 / Status</th>
+            <th scope="col" class="r">동작 / Action</th>
+          </tr>
+        </thead>
+        <tbody id="positions-tbody">
+          <tr><td colspan="8" class="empty">로그인이 필요합니다 / Sign in to view your positions</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============== Stake form + product picker ============== -->
+  <section class="stk-section">
+    <h2>상품 선택<span class="en">Choose a product</span></h2>
+    <div class="asset-pills" id="asset-pills">
+      <button class="asset-pill active" data-asset="ALL">전체 / All</button>
+    </div>
+    <div class="product-grid" id="product-grid">
+      <div class="empty" style="grid-column:1/-1; color:var(--ink-mute); text-align:center; padding:24px;">
+        불러오는 중… / Loading…
+      </div>
+    </div>
+  </section>
+
+  <section class="stk-section">
+    <h2>스테이킹 / <span class="en">Stake</span></h2>
+    <div class="stake-form" id="stake-form-host">
+      <div class="field">
+        <label for="stake-product-id">선택된 상품 <span class="en">Selected product</span></label>
+        <input type="text" id="stake-product-id" readonly placeholder="위에서 상품을 선택하세요 / Pick a product above" />
+      </div>
+      <div class="field">
+        <label for="stake-amount">수량 <span class="en">Amount</span></label>
+        <input type="number" id="stake-amount" inputmode="decimal" min="0" step="any" placeholder="0.0" />
+        <div style="color: var(--ink-dim); font-size: 11px; font-family: var(--font-mono);" id="stake-balance-hint"></div>
+      </div>
+      <div class="preview" id="stake-preview" style="display:none;">
+        <div class="row"><span class="k">예상 일일 수익 / Daily yield</span> <span class="v" id="pv-daily">—</span></div>
+        <div class="row"><span class="k">예상 만기 수익 / Total yield at term</span> <span class="v" id="pv-total-yield">—</span></div>
+        <div class="row"><span class="k">프로토콜 수수료 (수익의 20%) / Protocol fee (20% of yield)</span> <span class="v" id="pv-fee">—</span></div>
+        <div class="row total"><span class="k">만기 시 수령액 / You receive at maturity</span> <span class="v" id="pv-receive">—</span></div>
+        <div class="row" id="pv-penalty-row" style="display:none;"><span class="k">조기 해지 시 페널티 / Early-unstake penalty</span> <span class="v" id="pv-penalty">—</span></div>
+      </div>
+      <div class="stake-msg" id="stake-msg"></div>
+      <div class="actions">
+        <button class="btn btn-primary" id="stake-btn" disabled>스테이크 / Stake</button>
+        <a class="btn btn-ghost" href="wallet.html">지갑 / Wallet</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== Education / how it works ============== -->
+  <section class="stk-section stk-disclosure">
+    <h2>스테이킹 원리 / How staking works</h2>
+    <details>
+      <summary>수익은 어디서 오나요? <span class="en">/ Where does the yield come from?</span></summary>
+      <div class="body">
+        <ul>
+          <li><strong>이더리움 검증인 운영</strong> — 락업된 ETH는 PoS 검증인 노드 운영에 사용되어, 블록 보상과 트랜잭션 수수료를 적립합니다 / Locked ETH is delegated to PoS validator nodes that earn block rewards and transaction fees.</li>
+          <li><strong>마켓 메이커에 대출</strong> — USDT는 검증된 마켓 메이커에 단기 대출되어 차익거래 자본으로 활용됩니다 / USDT is short-term-lent to vetted market makers as arb capital.</li>
+          <li><strong>DeFi 유동성 공급</strong> — 일부는 검증된 온체인 풀에 LP로 공급됩니다 / A portion is supplied as LP to vetted on-chain pools.</li>
+        </ul>
+        <div class="disclaimer">
+          본 데모에서는 수익이 계정상에서만 발생하며, 실제 검증인·DeFi 포지션은 운영하지 않습니다.
+          상환 시 수익은 자동으로 사용자 지갑으로 송금되며, 거래소는 수익의 20%를 프로토콜 수수료로 받습니다.
+          <span style="display:block; color: var(--ink-dim); font-size:11px; margin-top:4px;">
+            In this demo the yield is purely book-entry — there are no real validators or DeFi positions running.
+            At redemption the yield is credited to your wallet and the exchange retains 20% as protocol fee.
+          </span>
+        </div>
+      </div>
+    </details>
+    <details>
+      <summary>Flex와 고정형의 차이 <span class="en">/ Flexible vs Fixed-term</span></summary>
+      <div class="body">
+        <ul>
+          <li><strong>Flexible</strong> — 언제든지 해지 가능, 페널티 없음, 낮은 APY (예: ETH 3%) / Withdraw anytime, no penalty, lower APY (e.g. ETH 3%).</li>
+          <li><strong>30/90/180일 고정형</strong> — 만기까지 락업, 높은 APY (예: ETH 90일 6.5%) / Locked until maturity, higher APY (e.g. ETH 90-day 6.5%).</li>
+          <li><strong>조기 해지 페널티</strong> — 고정형을 만기 전에 해지하면 원금의 일부 (예: 25%)를 페널티로 차감합니다 / Exiting a fixed-term position early forfeits a portion of principal (e.g. 25%).</li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary>리스크 안내 <span class="en">/ Risk disclosure</span></summary>
+      <div class="body">
+        <div class="disclaimer">
+          스테이킹은 원금 손실 가능성이 있는 투자입니다. 락업된 자산의 출금은 만기 또는 조기 해지 페널티 적용 후에만 가능합니다.
+          APY는 변동될 수 있으나, 신규 포지션에만 적용되며 기존 포지션은 가입 당시 APY를 보장합니다.
+          <span style="display:block; color: var(--ink-dim); font-size:11px; margin-top:4px;">
+            Staking involves principal risk. Locked assets can only be withdrawn at maturity or with an early-unstake penalty.
+            APY may change but only applies to new positions; existing positions are guaranteed the APY at stake-time.
+          </span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+</main>
+
+<script type="module">
+  import { renderHeader, getSession } from './app.js';
+  renderHeader('wallet');
+
+  // ---------- State ----------
+  let state = {
+    products: [],
+    positions: [],
+    walletByAsset: {},   // asset -> available balance (Decimal-as-string)
+    selectedProduct: null,
+    assetFilter: 'ALL',
+  };
+
+  // ---------- Helpers ----------
+  function fmtNum(s, dp = 6) {
+    if (s == null || s === '') return '0';
+    const n = Number(s);
+    if (!isFinite(n)) return s;
+    if (n === 0) return '0';
+    if (Math.abs(n) < 0.000001) return n.toExponential(2);
+    return n.toLocaleString('en-US', { maximumFractionDigits: dp });
+  }
+  function fmtApy(bps) {
+    return (bps / 100).toFixed(2) + '%';
+  }
+  function fmtTerm(d) {
+    return d === 0 ? '자유 / Flex' : (d + 'd');
+  }
+  function fmtCountdown(secs) {
+    if (secs <= 0) return '만기 / Matured';
+    const days = Math.floor(secs / 86400);
+    const hrs = Math.floor((secs % 86400) / 3600);
+    const mins = Math.floor((secs % 3600) / 60);
+    if (days > 0) return `${days}일 ${hrs}h 후`;
+    if (hrs > 0) return `${hrs}h ${mins}m 후`;
+    return `${mins}m 후`;
+  }
+  function bearerHeaders() {
+    const s = getSession();
+    return s ? { 'Authorization': 'Bearer ' + s.token } : {};
+  }
+
+  // ---------- Data fetchers ----------
+  async function fetchProducts() {
+    try {
+      const r = await fetch('/staking/products');
+      const d = await r.json();
+      state.products = Array.isArray(d) ? d : [];
+    } catch (e) {
+      state.products = [];
+    }
+  }
+  async function fetchPositions() {
+    const s = getSession();
+    if (!s) { state.positions = []; return; }
+    try {
+      const r = await fetch('/staking/positions', { headers: bearerHeaders() });
+      if (!r.ok) { state.positions = []; return; }
+      const d = await r.json();
+      state.positions = (d && d.positions) || [];
+    } catch (e) {
+      state.positions = [];
+    }
+  }
+  async function fetchWallet() {
+    const s = getSession();
+    if (!s) return;
+    const opex = s.user.opex_user;
+    try {
+      const r = await fetch('/v1/owner/' + encodeURIComponent(opex) + '/wallets');
+      const wallets = await r.json();
+      const rows = Array.isArray(wallets) ? wallets : (wallets.wallets || []);
+      const out = {};
+      for (const w of rows) {
+        const sym = (w.currency || w.symbol || w.asset || '').toUpperCase();
+        if (!sym) continue;
+        const bal = Number(w.balance || 0);
+        const lck = Number(w.locked || 0);
+        out[sym] = Math.max(0, bal - lck);
+      }
+      state.walletByAsset = out;
+    } catch (e) {
+      // leave as-is
+    }
+  }
+
+  // ---------- Renderers ----------
+  function renderProducts() {
+    const host = document.getElementById('product-grid');
+    const assets = Array.from(new Set(state.products.map(p => p.asset))).sort();
+    const pills = document.getElementById('asset-pills');
+    pills.innerHTML = `<button class="asset-pill ${state.assetFilter === 'ALL' ? 'active' : ''}" data-asset="ALL">전체 / All</button>` +
+      assets.map(a => `<button class="asset-pill ${state.assetFilter === a ? 'active' : ''}" data-asset="${a}">${a}</button>`).join('');
+    pills.querySelectorAll('.asset-pill').forEach(b => {
+      b.onclick = () => { state.assetFilter = b.dataset.asset; renderProducts(); };
+    });
+
+    const filtered = state.assetFilter === 'ALL'
+      ? state.products
+      : state.products.filter(p => p.asset === state.assetFilter);
+    if (filtered.length === 0) {
+      host.innerHTML = `<div class="empty" style="grid-column:1/-1; color:var(--ink-mute); text-align:center; padding:24px;">상품이 없습니다 / No products</div>`;
+      return;
+    }
+    host.innerHTML = filtered.map(p => {
+      const used = Number(p.total_staked || 0);
+      const cap = p.total_capacity == null ? null : Number(p.total_capacity);
+      const pct = cap ? Math.min(100, (used / cap) * 100) : 0;
+      const isFlex = p.term_days === 0;
+      const sel = state.selectedProduct && state.selectedProduct.product_id === p.product_id;
+      return `
+        <div class="product-card ${sel ? 'selected' : ''}" data-pid="${p.product_id}">
+          <div class="pc-head">
+            <div class="pc-asset">${p.asset}</div>
+            <div class="pc-term ${isFlex ? 'flex' : ''}">${fmtTerm(p.term_days)}</div>
+          </div>
+          <div class="pc-apy">${fmtApy(p.apy_bps)}<span class="unit">APY</span></div>
+          <div class="pc-meta">
+            <div class="row"><span>최소 / Min</span><span class="v">${p.min_stake} ${p.asset}</span></div>
+            ${p.max_stake_per_user ? `<div class="row"><span>유저 한도 / User cap</span><span class="v">${fmtNum(p.max_stake_per_user)} ${p.asset}</span></div>` : ''}
+            ${cap != null ? `<div class="row"><span>총 한도 / Capacity</span><span class="v">${fmtNum(used)} / ${fmtNum(cap)}</span></div>` : ''}
+            ${p.early_unstake_penalty_bps > 0 ? `<div class="row"><span>조기 페널티 / Early penalty</span><span class="v">${(p.early_unstake_penalty_bps / 100).toFixed(0)}%</span></div>` : ''}
+          </div>
+          ${cap != null ? `<div class="pc-bar"><span style="width:${pct}%;"></span></div>` : ''}
+          <div class="pc-desc">${p.description || ''}</div>
+        </div>
+      `;
+    }).join('');
+    host.querySelectorAll('.product-card').forEach(c => {
+      c.onclick = () => {
+        const pid = c.dataset.pid;
+        state.selectedProduct = state.products.find(p => p.product_id === pid) || null;
+        document.getElementById('stake-product-id').value = pid;
+        renderProducts();
+        renderStakePreview();
+      };
+    });
+  }
+
+  function renderPositions() {
+    const tbody = document.getElementById('positions-tbody');
+    const cnt = document.getElementById('positions-count');
+    const s = getSession();
+    if (!s) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty">로그인이 필요합니다 / Sign in to view your positions</td></tr>`;
+      cnt.textContent = '';
+      document.getElementById('my-total-staked').textContent = '—';
+      document.getElementById('my-total-yield').textContent = '—';
+      document.getElementById('my-positions-count').textContent = '로그인 필요 / sign in';
+      return;
+    }
+    const active = state.positions.filter(p => p.status === 'active' || p.status === 'matured_pending');
+    cnt.textContent = '(' + state.positions.length + ')';
+    if (state.positions.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty">아직 포지션이 없습니다. 아래에서 시작하세요 / No positions yet. Pick a product below to start.</td></tr>`;
+    } else {
+      const now = Math.floor(Date.now() / 1000);
+      tbody.innerHTML = state.positions.map(p => {
+        const isFlex = p.term_days === 0 || p.matures_at === p.staked_at;
+        const matured = !isFlex && now >= p.matures_at;
+        let action = '';
+        if (p.status === 'redeemed') {
+          action = `<span class="dim">${p.redeemed_amount || '—'} ${p.asset}</span>`;
+        } else if (p.status === 'matured_pending' || matured) {
+          action = `<button class="btn-sm primary" data-action="redeem" data-id="${p.id}">상환 / Redeem</button>`;
+        } else if (isFlex) {
+          action = `<button class="btn-sm primary" data-action="redeem" data-id="${p.id}">출금 / Withdraw</button>`;
+        } else {
+          action = `<button class="btn-sm danger" data-action="unstake" data-id="${p.id}">조기 해지 / Early</button>`;
+        }
+        let statusBadge;
+        if (p.status === 'matured_pending' || matured) statusBadge = '<span class="badge s-pending">만기 / Matured</span>';
+        else if (p.status === 'active') statusBadge = '<span class="badge s-active">진행 중 / Active</span>';
+        else statusBadge = '<span class="badge s-redeemed">상환 완료 / Redeemed</span>';
+        const countdown = isFlex ? '— (Flex)' : fmtCountdown(p.matures_at - now);
+        return `
+          <tr>
+            <td class="asset-cell">${p.asset}</td>
+            <td>${p.product_id}</td>
+            <td class="r">${fmtNum(p.amount)}</td>
+            <td class="r yield-cell">+${fmtNum(p.accrued_yield)}</td>
+            <td class="r">${fmtApy(p.apy_bps_at_stake)}</td>
+            <td><span class="countdown">${countdown}</span></td>
+            <td>${statusBadge}</td>
+            <td class="r">${action}</td>
+          </tr>
+        `;
+      }).join('');
+      tbody.querySelectorAll('button[data-action]').forEach(b => {
+        b.onclick = () => doRedeemOrUnstake(b.dataset.action, b.dataset.id);
+      });
+    }
+
+    // Hero stats
+    const byAsset = {};
+    let totalYield = 0;
+    for (const p of active) {
+      const a = p.asset;
+      byAsset[a] = (byAsset[a] || 0) + Number(p.amount || 0);
+      totalYield += Number(p.accrued_yield || 0);
+    }
+    const stakedStr = Object.entries(byAsset).map(([k,v]) => `${fmtNum(v)} ${k}`).join(' · ') || '0';
+    document.getElementById('my-total-staked').textContent = stakedStr;
+    document.getElementById('my-total-yield').textContent = '+' + fmtNum(totalYield, 8);
+    document.getElementById('my-positions-count').textContent = `${active.length} 활성 포지션 / active positions`;
+  }
+
+  function renderStakePreview() {
+    const p = state.selectedProduct;
+    const amtEl = document.getElementById('stake-amount');
+    const previewEl = document.getElementById('stake-preview');
+    const btn = document.getElementById('stake-btn');
+    const hint = document.getElementById('stake-balance-hint');
+    if (!p) { previewEl.style.display = 'none'; btn.disabled = true; hint.textContent = ''; return; }
+    const avail = state.walletByAsset[p.asset] || 0;
+    hint.textContent = `사용 가능 / Available: ${fmtNum(avail)} ${p.asset}`;
+    const amount = Number(amtEl.value || 0);
+    if (!(amount > 0)) { previewEl.style.display = 'none'; btn.disabled = true; return; }
+    const apy = p.apy_bps / 10000;
+    const daily = amount * apy / 365;
+    const days = p.term_days || 365;  // for flex we show 1y projection
+    const totalYield = amount * apy * (days / 365);
+    const fee = totalYield * 0.20;
+    const netYield = totalYield - fee;
+    const receive = amount + netYield;
+    const penalty = amount * (p.early_unstake_penalty_bps / 10000);
+    document.getElementById('pv-daily').textContent = `+${fmtNum(daily, 8)} ${p.asset}`;
+    document.getElementById('pv-total-yield').textContent = (p.term_days === 0 ? '연간 / Annual: ' : '') + `+${fmtNum(totalYield, 8)} ${p.asset}`;
+    document.getElementById('pv-fee').textContent = `-${fmtNum(fee, 8)} ${p.asset}`;
+    document.getElementById('pv-receive').textContent = `${fmtNum(receive, 8)} ${p.asset}`;
+    const penRow = document.getElementById('pv-penalty-row');
+    if (p.early_unstake_penalty_bps > 0) {
+      penRow.style.display = 'flex';
+      document.getElementById('pv-penalty').textContent = `-${fmtNum(penalty, 8)} ${p.asset} (${(p.early_unstake_penalty_bps/100).toFixed(0)}%)`;
+    } else {
+      penRow.style.display = 'none';
+    }
+    previewEl.style.display = 'flex';
+    btn.disabled = !getSession() || amount <= 0;
+  }
+
+  function showMsg(kind, text) {
+    const el = document.getElementById('stake-msg');
+    el.className = 'stake-msg ' + kind;
+    el.textContent = text;
+  }
+  function clearMsg() {
+    const el = document.getElementById('stake-msg');
+    el.className = 'stake-msg';
+    el.textContent = '';
+  }
+
+  async function doStake() {
+    clearMsg();
+    const p = state.selectedProduct;
+    if (!p) return showMsg('error', '상품을 선택하세요 / Pick a product');
+    const amount = document.getElementById('stake-amount').value;
+    if (!amount || Number(amount) <= 0) return showMsg('error', '수량을 입력하세요 / Enter an amount');
+    const s = getSession();
+    if (!s) return showMsg('error', '로그인이 필요합니다 / Sign in required');
+    const btn = document.getElementById('stake-btn');
+    btn.disabled = true; btn.textContent = '처리 중… / Staking…';
+    try {
+      const r = await fetch('/staking/stake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...bearerHeaders() },
+        body: JSON.stringify({ product_id: p.product_id, amount: String(amount) }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        showMsg('error', (d.error || 'error') + (d.message ? ': ' + d.message : ''));
+      } else {
+        showMsg('ok', `포지션 #${d.position.id} 생성 / Position #${d.position.id} created`);
+        document.getElementById('stake-amount').value = '';
+        await Promise.all([fetchPositions(), fetchProducts(), fetchWallet()]);
+        renderProducts(); renderPositions(); renderStakePreview();
+      }
+    } catch (e) {
+      showMsg('error', '네트워크 오류 / network error');
+    } finally {
+      btn.disabled = false; btn.textContent = '스테이크 / Stake';
+    }
+  }
+
+  async function doRedeemOrUnstake(action, id) {
+    const path = '/staking/positions/' + id + '/' + (action === 'unstake' ? 'unstake' : 'redeem');
+    try {
+      const r = await fetch(path, { method: 'POST', headers: bearerHeaders() });
+      const d = await r.json();
+      if (!r.ok) {
+        alert((d.error || 'error') + (d.message ? ': ' + d.message : ''));
+        return;
+      }
+      await Promise.all([fetchPositions(), fetchProducts(), fetchWallet()]);
+      renderPositions(); renderProducts(); renderStakePreview();
+    } catch (e) {
+      alert('network error');
+    }
+  }
+
+  // ---------- Wire-up ----------
+  document.getElementById('stake-amount').addEventListener('input', renderStakePreview);
+  document.getElementById('stake-btn').addEventListener('click', doStake);
+
+  async function refreshAll() {
+    await Promise.all([fetchProducts(), fetchPositions(), fetchWallet()]);
+    renderProducts(); renderPositions(); renderStakePreview();
+  }
+  refreshAll();
+  // Auto-refresh positions every 10s to show accruing yield live.
+  setInterval(async () => {
+    await fetchPositions();
+    renderPositions();
+  }, 10000);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1506 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>거래 / Trade — zkCEX</title>
+  <meta name="description" content="zkCEX 실시간 거래 화면. 캔들 차트, 주문서, 최근 체결을 한 화면에서." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    /* WS live indicators (additive — see app.css for the rest) */
+    .ws-pill {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:3px 10px; border-radius:999px;
+      font-size:11px; font-weight:600; line-height:1;
+      background: rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.08);
+      color: var(--ink-mute, #9aa3b3);
+      font-family: var(--font-sans, Inter, system-ui, sans-serif);
+      white-space: nowrap;
+    }
+    .ws-pill[data-state="open"]   { color:#cdeacc; border-color: rgba(0,184,124,0.35); background: rgba(0,184,124,0.10); }
+    .ws-pill[data-state="connecting"] { color:#f4d8a3; border-color: rgba(255,179,71,0.35); background: rgba(255,179,71,0.08); }
+    .ws-pill[data-state="closed"], .ws-pill[data-state="error"] {
+      color:#f0bcc4; border-color: rgba(255,77,99,0.35); background: rgba(255,77,99,0.08);
+    }
+    .ws-dot { width:7px; height:7px; border-radius:50%; background:#9aa3b3; box-shadow:0 0 0 0 rgba(154,163,179,0.4); }
+    .ws-pill[data-state="open"] .ws-dot   { background:#00d997; animation: ws-pulse 1.6s ease-out infinite; }
+    .ws-pill[data-state="connecting"] .ws-dot { background:#ffb347; }
+    .ws-pill[data-state="closed"] .ws-dot, .ws-pill[data-state="error"] .ws-dot { background:#ff4d63; }
+    @keyframes ws-pulse {
+      0%   { box-shadow:0 0 0 0 rgba(0,217,151,0.55); }
+      80%  { box-shadow:0 0 0 6px rgba(0,217,151,0); }
+      100% { box-shadow:0 0 0 0 rgba(0,217,151,0); }
+    }
+    /* Per-panel freshness dots */
+    .live-dot {
+      display:inline-block; width:7px; height:7px; border-radius:50%;
+      margin-left:6px; vertical-align:middle; background:#5b6376;
+      box-shadow: 0 0 0 0 rgba(0,0,0,0);
+      transition: background-color 200ms ease;
+    }
+    .live-dot[data-state="live"]    { background:#00d997; box-shadow: 0 0 6px rgba(0,217,151,0.45); }
+    .live-dot[data-state="polling"] { background:#ffb347; }
+    .live-dot[data-state="quiet"]   { background:#ff4d63; }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main id="main" class="trade-shell">
+
+  <h1 class="sr-only">현물 거래 / Spot trade</h1>
+
+  <!-- Symbol bar -->
+  <section class="symbol-bar">
+    <div class="symbol-pick" id="symbol-pick">
+      <span class="asset-icon" id="bar-icon">·</span>
+      <span class="pair" id="bar-pair">—</span>
+      <span class="caret">▼</span>
+      <select id="symbol-select" aria-label="거래 페어 선택 / Select trading pair" style="position:absolute; inset:0; opacity:0; cursor:pointer;"></select>
+    </div>
+    <div class="symbol-stats">
+      <div class="stat">
+        <span class="label">최근가 / Last</span>
+        <span class="value lp mono" id="bar-last">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">24h 변동 / Change</span>
+        <span class="value mono" id="bar-change">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">24h 고가 / High</span>
+        <span class="value mono" id="bar-high">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">24h 저가 / Low</span>
+        <span class="value mono" id="bar-low">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">24h 거래량 / Volume</span>
+        <span class="value mono" id="bar-volume">—</span>
+      </div>
+    </div>
+    <span id="ws-pill" class="ws-pill" style="margin-left:auto;" title="실시간 / Live data">
+      <span class="ws-dot" id="ws-pill-dot"></span>
+      <span class="ws-pill-text" id="ws-pill-text">연결 중 / Connecting…</span>
+    </span>
+    <span id="bar-tick" class="update-tick">불러오는 중… / Loading…</span>
+  </section>
+
+  <div class="trade-grid">
+
+    <!-- Chart -->
+    <section class="panel chart-panel">
+      <header class="panel-header">
+        <span>캔들 차트 <span class="en">/ Chart</span></span>
+        <span class="live-dot" id="live-kline" data-state="off" title="실시간 / Live"></span>
+        <span class="pad"></span>
+        <div class="chart-toolbar tab-row">
+          <button class="tab" data-iv="1m">1m</button>
+          <button class="tab active" data-iv="5m">5m</button>
+          <button class="tab" data-iv="15m">15m</button>
+          <button class="tab" data-iv="1h">1h</button>
+          <button class="tab" data-iv="4h">4h</button>
+          <button class="tab" data-iv="1d">1d</button>
+        </div>
+      </header>
+      <!-- Liquidity / market-maker status indicator. Populated by /mm/status. -->
+      <div class="mm-liquidity-pill" id="mm-liquidity-pill" data-state="loading"
+           title="유동성 공급 봇 상태 / Demo liquidity status"
+           style="display:flex;align-items:center;gap:8px;padding:6px 12px;margin:8px 12px;border-radius:999px;font-size:12px;background:rgba(120,120,120,0.12);color:var(--ink-mute);font-family:var(--font-mono);max-width:max-content;">
+        <span id="mm-liquidity-dot"
+              style="width:8px;height:8px;border-radius:50%;background:#888;display:inline-block;"></span>
+        <span id="mm-liquidity-text">유동성 확인 중 / Checking liquidity…</span>
+      </div>
+      <div class="chart-host" id="chart-host"></div>
+    </section>
+
+    <!-- Right column: book + trades -->
+    <div class="right-col">
+
+      <section class="panel book-panel">
+        <header class="panel-header">
+          <span>주문서 <span class="en">/ Order book</span></span>
+          <span class="live-dot" id="live-depth" data-state="off" title="실시간 / Live"></span>
+        </header>
+        <div class="book-grid" id="book-grid">
+          <div class="book-half asks">
+            <table aria-label="매도 호가 / Asks">
+              <thead><tr><th scope="col">가격 / Price</th><th scope="col">수량 / Qty</th><th scope="col">합계 / Total</th></tr></thead>
+              <tbody id="asks-body"></tbody>
+            </table>
+          </div>
+          <div class="book-mid" id="book-mid">
+            <span class="lp" id="mid-last">—</span>
+            <span class="arrow" id="mid-arrow">·</span>
+            <span class="ch" id="mid-change">—</span>
+          </div>
+          <div class="book-half bids">
+            <table aria-label="매수 호가 / Bids">
+              <thead><tr><th scope="col">가격 / Price</th><th scope="col">수량 / Qty</th><th scope="col">합계 / Total</th></tr></thead>
+              <tbody id="bids-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="book-empty" id="book-empty" style="display:none;">
+          주문이 없습니다 / No active orders
+        </div>
+      </section>
+
+      <section class="panel trades-panel">
+        <header class="panel-header">
+          <span>최근 체결 <span class="en">/ Recent trades</span></span>
+          <span class="live-dot" id="live-trade" data-state="off" title="실시간 / Live"></span>
+        </header>
+        <div class="trades-list">
+          <table aria-label="최근 체결 / Recent trades">
+            <thead>
+              <tr>
+                <th scope="col">가격 / Price</th>
+                <th scope="col">수량 / Qty</th>
+                <th scope="col">시각 / Time</th>
+              </tr>
+            </thead>
+            <tbody id="trades-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Order form -->
+    <section class="order-panel">
+
+      <div class="order-side">
+        <div class="order-side-head">
+          <span class="title">매수 <span class="muted" style="font-weight:500; font-size:12px;">/ Buy</span></span>
+          <span class="balance">사용 가능 / Available · <span id="buy-balance">— USDT</span></span>
+        </div>
+        <div class="order-tabs">
+          <button class="order-tab active" data-buy-type="LIMIT">지정가 / Limit</button>
+          <button class="order-tab" data-buy-type="MARKET">시장가 / Market</button>
+          <button class="order-tab" data-buy-type="STOP_LIMIT">스탑-지정 / Stop-Limit</button>
+          <button class="order-tab" data-buy-type="OCO">OCO</button>
+        </div>
+        <!-- Stop-Limit only: trigger price -->
+        <div class="field-row" data-only-type="STOP_LIMIT" data-side="buy" style="display:none;">
+          <label for="buy-trigger">발동가 / Trigger</label>
+          <input id="buy-trigger" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="field-row" data-hide-type="OCO" data-side="buy">
+          <label data-label-for="buy-price" for="buy-price">가격 / Price</label>
+          <input id="buy-price" type="text" inputmode="decimal" placeholder="0.00" aria-label="매수 가격 / Buy price" />
+          <span class="unit" id="buy-quote-unit">USDT</span>
+        </div>
+        <!-- OCO-only fields -->
+        <div class="field-row" data-only-type="OCO" data-side="buy" style="display:none;">
+          <label for="buy-oco-tp">익절가 / Take-Profit Limit</label>
+          <input id="buy-oco-tp" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="field-row" data-only-type="OCO" data-side="buy" style="display:none;">
+          <label for="buy-oco-sl-trig">손절 발동가 / SL Trigger</label>
+          <input id="buy-oco-sl-trig" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="field-row" data-only-type="OCO" data-side="buy" style="display:none;">
+          <label for="buy-oco-sl-lim">손절 지정가 / SL Limit</label>
+          <input id="buy-oco-sl-lim" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="field-row" data-only-type="STOP_LIMIT" data-side="buy" style="display:none;">
+          <label for="buy-tif">유효기간 / TIF</label>
+          <select id="buy-tif" style="flex:1; background:transparent; color:var(--ink); border:none; outline:none;">
+            <option value="GTC">GTC</option>
+            <option value="IOC">IOC</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label for="buy-amount">수량 / Amount</label>
+          <input id="buy-amount" type="text" inputmode="decimal" placeholder="0.0000" />
+          <span class="unit" id="buy-base-unit">—</span>
+        </div>
+        <div class="slider-row">
+          <input id="buy-slider" type="range" min="0" max="100" value="0" step="1" aria-label="매수 수량 비율 / Buy amount percent" />
+          <span class="muted mono" id="buy-slider-pct" style="width:34px; text-align:right; font-size:11px;">0%</span>
+        </div>
+        <div class="slider-pcts">
+          <button class="slider-pct" data-side="buy" data-p="25">25%</button>
+          <button class="slider-pct" data-side="buy" data-p="50">50%</button>
+          <button class="slider-pct" data-side="buy" data-p="75">75%</button>
+          <button class="slider-pct" data-side="buy" data-p="100">100%</button>
+        </div>
+        <div class="field-row">
+          <label for="buy-total">총액 / Total</label>
+          <input id="buy-total" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit" id="buy-quote-unit-2">USDT</span>
+        </div>
+        <div class="order-meta">
+          <span class="row-line"><span class="label">수수료 / Fee</span><span>0.10%</span></span>
+          <span class="row-line"><span class="label">예상 체결 / Est. fill</span><span id="buy-est">—</span></span>
+        </div>
+        <button class="btn-buy" id="buy-submit">매수 <span class="en" style="font-weight:500;opacity:.8;">/ Buy</span> <span id="buy-base-unit-cta">—</span></button>
+      </div>
+
+      <div class="order-side">
+        <div class="order-side-head">
+          <span class="title">매도 <span class="muted" style="font-weight:500; font-size:12px;">/ Sell</span></span>
+          <span class="balance">사용 가능 / Available · <span id="sell-balance">— —</span></span>
+        </div>
+        <div class="order-tabs">
+          <button class="order-tab active" data-sell-type="LIMIT">지정가 / Limit</button>
+          <button class="order-tab" data-sell-type="MARKET">시장가 / Market</button>
+          <button class="order-tab" data-sell-type="STOP_LIMIT">스탑-지정 / Stop-Limit</button>
+          <button class="order-tab" data-sell-type="OCO">OCO</button>
+        </div>
+        <div class="field-row" data-only-type="STOP_LIMIT" data-side="sell" style="display:none;">
+          <label for="sell-trigger">발동가 / Trigger</label>
+          <input id="sell-trigger" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="field-row" data-hide-type="OCO" data-side="sell">
+          <label data-label-for="sell-price" for="sell-price">가격 / Price</label>
+          <input id="sell-price" type="text" inputmode="decimal" placeholder="0.00" aria-label="매도 가격 / Sell price" />
+          <span class="unit" id="sell-quote-unit">USDT</span>
+        </div>
+        <div class="field-row" data-only-type="OCO" data-side="sell" style="display:none;">
+          <label for="sell-oco-tp">익절가 / Take-Profit Limit</label>
+          <input id="sell-oco-tp" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="field-row" data-only-type="OCO" data-side="sell" style="display:none;">
+          <label for="sell-oco-sl-trig">손절 발동가 / SL Trigger</label>
+          <input id="sell-oco-sl-trig" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="field-row" data-only-type="OCO" data-side="sell" style="display:none;">
+          <label for="sell-oco-sl-lim">손절 지정가 / SL Limit</label>
+          <input id="sell-oco-sl-lim" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="field-row" data-only-type="STOP_LIMIT" data-side="sell" style="display:none;">
+          <label for="sell-tif">유효기간 / TIF</label>
+          <select id="sell-tif" style="flex:1; background:transparent; color:var(--ink); border:none; outline:none;">
+            <option value="GTC">GTC</option>
+            <option value="IOC">IOC</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label for="sell-amount">수량 / Amount</label>
+          <input id="sell-amount" type="text" inputmode="decimal" placeholder="0.0000" />
+          <span class="unit" id="sell-base-unit">—</span>
+        </div>
+        <div class="slider-row">
+          <input id="sell-slider" type="range" min="0" max="100" value="0" step="1" aria-label="매도 수량 비율 / Sell amount percent" />
+          <span class="muted mono" id="sell-slider-pct" style="width:34px; text-align:right; font-size:11px;">0%</span>
+        </div>
+        <div class="slider-pcts">
+          <button class="slider-pct" data-side="sell" data-p="25">25%</button>
+          <button class="slider-pct" data-side="sell" data-p="50">50%</button>
+          <button class="slider-pct" data-side="sell" data-p="75">75%</button>
+          <button class="slider-pct" data-side="sell" data-p="100">100%</button>
+        </div>
+        <div class="field-row">
+          <label for="sell-total">총액 / Total</label>
+          <input id="sell-total" type="text" inputmode="decimal" placeholder="0.00" />
+          <span class="unit" id="sell-quote-unit-2">USDT</span>
+        </div>
+        <div class="order-meta">
+          <span class="row-line"><span class="label">수수료 / Fee</span><span>0.10%</span></span>
+          <span class="row-line"><span class="label">예상 체결 / Est. fill</span><span id="sell-est">—</span></span>
+        </div>
+        <button class="btn-sell" id="sell-submit">매도 <span class="en" style="font-weight:500;opacity:.8;">/ Sell</span> <span id="sell-base-unit-cta">—</span></button>
+      </div>
+
+    </section>
+
+    <!-- Open orders / history -->
+    <section class="history-panel">
+      <div class="history-tabs">
+        <button class="history-tab active" data-htab="open">미체결 주문 / Open orders</button>
+        <button class="history-tab" data-htab="recent">최근 주문 / Recent orders</button>
+        <button class="history-tab" data-htab="hist">주문 내역 / Order history</button>
+      </div>
+      <div class="history-body" id="history-body">
+        <div>
+          <strong style="display:block; color:var(--ink); margin-bottom:6px;">주문이 없습니다 / No active orders</strong>
+          <span class="muted">주문서에서 본인이 올린 주문이 그대로 보입니다.<br/>Your resting orders show up in the order book above.</span>
+        </div>
+      </div>
+
+      <!-- Conditional orders (Stop-Limit / OCO) -->
+      <div style="margin-top:18px; border-top:1px solid rgba(255,255,255,0.06); padding-top:12px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <strong style="color:var(--ink);">조건부 주문 / Conditional orders</strong>
+          <button id="cond-refresh" type="button" style="background:transparent; color:var(--ink-mute); border:1px solid rgba(255,255,255,0.08); padding:3px 10px; border-radius:6px; font-size:11px; cursor:pointer;">새로고침 / Refresh</button>
+        </div>
+        <div id="cond-body" style="font-size:12px;">
+          <span class="muted">로그인 후 표시됩니다. / Sign in to see your conditional orders.</span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<div id="app-footer"></div>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.7/dist/lightweight-charts.standalone.production.js"></script>
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    api, poll, assetMeta, toast,
+    fmtPrice, fmtAmount, fmtVolume, fmtPct,
+    fmtTime, makeUpdateTick, escapeHtml,
+    getQuery, priceDecimals, amountDecimals,
+    getSession, authedFetch,
+  } from "./app.js";
+  import { MarketWS } from "./ws-client.js";
+
+  renderHeader("trade");
+  renderFooter();
+
+  // -------- State --------
+  const state = {
+    symbol: (getQuery("symbol", "ETHUSDT") || "ETHUSDT").toUpperCase(),
+    base: "ETH",
+    quote: "USDT",
+    interval: "5m",
+    last: 0,
+    pct: 0,
+    book: { bids: [], asks: [] },
+    trades: [],
+    chart: null,
+    candleSeries: null,
+    volumeSeries: null,
+    lastBarTime: 0,
+    polls: [],
+    wallets: [],            // [{asset, balance, locked, withdraw}]
+    recentOrders: [],       // local list of orders this session has submitted
+  };
+  const session = getSession();
+
+  // -------- DOM refs --------
+  const $ = (id) => document.getElementById(id);
+  const barTick = makeUpdateTick($("bar-tick"));
+
+  // -------- Symbol picker --------
+  let universe = [];
+  async function loadUniverse() {
+    try {
+      const info = await api("/v3/exchangeInfo");
+      universe = (info.symbols || [])
+        .filter(s => s.status === "TRADING")
+        .map(s => ({ symbol: s.symbol, baseAsset: s.baseAsset, quoteAsset: s.quoteAsset }));
+      const sel = $("symbol-select");
+      sel.innerHTML = universe.map(s =>
+        `<option value="${s.symbol}" ${s.symbol === state.symbol ? "selected" : ""}>${s.baseAsset}/${s.quoteAsset}</option>`
+      ).join("");
+      const cur = universe.find(s => s.symbol === state.symbol) || universe[0];
+      if (cur) {
+        state.symbol = cur.symbol;
+        state.base = cur.baseAsset;
+        state.quote = cur.quoteAsset;
+      }
+      sel.addEventListener("change", () => {
+        const s = sel.value;
+        location.href = `trade.html?symbol=${encodeURIComponent(s)}`;
+      });
+    } catch (e) {
+      console.warn("could not load symbol universe", e);
+      // Fall back: parse from current symbol
+      const guessQuote = ["USDT", "BUSD", "IRT"].find(q => state.symbol.endsWith(q)) || "USDT";
+      state.quote = guessQuote;
+      state.base  = state.symbol.slice(0, -guessQuote.length) || "ETH";
+    }
+    paintSymbolBarMeta();
+  }
+
+  function paintSymbolBarMeta() {
+    const meta = assetMeta(state.base);
+    const icon = $("bar-icon");
+    icon.className = `asset-icon ${meta.iconClass}`;
+    icon.textContent = state.base.slice(0, 3);
+    $("bar-pair").textContent = `${state.base}/${state.quote}`;
+    document.title = `${state.base}/${state.quote} · 거래 / Trade — zkCEX`;
+
+    // Order form units
+    $("buy-quote-unit").textContent = state.quote;
+    $("buy-quote-unit-2").textContent = state.quote;
+    $("sell-quote-unit").textContent = state.quote;
+    $("sell-quote-unit-2").textContent = state.quote;
+    $("buy-base-unit").textContent = state.base;
+    $("sell-base-unit").textContent = state.base;
+    $("buy-base-unit-cta").textContent = state.base;
+    $("sell-base-unit-cta").textContent = state.base;
+    $("buy-balance").textContent  = `0.00 ${state.quote}`;
+    $("sell-balance").textContent = `0.000000 ${state.base}`;
+  }
+
+  // -------- 24h ticker --------
+  async function refreshTicker() {
+    try {
+      const r = await api(`/v3/ticker/24h?symbol=${state.symbol}`);
+      const t = Array.isArray(r) ? r[0] : r;
+      if (!t) throw new Error("empty ticker");
+      state.last = Number(t.lastPrice || 0);
+      state.pct  = Number(t.priceChangePercent || 0);
+      const high = Number(t.highPrice || 0);
+      const low  = Number(t.lowPrice  || 0);
+      const vol  = Number(t.volume    || 0);
+
+      const lastStr = state.last ? fmtPrice(state.last, state.base, state.quote) : "—";
+      const pctStr  = fmtPct(state.pct);
+      const dir = state.pct > 0 ? "up" : state.pct < 0 ? "down" : "muted";
+      const arrow = state.pct > 0 ? "▲" : state.pct < 0 ? "▼" : "·";
+
+      $("bar-last").textContent = lastStr;
+      $("bar-last").className = `value lp mono ${dir}`;
+      $("bar-change").textContent = `${arrow} ${pctStr}`;
+      $("bar-change").className = `value mono ${dir}`;
+      $("bar-high").textContent   = high ? fmtPrice(high, state.base, state.quote) : "—";
+      $("bar-low").textContent    = low  ? fmtPrice(low,  state.base, state.quote) : "—";
+      $("bar-volume").textContent = `${fmtVolume(vol)} ${state.base}`;
+
+      // Mirror to book mid
+      $("mid-last").textContent = lastStr;
+      $("mid-last").className   = `lp ${dir}`;
+      $("mid-arrow").textContent = arrow;
+      $("mid-arrow").className = `arrow ${dir}`;
+      $("mid-change").textContent = pctStr;
+      $("mid-change").className   = `ch ${dir}`;
+
+      // Default the order-form prices if user hasn't typed anything yet.
+      seedOrderPrices();
+
+      barTick.ok();
+    } catch (e) {
+      barTick.fail();
+    }
+  }
+
+  // -------- Order book --------
+  async function refreshDepth() {
+    try {
+      const d = await api(`/v3/depth?symbol=${state.symbol}&limit=25`);
+      state.book.bids = (d.bids || []).slice(0, 12);
+      state.book.asks = (d.asks || []).slice(0, 12);
+      renderBook();
+    } catch {
+      $("book-empty").style.display = "block";
+    }
+  }
+
+  function renderBook() {
+    const asksBody = $("asks-body");
+    const bidsBody = $("bids-body");
+    const empty = $("book-empty");
+    const bookGrid = $("book-grid");
+
+    const bids = state.book.bids;
+    const asks = state.book.asks;
+
+    if (!bids.length && !asks.length) {
+      asksBody.innerHTML = "";
+      bidsBody.innerHTML = "";
+      empty.style.display = "block";
+      bookGrid.style.display = "none";
+      return;
+    }
+    empty.style.display = "none";
+    bookGrid.style.display = "";
+
+    // qty max for relative bar widths
+    const allQty = [...bids, ...asks].map(([p, q]) => Number(q));
+    const maxQty = Math.max(0.0000001, ...allQty);
+
+    // Asks: render top-of-book (lowest ask) at the bottom (visually nearest the mid).
+    // The depth API returns asks ascending; we reverse so the *lowest* (best ask) is the last row.
+    const ascAsks = [...asks].sort((a, b) => Number(a[0]) - Number(b[0]));
+    let cumAsk = 0;
+    const askRows = ascAsks.map(([p, q]) => {
+      const price = Number(p), qty = Number(q);
+      cumAsk += qty;
+      const barPct = Math.min(100, Math.round((qty / maxQty) * 100));
+      return `
+        <tr style="--bar:${barPct}%">
+          <td class="price ask">${fmtPrice(price, state.base, state.quote)}</td>
+          <td>${fmtAmount(qty, state.base)}</td>
+          <td>${fmtAmount(cumAsk, state.base)}</td>
+        </tr>`;
+    });
+    // Display reversed (so lowest ask sits next to mid).
+    asksBody.innerHTML = askRows.reverse().join("");
+
+    // Bids: highest bid at the top.
+    const descBids = [...bids].sort((a, b) => Number(b[0]) - Number(a[0]));
+    let cumBid = 0;
+    bidsBody.innerHTML = descBids.map(([p, q]) => {
+      const price = Number(p), qty = Number(q);
+      cumBid += qty;
+      const barPct = Math.min(100, Math.round((qty / maxQty) * 100));
+      return `
+        <tr style="--bar:${barPct}%">
+          <td class="price bid">${fmtPrice(price, state.base, state.quote)}</td>
+          <td>${fmtAmount(qty, state.base)}</td>
+          <td>${fmtAmount(cumBid, state.base)}</td>
+        </tr>`;
+    }).join("");
+
+    // Click-to-fill price: clicking a book row fills the order form's price.
+    asksBody.querySelectorAll("tr").forEach((tr, i) => {
+      tr.addEventListener("click", () => {
+        const price = ascAsks[ascAsks.length - 1 - i]?.[0];
+        if (price) {
+          $("buy-price").value = price;
+          $("sell-price").value = price;
+          recomputeTotal("buy"); recomputeTotal("sell");
+        }
+      });
+    });
+    bidsBody.querySelectorAll("tr").forEach((tr, i) => {
+      tr.addEventListener("click", () => {
+        const price = descBids[i]?.[0];
+        if (price) {
+          $("buy-price").value = price;
+          $("sell-price").value = price;
+          recomputeTotal("buy"); recomputeTotal("sell");
+        }
+      });
+    });
+  }
+
+  // -------- Recent trades --------
+  async function refreshTrades() {
+    try {
+      const trs = await api(`/v3/trades?symbol=${state.symbol}&limit=30`);
+      state.trades = Array.isArray(trs) ? trs : [];
+      renderTrades();
+    } catch {
+      $("trades-body").innerHTML = `<tr><td colspan="3" class="empty-state" style="padding:32px 0;"><strong>최근 체결이 없습니다 / No recent trades</strong></td></tr>`;
+    }
+  }
+
+  function renderTrades() {
+    const body = $("trades-body");
+    if (!state.trades.length) {
+      body.innerHTML = `<tr><td colspan="3" style="padding:32px 0; text-align:center; color:var(--ink-mute); font-family:var(--font-sans);"><strong style="display:block; color:var(--ink);">최근 체결이 없습니다 / No recent trades</strong></td></tr>`;
+      return;
+    }
+    // Server returns newest-last in our env; sort by time desc.
+    const sorted = [...state.trades].sort((a, b) => Number(b.time) - Number(a.time));
+    body.innerHTML = sorted.map(t => {
+      const taker = !t.isBuyerMaker; // taker buy
+      const dir = taker ? "up" : "down";
+      return `
+        <tr>
+          <td class="price ${dir}">${fmtPrice(Number(t.price), state.base, state.quote)}</td>
+          <td>${fmtAmount(Number(t.qty), state.base)}</td>
+          <td class="time">${fmtTime(t.time)}</td>
+        </tr>`;
+    }).join("");
+  }
+
+  // -------- Chart --------
+  function setupChart() {
+    if (!window.LightweightCharts) {
+      console.warn("lightweight-charts not loaded");
+      return;
+    }
+    const host = $("chart-host");
+    state.chart = LightweightCharts.createChart(host, {
+      layout: {
+        background: { color: "#11151f" },
+        textColor:  "#9aa3b3",
+        fontFamily: "JetBrains Mono, ui-monospace, monospace",
+      },
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.04)" },
+        horzLines: { color: "rgba(255,255,255,0.04)" },
+      },
+      rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
+      timeScale: {
+        borderColor: "rgba(255,255,255,0.08)",
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      crosshair: {
+        mode: 1,
+        vertLine: { color: "rgba(255,255,255,0.18)", labelBackgroundColor: "#1d2332" },
+        horzLine: { color: "rgba(255,255,255,0.18)", labelBackgroundColor: "#1d2332" },
+      },
+      autoSize: true,
+    });
+
+    state.candleSeries = state.chart.addCandlestickSeries({
+      upColor:        "#00b87c",
+      downColor:      "#ff4d63",
+      borderUpColor:  "#00b87c",
+      borderDownColor:"#ff4d63",
+      wickUpColor:    "#00b87c",
+      wickDownColor:  "#ff4d63",
+    });
+
+    state.volumeSeries = state.chart.addHistogramSeries({
+      priceScaleId: "volume",
+      priceFormat: { type: "volume" },
+      color: "rgba(154, 163, 179, 0.32)",
+    });
+    state.chart.priceScale("volume").applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+    });
+  }
+
+  function klineToBar(k) {
+    return {
+      time: Math.floor(Number(k[0]) / 1000), // unix seconds
+      open: Number(k[1]),
+      high: Number(k[2]),
+      low:  Number(k[3]),
+      close: Number(k[4]),
+      volume: Number(k[5]),
+    };
+  }
+
+  async function loadKlines() {
+    if (!state.candleSeries) return;
+    try {
+      const k = await api(`/v3/klines?symbol=${state.symbol}&interval=${state.interval}&limit=200`);
+      // Filter out empty bars (open=0, all zeros) — these come from quiet ranges
+      const bars = (Array.isArray(k) ? k : [])
+        .map(klineToBar)
+        .filter(b => b.open > 0 && b.high > 0 && b.low > 0 && b.close > 0);
+      state.candleSeries.setData(bars);
+      state.volumeSeries.setData(bars.map(b => ({
+        time: b.time,
+        value: b.volume,
+        color: b.close >= b.open ? "rgba(0, 184, 124, 0.32)" : "rgba(255, 77, 99, 0.32)",
+      })));
+      state.lastBarTime = bars.length ? bars[bars.length - 1].time : 0;
+      state.chart.timeScale().fitContent();
+    } catch (e) {
+      console.warn("klines fetch failed", e);
+    }
+  }
+
+  async function refreshKlinesIncremental() {
+    if (!state.candleSeries) return;
+    try {
+      const k = await api(`/v3/klines?symbol=${state.symbol}&interval=${state.interval}&limit=2`);
+      const bars = (Array.isArray(k) ? k : [])
+        .map(klineToBar)
+        .filter(b => b.open > 0);
+      for (const b of bars) {
+        state.candleSeries.update(b);
+        state.volumeSeries.update({
+          time: b.time,
+          value: b.volume,
+          color: b.close >= b.open ? "rgba(0, 184, 124, 0.32)" : "rgba(255, 77, 99, 0.32)",
+        });
+        state.lastBarTime = Math.max(state.lastBarTime, b.time);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Interval tabs
+  document.querySelectorAll("[data-iv]").forEach(b => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll("[data-iv]").forEach(x => x.classList.toggle("active", x === b));
+      state.interval = b.dataset.iv;
+      loadKlines();
+    });
+  });
+
+  // -------- Order form --------
+  function seedOrderPrices() {
+    const pBuy = $("buy-price");
+    const pSell = $("sell-price");
+    if (!pBuy.value && state.last) pBuy.value = priceFix(state.last);
+    if (!pSell.value && state.last) pSell.value = priceFix(state.last);
+    recomputeTotal("buy");
+    recomputeTotal("sell");
+  }
+
+  function priceFix(v) {
+    const d = priceDecimals(state.base, state.quote, Number(v));
+    return Number(v).toFixed(d);
+  }
+  function amountFix(v) {
+    const d = amountDecimals(state.base);
+    return Number(v).toFixed(d);
+  }
+
+  function recomputeTotal(side) {
+    const p = Number($(`${side}-price`).value);
+    const a = Number($(`${side}-amount`).value);
+    if (!Number.isFinite(p) || !Number.isFinite(a)) return;
+    const tot = p * a;
+    if (Number.isFinite(tot) && tot > 0) {
+      $(`${side}-total`).value = tot.toFixed(priceDecimals(state.base, state.quote, tot));
+    }
+    const est = Number($(`${side}-amount`).value);
+    $(`${side}-est`).textContent = est ? `${fmtAmount(est, state.base)} ${state.base}` : "—";
+  }
+  function recomputeAmountFromTotal(side) {
+    const p = Number($(`${side}-price`).value);
+    const t = Number($(`${side}-total`).value);
+    if (!Number.isFinite(p) || p <= 0) return;
+    if (!Number.isFinite(t)) return;
+    const amt = t / p;
+    if (Number.isFinite(amt) && amt > 0) {
+      $(`${side}-amount`).value = amt.toFixed(amountDecimals(state.base));
+    }
+  }
+
+  function maxAmountFor(side) {
+    // For BUY, slider is "% of available USDT" — convert to base via current price.
+    // For SELL, slider is "% of base balance".
+    if (side === "buy") {
+      const usdtAvail = session ? (state.wallets.find(w => w.asset === state.quote)?.balance ?? 0) - (state.wallets.find(w => w.asset === state.quote)?.locked ?? 0) : 1000;
+      const px = Number($("buy-price").value) || state.last || 0;
+      if (px <= 0) return 0;
+      return Math.max(0, usdtAvail / px);
+    }
+    if (session) {
+      const w = state.wallets.find(w => w.asset === state.base);
+      return Math.max(0, (w?.balance ?? 0) - (w?.locked ?? 0));
+    }
+    return 10;
+  }
+
+  ["buy", "sell"].forEach(side => {
+    $(`${side}-price`).addEventListener("input", () => recomputeTotal(side));
+    $(`${side}-amount`).addEventListener("input", () => {
+      recomputeTotal(side);
+      const max = maxAmountFor(side) || 1;
+      const a = Number($(`${side}-amount`).value);
+      const pct = Math.max(0, Math.min(100, Math.round((a / max) * 100)));
+      $(`${side}-slider`).value = pct;
+      $(`${side}-slider-pct`).textContent = `${pct}%`;
+    });
+    $(`${side}-total`).addEventListener("input", () => recomputeAmountFromTotal(side));
+    $(`${side}-slider`).addEventListener("input", () => {
+      const pct = Number($(`${side}-slider`).value);
+      $(`${side}-slider-pct`).textContent = `${pct}%`;
+      const max = maxAmountFor(side);
+      const a = (max * pct) / 100;
+      $(`${side}-amount`).value = amountFix(a);
+      recomputeTotal(side);
+    });
+  });
+
+  document.querySelectorAll(".slider-pct").forEach(b => {
+    b.addEventListener("click", () => {
+      const side = b.dataset.side, pct = Number(b.dataset.p);
+      $(`${side}-slider`).value = pct;
+      $(`${side}-slider-pct`).textContent = `${pct}%`;
+      const max = maxAmountFor(side);
+      $(`${side}-amount`).value = amountFix((max * pct) / 100);
+      recomputeTotal(side);
+    });
+  });
+
+  // Order-type tab switching: visual + conditional-row visibility.
+  // Each side's form has rows with data-only-type="STOP_LIMIT|OCO" that show
+  // only when that tab is active, and data-hide-type="OCO" for the regular
+  // Price row that we want to hide when OCO is in use.
+  function syncFieldVisibility(side) {
+    const otype = activeOrderType(side);
+    document.querySelectorAll(`[data-side="${side}"][data-only-type]`).forEach(el => {
+      el.style.display = (el.dataset.onlyType === otype) ? "" : "none";
+    });
+    document.querySelectorAll(`[data-side="${side}"][data-hide-type]`).forEach(el => {
+      el.style.display = (el.dataset.hideType === otype) ? "none" : "";
+    });
+    // Adjust the Price label for STOP_LIMIT — there it's the *limit* price.
+    const lbl = document.querySelector(`[data-label-for="${side}-price"]`);
+    if (lbl) {
+      lbl.textContent = (otype === "STOP_LIMIT")
+        ? "지정가 / Limit price"
+        : "가격 / Price";
+    }
+    // The submit button label for non-LIMIT/MARKET types is clearer when it
+    // says "조건부 주문 / Place conditional".
+    const btn = document.getElementById(`${side}-submit`);
+    if (btn) {
+      if (otype === "STOP_LIMIT" || otype === "OCO") {
+        btn.dataset.condMode = "1";
+      } else {
+        delete btn.dataset.condMode;
+      }
+    }
+  }
+  document.querySelectorAll("[data-buy-type]").forEach(t => {
+    t.addEventListener("click", () => {
+      document.querySelectorAll("[data-buy-type]").forEach(x => x.classList.toggle("active", x === t));
+      syncFieldVisibility("buy");
+    });
+  });
+  document.querySelectorAll("[data-sell-type]").forEach(t => {
+    t.addEventListener("click", () => {
+      document.querySelectorAll("[data-sell-type]").forEach(x => x.classList.toggle("active", x === t));
+      syncFieldVisibility("sell");
+    });
+  });
+
+  // -------- Wallets / balances --------
+  function getAvail(asset) {
+    const w = state.wallets.find(x => x.asset === asset);
+    if (!w) return 0;
+    return Math.max(0, Number(w.balance || 0) - Number(w.locked || 0));
+  }
+  function paintBalances() {
+    const buyAvail  = getAvail(state.quote);
+    const sellAvail = getAvail(state.base);
+    $("buy-balance").textContent  = `${fmtAmount(buyAvail, state.quote)} ${state.quote}`;
+    $("sell-balance").textContent = `${fmtAmount(sellAvail, state.base)} ${state.base}`;
+    paintHeaderBalance();
+  }
+  function paintHeaderBalance() {
+    const slot = document.getElementById("header-balance");
+    if (!slot) return;
+    if (!state.wallets.length) { slot.textContent = ""; return; }
+    // Top-2 by USDT-ish value: assume USDT==1; fall back to base balance ordering otherwise.
+    const ranked = [...state.wallets]
+      .map(w => {
+        const bal = Number(w.balance || 0);
+        const px = w.asset === "USDT" ? 1 : (w.asset === state.base ? state.last || 0 : 0);
+        return { asset: w.asset, bal, value: bal * (px || (w.asset === "USDT" ? 1 : 0)) };
+      })
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 2);
+    slot.textContent = "잔고: " + ranked.map(r => `${fmtAmount(r.bal, r.asset)} ${r.asset}`).join(" · ");
+  }
+  async function refreshWallets() {
+    if (!session) return;
+    try {
+      const data = await api(`/v1/owner/${encodeURIComponent(session.user.opex_user)}/wallets`);
+      state.wallets = Array.isArray(data) ? data : [];
+      paintBalances();
+    } catch (e) {
+      // ignore — balances stay stale
+    }
+  }
+
+  // -------- Order submission --------
+  function activeOrderType(side) {
+    const sel = document.querySelector(`[data-${side}-type].active`);
+    return sel ? sel.dataset[`${side}Type`] : "LIMIT";
+  }
+
+  function pushRecent(order) {
+    state.recentOrders.unshift(order);
+    if (state.recentOrders.length > 12) state.recentOrders.length = 12;
+    renderHistoryRecent();
+  }
+  function updateRecent(idLocal, patch) {
+    const item = state.recentOrders.find(o => o._localId === idLocal);
+    if (item) Object.assign(item, patch);
+    renderHistoryRecent();
+  }
+
+  // -------- Conditional orders (Stop-Limit / OCO) --------
+  function condSymbol() { return `${state.base}_${state.quote}`; }
+  async function listConditionals() {
+    if (!session) return { orders: [] };
+    return authedFetchOrders("/orders/conditional");
+  }
+  async function cancelConditional(id) {
+    return authedFetchOrders(`/orders/conditional/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+  // /orders/* uses Bearer (same as /auth, /chain) — authedFetch's default
+  // routes that prefix to X-Opex-User. Use the explicit Bearer variant.
+  async function authedFetchOrders(path, init = {}) {
+    const headers = { ...(init.headers || {}), Authorization: `Bearer ${session.token}` };
+    const res = await fetch(path, { ...init, headers });
+    const text = await res.text();
+    let body = null;
+    try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      err.body = body;
+      throw err;
+    }
+    return body;
+  }
+
+  async function submitConditional(side, direction, otype) {
+    const qty = Number($(`${side}-amount`).value);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast("수량을 입력해 주세요", "Enter an amount");
+      return;
+    }
+    // Optional: balance preflight (best-effort). For BUY OCO, the underlying
+    // is a buy at TP-limit/SL-limit so cost ~= qty * max(tp, sl_lim).
+    let body;
+    if (otype === "STOP_LIMIT") {
+      const trig = Number($(`${side}-trigger`).value);
+      const lim  = Number($(`${side}-price`).value);
+      if (!Number.isFinite(trig) || trig <= 0) {
+        toast("발동가를 입력해 주세요", "Enter a trigger price"); return;
+      }
+      if (!Number.isFinite(lim) || lim <= 0) {
+        toast("지정가를 입력해 주세요", "Enter a limit price"); return;
+      }
+      if (trig === lim) {
+        toast("발동가 ≠ 지정가", "Trigger must differ from limit"); return;
+      }
+      const tif = ($(`${side}-tif`)?.value || "GTC");
+      body = {
+        symbol: condSymbol(), side: direction, type: "STOP_LIMIT",
+        trigger_price: String(trig), limit_price: String(lim),
+        quantity: String(qty), time_in_force: tif,
+      };
+    } else if (otype === "OCO") {
+      const tp = Number($(`${side}-oco-tp`).value);
+      const slT = Number($(`${side}-oco-sl-trig`).value);
+      const slL = Number($(`${side}-oco-sl-lim`).value);
+      if (![tp, slT, slL].every(v => Number.isFinite(v) && v > 0)) {
+        toast("OCO 가격을 모두 입력해 주세요", "Fill all OCO prices"); return;
+      }
+      body = {
+        symbol: condSymbol(), side: direction, type: "OCO",
+        quantity: String(qty),
+        take_profit: { limit_price: String(tp) },
+        stop_loss:   { trigger_price: String(slT), limit_price: String(slL) },
+      };
+    } else {
+      return;
+    }
+    // Available-balance hint
+    const sellAvail = getAvail(state.base);
+    if (direction === "ASK" && qty > sellAvail + 1e-12) {
+      toast("잔액 부족", "Insufficient balance"); return;
+    }
+    const btn = $(`${side}-submit`);
+    btn.disabled = true;
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = "전송 중… / Submitting…";
+    try {
+      const out = await authedFetchOrders("/orders/conditional", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      toast("조건부 주문 등록됨", "Conditional order saved");
+      // Optimistic local row so the user sees something even before refresh.
+      refreshConditionals();
+    } catch (e) {
+      let msg = "조건부 주문 실패 / Conditional rejected";
+      let en = "";
+      try {
+        const j = e.body && typeof e.body === "object" ? e.body : null;
+        if (j && (j.message || j.error)) {
+          msg = j.message || j.error;
+          en  = j.message || j.error;
+        }
+      } catch { /* ignore */ }
+      toast(msg, en || `HTTP ${e.status || ""}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml;
+    }
+  }
+
+  function condStatusBadge(s) {
+    if (s === "pending")  return `<span class="status">대기 / pending</span>`;
+    if (s === "triggered") return `<span class="status ok">발동됨 / triggered</span>`;
+    if (s === "cancelled") return `<span class="status">취소 / cancelled</span>`;
+    if (s === "oco_cancelled_sibling") return `<span class="status">OCO 정리 / OCO sibling</span>`;
+    if (s === "failed") return `<span class="status error">실패 / failed</span>`;
+    return `<span class="status">${escapeHtml(s)}</span>`;
+  }
+
+  async function refreshConditionals() {
+    const body = $("cond-body");
+    if (!session) {
+      body.innerHTML = `<span class="muted">로그인 후 표시됩니다. / Sign in to see your conditional orders.</span>`;
+      return;
+    }
+    let res;
+    try { res = await listConditionals(); } catch (e) {
+      body.innerHTML = `<span class="muted">조회 실패 / Could not load (${escapeHtml(String(e.status || ""))}).</span>`;
+      return;
+    }
+    const orders = (res && res.orders) || [];
+    if (!orders.length) {
+      body.innerHTML = `<span class="muted">조건부 주문이 없습니다. / No conditional orders.</span>`;
+      return;
+    }
+    const rows = orders.map(o => {
+      const sideCls = o.side === "BID" ? "bid" : "ask";
+      const sideLabel = o.side === "BID" ? "매수 BID" : "매도 ASK";
+      const typeLabel = ({
+        STOP_LIMIT:  "스탑-지정 / Stop-Limit",
+        STOP_MARKET: "스탑-시장 / Stop-Market",
+        OCO_TP:      "OCO 익절 / OCO TP",
+        OCO_SL:      "OCO 손절 / OCO SL",
+      })[o.type] || o.type;
+      const cancelBtn = (o.status === "pending")
+        ? `<button class="cond-cancel" data-cid="${o.id}" style="background:transparent; color:var(--ink-mute); border:1px solid rgba(255,255,255,0.1); padding:2px 8px; border-radius:6px; font-size:11px; cursor:pointer;">취소 / Cancel</button>`
+        : "";
+      const trig = o.trigger_price ? `발동 ${escapeHtml(o.trigger_price)}` : "";
+      const lim  = o.limit_price   ? `지정 ${escapeHtml(o.limit_price)}`   : "";
+      return `
+        <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed rgba(255,255,255,0.05);">
+          <span class="side ${sideCls}" style="min-width:64px;">${sideLabel}</span>
+          <span style="min-width:160px;">${typeLabel}</span>
+          <span class="mono dim" style="font-size:11px; min-width:170px;">${trig} ${lim}</span>
+          <span class="mono" style="min-width:110px;">${escapeHtml(o.quantity)} ${escapeHtml(o.symbol)}</span>
+          ${condStatusBadge(o.status)}
+          <span style="margin-left:auto;">${cancelBtn}</span>
+        </div>`;
+    }).join("");
+    body.innerHTML = rows;
+    body.querySelectorAll(".cond-cancel").forEach(b => {
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          await cancelConditional(b.dataset.cid);
+          toast("조건부 주문 취소됨", "Conditional cancelled");
+        } catch (e) {
+          let msg = "취소 실패 / Cancel failed";
+          if (e.body && typeof e.body === "object") msg = e.body.message || msg;
+          toast(msg, msg);
+        } finally {
+          refreshConditionals();
+        }
+      });
+    });
+  }
+
+  async function submitOrder(side) {
+    if (!session) {
+      toast("로그인 후 이용 가능합니다", "Sign in to place an order");
+      setTimeout(() => location.href = `signin.html?next=${encodeURIComponent(location.pathname + location.search)}`, 500);
+      return;
+    }
+    const direction = side === "buy" ? "BID" : "ASK";
+    const otype = activeOrderType(side);  // "LIMIT" | "MARKET" | "STOP_LIMIT" | "OCO"
+    if (otype === "STOP_LIMIT" || otype === "OCO") {
+      return submitConditional(side, direction, otype);
+    }
+    const isMarket = otype === "MARKET";
+    const price = Number($(`${side}-price`).value);
+    const qty   = Number($(`${side}-amount`).value);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast("수량을 입력해 주세요", "Enter an amount");
+      return;
+    }
+    if (!isMarket && (!Number.isFinite(price) || price <= 0)) {
+      toast("가격을 입력해 주세요", "Enter a price");
+      return;
+    }
+    const body = {
+      uuid: null,
+      pair: `${state.base}_${state.quote}`,
+      price: isMarket ? 0 : price,
+      quantity: qty,
+      direction,
+      matchConstraint: "GTC",
+      orderType: isMarket ? "MARKET_ORDER" : "LIMIT_ORDER",
+      userLevel: "*",
+    };
+
+    const localId = `local-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+    const optimistic = {
+      _localId: localId,
+      side: direction,
+      price: isMarket ? null : price,
+      qty,
+      status: "pending",
+      ts: Date.now(),
+    };
+    pushRecent(optimistic);
+
+    const btn = $(`${side}-submit`);
+    btn.disabled = true;
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = "전송 중… / Submitting…";
+
+    try {
+      await authedFetch("/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      updateRecent(localId, { status: "ok" });
+      toast("주문이 접수되었습니다", "Order accepted");
+      // refresh book + balances right away
+      refreshDepth();
+      refreshWallets();
+    } catch (e) {
+      // try to surface the backend's error message
+      let msg = "주문 실패 / Order rejected";
+      let en  = "";
+      try {
+        const j = e.body ? JSON.parse(e.body) : null;
+        if (j && (j.message || j.error)) {
+          msg = j.message || j.error;
+          en  = j.message || j.error;
+        }
+      } catch { /* ignore */ }
+      // Heuristic translation of common error: insufficient funds
+      if (/insufficient|funds|balance|locked/i.test(msg)) {
+        msg = "잔액 부족"; en = "Insufficient balance";
+      }
+      updateRecent(localId, { status: "error", error: msg });
+      toast(msg, en || `HTTP ${e.status || ""}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml;
+    }
+  }
+
+  $("buy-submit").addEventListener("click", () => submitOrder("buy"));
+  $("sell-submit").addEventListener("click", () => submitOrder("sell"));
+
+  // History tab content rendering
+  function renderHistoryRecent() {
+    const body = $("history-body");
+    if (!session) {
+      body.innerHTML = `<div>
+        <strong style="display:block; color:var(--ink); margin-bottom:6px;">로그인이 필요합니다 / Sign in required</strong>
+        <span class="muted"><a href="signin.html?next=${encodeURIComponent(location.pathname + location.search)}" style="color:var(--accent-bright);">로그인 / Sign in</a> 후 본인 주문이 여기 표시됩니다.</span>
+      </div>`;
+      return;
+    }
+    if (!state.recentOrders.length) {
+      body.innerHTML = `<div>
+        <strong style="display:block; color:var(--ink); margin-bottom:6px;">아직 주문이 없습니다 / No orders yet</strong>
+        <span class="muted">아래에서 주문을 올리면 이 자리에 표시됩니다.<br/>Your orders will appear here once you submit them.</span>
+      </div>`;
+      return;
+    }
+    const rows = state.recentOrders.map(o => {
+      const sideCls = o.side === "BID" ? "bid" : "ask";
+      const sideLabel = o.side === "BID" ? "매수 BID" : "매도 ASK";
+      const price = o.price == null
+        ? `<span class="dim">시장가 / market</span>`
+        : fmtPrice(Number(o.price), state.base, state.quote);
+      const status = o.status === "ok"
+        ? `<span class="status ok">접수됨 / accepted</span>`
+        : o.status === "error"
+          ? `<span class="status error">오류 / ${escapeHtml(o.error || "error")}</span>`
+          : `<span class="status">대기중 / pending</span>`;
+      return `
+        <li>
+          <span class="side ${sideCls}">${sideLabel}</span>
+          <span>${price} <span class="dim">·</span> ${fmtAmount(o.qty, state.base)} ${state.base}</span>
+          ${status}
+          <span class="dim" style="font-size:11px;">${fmtTime(o.ts)}</span>
+        </li>`;
+    }).join("");
+    body.innerHTML = `
+      <div style="width:100%;">
+        <div class="recent-orders-head">최근 세션 주문 / Recent orders this session</div>
+        <ul class="recent-orders-list">${rows}</ul>
+      </div>`;
+  }
+
+  function renderHistoryOpen() {
+    const body = $("history-body");
+    if (!session) {
+      body.innerHTML = `<div>
+        <strong style="display:block; color:var(--ink); margin-bottom:6px;">로그인이 필요합니다 / Sign in required</strong>
+        <span class="muted"><a href="signin.html?next=${encodeURIComponent(location.pathname + location.search)}" style="color:var(--accent-bright);">로그인 / Sign in</a> 후 미체결 주문을 확인할 수 있습니다.</span>
+      </div>`;
+      return;
+    }
+    body.innerHTML = `<div>
+      <strong style="display:block; color:var(--ink); margin-bottom:6px;">미체결 주문 / Open orders</strong>
+      <span class="muted">본인이 올린 미체결 주문은 위 주문서에 그대로 표시됩니다.<br/>Your resting orders show up in the order book above.</span>
+    </div>`;
+  }
+
+  document.querySelectorAll(".history-tab").forEach(t => {
+    t.addEventListener("click", () => {
+      document.querySelectorAll(".history-tab").forEach(x => x.classList.toggle("active", x === t));
+      const tab = t.dataset.htab;
+      if (tab === "recent") renderHistoryRecent();
+      else if (tab === "open") renderHistoryOpen();
+      else {
+        $("history-body").innerHTML = `<div>
+          <strong style="display:block; color:var(--ink); margin-bottom:6px;">기록이 없습니다 / No history yet</strong>
+          <span class="muted">데모에서는 세션 동안 올린 주문만 "최근 주문" 탭에서 확인할 수 있습니다.<br/>In demo, persisted history is unavailable; see "Recent orders".</span>
+        </div>`;
+      }
+    });
+  });
+
+  // -------- WebSocket live feed --------
+  // We keep the existing REST polling code intact as a fallback. When the
+  // WS pushes a depth/trade/ticker/kline message we update `wsLastAt[stream]`;
+  // the polling shims skip their HTTP call if a WS message arrived in the
+  // last WS_FRESH_MS, so the page only goes back to REST when WS is silent.
+  const WS_FRESH_MS = 10_000;
+  const wsLastAt = { depth: 0, trade: 0, ticker: 0, kline: 0 };
+
+  function streamsFor(symbol, interval) {
+    return [
+      `depth@${symbol}`,
+      `trade@${symbol}`,
+      `ticker@${symbol}`,
+      `kline@${symbol}_${interval}`,
+    ];
+  }
+
+  function setLiveDot(kind) {
+    const el = document.getElementById(`live-${kind}`);
+    if (!el) return;
+    const last = wsLastAt[kind] || 0;
+    const sincePush = Date.now() - last;
+    let s;
+    if (last > 0 && sincePush < WS_FRESH_MS) s = "live";
+    else if (last > 0 && sincePush < 4 * WS_FRESH_MS) s = "polling";
+    else s = "quiet";
+    el.dataset.state = s;
+  }
+  function refreshAllLiveDots() {
+    ["depth", "trade", "ticker", "kline"].forEach(setLiveDot);
+  }
+
+  function setStatusPill(status) {
+    const pill = document.getElementById("ws-pill");
+    const text = document.getElementById("ws-pill-text");
+    if (!pill || !text) return;
+    pill.dataset.state = status;
+    if (status === "open") {
+      text.innerHTML = `실시간 · ${state.symbol} <span style="opacity:.7">depth · trade · ticker · kline</span>`;
+    } else if (status === "connecting") {
+      text.textContent = "연결 중 / Connecting…";
+    } else if (status === "error") {
+      text.textContent = "재연결 중 / Reconnecting…";
+    } else {
+      text.textContent = "오프라인 / Offline";
+    }
+  }
+
+  function applyDepthPush(d) {
+    state.book.bids = (d.bids || []).slice(0, 12);
+    state.book.asks = (d.asks || []).slice(0, 12);
+    renderBook();
+  }
+  function applyTradePush(t) {
+    // t: { e, s, t, p, q, T, m }
+    const row = {
+      id: t.t,
+      price: t.p,
+      qty: t.q,
+      time: t.T,
+      isBuyerMaker: !!t.m,
+    };
+    // dedupe by id
+    if (!state.trades.some(x => Number(x.id) === Number(row.id))) {
+      state.trades.unshift(row);
+      if (state.trades.length > 30) state.trades.length = 30;
+      renderTrades();
+    }
+  }
+  function applyTickerPush(t) {
+    state.last = Number(t.c || 0);
+    state.pct  = Number(t.P || 0);
+    const high = Number(t.h || 0);
+    const low  = Number(t.l || 0);
+    const vol  = Number(t.v || 0);
+    const lastStr = state.last ? fmtPrice(state.last, state.base, state.quote) : "—";
+    const pctStr  = fmtPct(state.pct);
+    const dir = state.pct > 0 ? "up" : state.pct < 0 ? "down" : "muted";
+    const arrow = state.pct > 0 ? "▲" : state.pct < 0 ? "▼" : "·";
+    $("bar-last").textContent = lastStr;
+    $("bar-last").className = `value lp mono ${dir}`;
+    $("bar-change").textContent = `${arrow} ${pctStr}`;
+    $("bar-change").className = `value mono ${dir}`;
+    $("bar-high").textContent   = high ? fmtPrice(high, state.base, state.quote) : "—";
+    $("bar-low").textContent    = low  ? fmtPrice(low,  state.base, state.quote) : "—";
+    $("bar-volume").textContent = `${fmtVolume(vol)} ${state.base}`;
+    $("mid-last").textContent = lastStr;
+    $("mid-last").className   = `lp ${dir}`;
+    $("mid-arrow").textContent = arrow;
+    $("mid-arrow").className = `arrow ${dir}`;
+    $("mid-change").textContent = pctStr;
+    $("mid-change").className   = `ch ${dir}`;
+    seedOrderPrices();
+    barTick.ok();
+  }
+  function applyKlinePush(payload) {
+    if (!state.candleSeries) return;
+    const k = payload.k;
+    if (!k) return;
+    // Only feed bars that match the currently displayed interval.
+    if (k.i && k.i !== state.interval) return;
+    const o = Number(k.o), c = Number(k.c);
+    if (!(o > 0 && c > 0)) return;
+    const bar = {
+      time: Math.floor(Number(k.t) / 1000),
+      open: o,
+      high: Number(k.h),
+      low:  Number(k.l),
+      close: c,
+      volume: Number(k.v),
+    };
+    try {
+      state.candleSeries.update(bar);
+      state.volumeSeries.update({
+        time: bar.time,
+        value: bar.volume,
+        color: bar.close >= bar.open ? "rgba(0, 184, 124, 0.32)" : "rgba(255, 77, 99, 0.32)",
+      });
+      state.lastBarTime = Math.max(state.lastBarTime, bar.time);
+    } catch { /* ignore stale-bar errors when chart is mid-rebuild */ }
+  }
+
+  const ws = new MarketWS({
+    onMessage(msg) {
+      const stream = msg.stream || "";
+      const [kind, sym] = stream.split("@");
+      if (!kind || !sym) return;
+      // Symbol-mismatch can happen briefly across a symbol switch — ignore.
+      const symRoot = sym.split("_")[0];
+      if (symRoot && symRoot !== state.symbol) return;
+      const now = Date.now();
+      try {
+        if (kind === "depth")  { applyDepthPush(msg.data);  wsLastAt.depth  = now; }
+        else if (kind === "trade") { applyTradePush(msg.data); wsLastAt.trade  = now; }
+        else if (kind === "ticker"){ applyTickerPush(msg.data); wsLastAt.ticker = now; }
+        else if (kind === "kline") { applyKlinePush(msg.data);  wsLastAt.kline  = now; }
+      } catch (e) {
+        console.warn("ws apply failed", stream, e);
+      }
+      refreshAllLiveDots();
+    },
+    onError(e) {
+      // Quietly log; reconnect logic in MarketWS handles recovery.
+      console.warn("ws error", e);
+    },
+  });
+
+  window.addEventListener("ws-status", (ev) => setStatusPill(ev.detail.status));
+
+  // -------- Boot --------
+  (async () => {
+    await loadUniverse();
+    setupChart();
+
+    // Initial REST snapshot — instant render, then WS takes over.
+    const boot = [refreshTicker(), refreshDepth(), refreshTrades(), loadKlines()];
+    if (session) boot.push(refreshWallets());
+    await Promise.all(boot);
+
+    // Liquidity / market-maker status pill. Best-effort, non-critical: if
+    // /mm/* is unreachable the pill stays neutral and the page is unaffected.
+    async function refreshLiquidityPill() {
+      const dot = document.getElementById("mm-liquidity-dot");
+      const txt = document.getElementById("mm-liquidity-text");
+      const wrap = document.getElementById("mm-liquidity-pill");
+      if (!dot || !txt || !wrap) return;
+      try {
+        const r = await fetch("/mm/status", { cache: "no-store" });
+        if (!r.ok) throw new Error("status " + r.status);
+        const obj = await r.json();
+        const list = (obj && obj.symbols) || [];
+        const row = list.find((s) => s && s.symbol === state.symbol);
+        if (!row) {
+          dot.style.background = "#888";
+          txt.textContent = "유동성 봇 미운영 / Market maker not configured";
+          wrap.dataset.state = "off";
+          return;
+        }
+        const nb = Number(row.n_bid_levels || 0);
+        const na = Number(row.n_ask_levels || 0);
+        if (nb >= 2 && na >= 2) {
+          dot.style.background = "#00b87c";
+          txt.textContent = "유동성 공급 중 / Market maker active";
+          wrap.dataset.state = "green";
+        } else if (nb >= 1 && na >= 1) {
+          dot.style.background = "#e9a23b";
+          txt.textContent = "유동성 부분 / Partial liquidity";
+          wrap.dataset.state = "amber";
+        } else {
+          dot.style.background = "#e54848";
+          txt.textContent = "유동성 없음 / No bot liquidity";
+          wrap.dataset.state = "red";
+        }
+      } catch (e) {
+        dot.style.background = "#888";
+        txt.textContent = "유동성 봇 응답 없음 / Liquidity status unavailable";
+        wrap.dataset.state = "unknown";
+      }
+    }
+    refreshLiquidityPill();
+    setInterval(refreshLiquidityPill, 8000);
+
+    // Initial history-panel state: open-orders tab is preselected.
+    renderHistoryOpen();
+
+    // Sync conditional-order field visibility (LIMIT default — both sides)
+    syncFieldVisibility("buy");
+    syncFieldVisibility("sell");
+
+    // Conditional orders panel: initial paint + manual refresh + slow poll.
+    refreshConditionals();
+    document.getElementById("cond-refresh")?.addEventListener("click", refreshConditionals);
+    if (session) {
+      poll(refreshConditionals, 5000, { immediate: false });
+    }
+
+    // Open the WebSocket and subscribe to this symbol's streams.
+    setStatusPill("connecting");
+    ws.open();
+    ws.subscribe(streamsFor(state.symbol, state.interval));
+
+    // When the user switches kline interval, swap the kline subscription.
+    // The earlier interval-tab handler (above) has already mutated
+    // state.interval and called loadKlines() by the time this fires, so we
+    // diff against state._lastSubscribedInterval to know what to unsubscribe.
+    state._lastSubscribedInterval = state.interval;
+    document.querySelectorAll("[data-iv]").forEach(b => {
+      b.addEventListener("click", () => {
+        const newIv = b.dataset.iv;
+        const oldIv = state._lastSubscribedInterval;
+        if (oldIv && oldIv !== newIv) {
+          ws.unsubscribe([`kline@${state.symbol}_${oldIv}`]);
+        }
+        ws.subscribe([`kline@${state.symbol}_${newIv}`]);
+        state._lastSubscribedInterval = newIv;
+        wsLastAt.kline = 0; // dot recomputes fresh after the switch
+      });
+    });
+
+    // REST fallback. Each shim short-circuits if WS recently delivered for
+    // that stream — so when WS is healthy we issue zero REST calls; when WS
+    // is silent for 10s we resume the original polling cadence.
+    function fallback(kind, fn) {
+      return async () => {
+        const last = wsLastAt[kind] || 0;
+        if (last && (Date.now() - last) < WS_FRESH_MS) return;
+        await fn();
+      };
+    }
+    poll(fallback("ticker", refreshTicker), 5000, { immediate: false, onError: () => barTick.fail() });
+    poll(fallback("depth",  refreshDepth),  2000, { immediate: false });
+    poll(fallback("trade",  refreshTrades), 3000, { immediate: false });
+    poll(fallback("kline",  refreshKlinesIncremental), 10_000, { immediate: false });
+    if (session) {
+      poll(refreshWallets, 5000, { immediate: false });
+    }
+    setInterval(() => { barTick.refresh(); refreshAllLiveDots(); }, 1000);
+  })();
+</script>
+
+</body>
+</html>

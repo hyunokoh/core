@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#10002b"/><circle cx="300" cy="245" r="8" fill="#4cc9f0"/>
+<line x1="300" y1="245" x2="353" y2="455" stroke="#7209b7" stroke-width="1.36" opacity="0.6"/>
+<circle cx="438" cy="440" r="5" fill="#4cc9f0"/>
+<line x1="438" y1="440" x2="353" y2="455" stroke="#7209b7" stroke-width="1.59" opacity="0.6"/>
+<circle cx="387" cy="270" r="6" fill="#4cc9f0"/>
+<line x1="387" y1="270" x2="162" y2="330" stroke="#7209b7" stroke-width="1.49" opacity="0.6"/>
+<circle cx="222" cy="61" r="7" fill="#4cc9f0"/>
+<circle cx="130" cy="109" r="4" fill="#4cc9f0"/>
+<line x1="130" y1="109" x2="194" y2="60" stroke="#7209b7" stroke-width="0.93" opacity="0.6"/>
+<line x1="130" y1="109" x2="162" y2="330" stroke="#7209b7" stroke-width="1.17" opacity="0.6"/>
+<circle cx="353" cy="455" r="5" fill="#4cc9f0"/>
+<circle cx="194" cy="60" r="8" fill="#4cc9f0"/>
+<circle cx="162" cy="330" r="6" fill="#4cc9f0"/><text x="480" y="490" font-family="JetBrains Mono, monospace" font-size="22" fill="#4cc9f0" text-anchor="end" opacity="0.9">#53</text><text x="20" y="490" font-family="JetBrains Mono, monospace" font-size="14" fill="#f72585" opacity="0.8">zkCEX</text></svg>

@@ -1,0 +1,64 @@
+# Minimal single-binary Tempo config for the zkCEX demo.
+#
+# Filesystem storage, in-process compactor, 1h retention. NOT production-grade
+# (no replication, no S3 backing, no QPS-based admission control). For a real
+# deployment, use the official multi-target distributed topology (distributor,
+# ingester, compactor, querier, query-frontend) backed by S3/GCS.
+
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    # OTLP HTTP at :4318 (what tools/otel/trace.py POSTs to) and gRPC at :4317
+    # (for any service later swapped to the official OTLP SDK).
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  # Flush quickly so the demo doesn't have to wait minutes to see a trace.
+  trace_idle_period: 5s
+  max_block_duration: 30s
+  max_block_bytes: 1_000_000
+
+compactor:
+  compaction:
+    # 1h retention -- plenty for demo, way too short for production.
+    block_retention: 1h
+    compacted_block_retention: 10m
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+    pool:
+      max_workers: 100
+      queue_depth: 10000
+
+# Disable usage reporting; an offline demo box can't reach the metrics
+# endpoint and the failures clutter the logs.
+usage_report:
+  reporting_enabled: false
+
+# A modest in-memory metrics generator could enrich Grafana dashboards with
+# RED metrics derived from spans, but it adds an external Prometheus
+# dependency. Leave it off here.
+metrics_generator:
+  registry:
+    external_labels: {}
+  storage:
+    path: /var/tempo/generator/wal
+overrides:
+  defaults:
+    metrics_generator:
+      processors: []

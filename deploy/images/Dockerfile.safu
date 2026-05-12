@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=safu
+
+COPY --chown=65532:65532 tools/safu_server.py /app/tools/safu_server.py
+
+ENV PORT=5601
+EXPOSE 5601
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5601", "/safu/health"]
+CMD ["-u", "/app/tools/safu_server.py", "5601"]

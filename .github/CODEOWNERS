@@ -1,0 +1,26 @@
+# CODEOWNERS for zkCEX
+# Documentation: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner of everything
+*                                @hyunokoh
+
+# Auth-critical paths
+/tools/auth_server.py       @security-team
+/tools/auth_db.py           @security-team
+/tools/custody/             @security-team
+/tools/travel_rule/         @compliance-team
+/tools/travel_rule_server.py @compliance-team
+
+# Trading
+/tools/perp_engine.py       @trading-team
+/tools/order_engine.py      @trading-team
+/tools/zk_orderbook.py      @trading-team
+/tools/mm_bot.py            @trading-team
+
+# Frontend
+/homepage/app/              @ui-team
+
+# CI/CD
+/.github/workflows/         @platform-team
+/tools/deploy/              @platform-team
+/deploy/                    @platform-team

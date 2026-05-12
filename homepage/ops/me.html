@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Profile — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>My operator profile</h1>
+    <div class="panel" id="profile"><div class="loading">loading…</div></div>
+  </main>
+
+  <script type="module">
+    import { requireOpsSession, opsFetch, renderChrome,
+             fmtTs, escapeHtml, badge } from "/ops/ops.js";
+    if (!requireOpsSession()) {} else {
+      renderChrome("me");
+      const r = await opsFetch("/me");
+      const p = document.getElementById("profile");
+      if (!r || !r.ok) { p.innerHTML = `<div class="empty">failed</div>`; }
+      else {
+        const o = r.body.operator;
+        p.innerHTML = `
+          <dl class="kv">
+            <dt>operator_id</dt><dd>${o.id}</dd>
+            <dt>email</dt><dd>${escapeHtml(o.email)}</dd>
+            <dt>display_name</dt><dd>${escapeHtml(o.display_name)}</dd>
+            <dt>role</dt><dd>${badge(o.role, "info")}</dd>
+            <dt>permissions</dt><dd>${(o.permissions || []).map(p => badge(p, "ok")).join(" ")}</dd>
+            <dt>session expires</dt><dd>${fmtTs(o.session_expires_at)}</dd>
+          </dl>`;
+      }
+    }
+  </script>
+</body>
+</html>

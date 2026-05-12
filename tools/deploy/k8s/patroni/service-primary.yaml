@@ -1,0 +1,30 @@
+# Read-write entry point. Selector pins to spilo-role=master, which Patroni
+# writes onto exactly one pod (the current leader) every loop_wait tick.
+# When failover happens, Patroni demotes the old leader (sets its label to
+# `replica`) before promoting the new one — so the Service has at most one
+# Endpoint at any moment and clients never accidentally write to a stale
+# leader.
+apiVersion: v1
+kind: Service
+metadata:
+  name: patroni-primary
+  labels:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: zkcex
+    zkcex.io/postgres-role: primary
+spec:
+  type: ClusterIP
+  # publishNotReadyAddresses=false on purpose: if the leader is failing its
+  # readiness probe we WANT new connections to fail fast rather than land on
+  # a stuck process. Existing connections will drain at the application layer.
+  selector:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: zkcex
+    spilo-role: master
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+    - name: patroni-api
+      port: 8008
+      targetPort: 8008

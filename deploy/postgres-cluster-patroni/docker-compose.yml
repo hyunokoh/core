@@ -1,0 +1,147 @@
+# Three-node Patroni Postgres cluster with etcd as DCS and HAProxy as a stable
+# entry point. Parallel deployment to ../postgres-cluster/ — does not collide
+# on host ports (this stack uses 5440-5444, 8008-8010, 7777, 2379).
+#
+# The Postgres+Patroni containers run the Spilo image (Zalando's all-in-one
+# Patroni+Postgres+supervised runtime). Spilo's bootstrap script
+# configure_spilo.py reads its config from un-prefixed environment variables
+# (ETCD3_HOSTS, SCOPE, PGUSER_*) and writes /home/postgres/postgres.yml on
+# first boot. Patroni then reads that yaml + any PATRONI_* overrides on top.
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.10
+    container_name: zkcex-pg-etcd
+    command:
+      - etcd
+      - --name=etcd0
+      - --data-dir=/etcd-data
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-cluster=etcd0=http://etcd:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=zkcex-pg-etcd-token
+    ports:
+      - "2379:2379"
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - etcd-data:/etcd-data
+
+  patroni-node-a:
+    image: ghcr.io/zalando/spilo-16:3.2-p2
+    container_name: zkcex-pg-patroni-a
+    hostname: patroni-node-a
+    depends_on:
+      etcd:
+        condition: service_healthy
+    ports:
+      - "5440:5432"   # Postgres
+      - "8008:8008"   # Patroni REST API
+    environment:
+      # --- Spilo bootstrap (unprefixed; read by configure_spilo.py) ---
+      ETCD3_HOSTS: '"etcd:2379"'
+      SCOPE: zkcexpg
+      PGVERSION: "16"
+      # The Spilo image creates the `app` role from PGUSER_ADMIN / PGPASSWORD_ADMIN
+      PGUSER_ADMIN: app
+      PGPASSWORD_ADMIN: app-password
+      PGUSER_SUPERUSER: postgres
+      PGPASSWORD_SUPERUSER: superpw
+      PGUSER_STANDBY: replicator
+      PGPASSWORD_STANDBY: replicator-password
+      # --- Patroni node identity (PATRONI_* overlays the rendered yaml) ---
+      PATRONI_NAME: patroni-node-a
+      PATRONI_RESTAPI_CONNECT_ADDRESS: patroni-node-a:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: patroni-node-a:5432
+      # --- Demo-mode toggles (don't pull WAL backups, no monitoring sidecar) ---
+      USE_WALG_BACKUP: "false"
+      USE_WALG_RESTORE: "false"
+      ENABLE_PG_MON: "false"
+    volumes:
+      - patroni-a-data:/home/postgres/pgdata
+
+  patroni-node-b:
+    image: ghcr.io/zalando/spilo-16:3.2-p2
+    container_name: zkcex-pg-patroni-b
+    hostname: patroni-node-b
+    depends_on:
+      patroni-node-a:
+        condition: service_started
+    ports:
+      - "5441:5432"
+      - "8009:8008"
+    environment:
+      ETCD3_HOSTS: '"etcd:2379"'
+      SCOPE: zkcexpg
+      PGVERSION: "16"
+      PGUSER_ADMIN: app
+      PGPASSWORD_ADMIN: app-password
+      PGUSER_SUPERUSER: postgres
+      PGPASSWORD_SUPERUSER: superpw
+      PGUSER_STANDBY: replicator
+      PGPASSWORD_STANDBY: replicator-password
+      PATRONI_NAME: patroni-node-b
+      PATRONI_RESTAPI_CONNECT_ADDRESS: patroni-node-b:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: patroni-node-b:5432
+      USE_WALG_BACKUP: "false"
+      USE_WALG_RESTORE: "false"
+      ENABLE_PG_MON: "false"
+    volumes:
+      - patroni-b-data:/home/postgres/pgdata
+
+  patroni-node-c:
+    image: ghcr.io/zalando/spilo-16:3.2-p2
+    container_name: zkcex-pg-patroni-c
+    hostname: patroni-node-c
+    depends_on:
+      patroni-node-a:
+        condition: service_started
+    ports:
+      - "5442:5432"
+      - "8010:8008"
+    environment:
+      ETCD3_HOSTS: '"etcd:2379"'
+      SCOPE: zkcexpg
+      PGVERSION: "16"
+      PGUSER_ADMIN: app
+      PGPASSWORD_ADMIN: app-password
+      PGUSER_SUPERUSER: postgres
+      PGPASSWORD_SUPERUSER: superpw
+      PGUSER_STANDBY: replicator
+      PGPASSWORD_STANDBY: replicator-password
+      PATRONI_NAME: patroni-node-c
+      PATRONI_RESTAPI_CONNECT_ADDRESS: patroni-node-c:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: patroni-node-c:5432
+      USE_WALG_BACKUP: "false"
+      USE_WALG_RESTORE: "false"
+      ENABLE_PG_MON: "false"
+    volumes:
+      - patroni-c-data:/home/postgres/pgdata
+
+  # HAProxy in front: clients connect here and HAProxy routes to the current
+  # leader. Health checks call the Patroni REST API endpoints /leader and
+  # /replica, which return 200 only for nodes in the corresponding role.
+  haproxy:
+    image: haproxy:2.9
+    container_name: zkcex-pg-haproxy
+    depends_on:
+      - patroni-node-a
+      - patroni-node-b
+      - patroni-node-c
+    ports:
+      - "5443:5000"   # Read-write entry (auto-routes to current leader)
+      - "5444:5001"   # Read-only entry (load-balances across replicas)
+      - "7777:7000"   # HAProxy stats UI (host :7000 collides with Apple AirPlay)
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+volumes:
+  etcd-data:
+  patroni-a-data:
+  patroni-b-data:
+  patroni-c-data:

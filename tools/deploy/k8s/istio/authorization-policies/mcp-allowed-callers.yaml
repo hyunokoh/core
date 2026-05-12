@@ -1,0 +1,30 @@
+# mcp (model-context-protocol gateway) authorization.
+# Only the proxy + ops dashboard can drive it; internal services may *call*
+# it for tool-use, but we lock those down by principal anyway.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: mcp-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            paths:
+              - /mcp/*
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/proxy
+              - cluster.local/ns/zkcex/sa/ops
+              - cluster.local/ns/zkcex/sa/safu
+    - to:
+        - operation:
+            paths: ["/mcp/health"]
+      from:
+        - source:
+            namespaces: ["istio-system", "monitoring", "zkcex"]

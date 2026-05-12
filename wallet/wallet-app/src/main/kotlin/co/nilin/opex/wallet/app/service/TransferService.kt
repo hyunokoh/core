@@ -72,6 +72,7 @@ class TransferService(
         transferRef: String?,
         chain: String?
     ): TransferResult {
+        ensureSystemWalletCanCoverDeposit(symbol, amount)
         val tx = _transfer(
             symbol,
             WalletType.MAIN,
@@ -107,6 +108,22 @@ class TransferService(
         }
 
         return tx
+    }
+
+    private suspend fun ensureSystemWalletCanCoverDeposit(symbol: String, amount: BigDecimal) {
+        val currency = currencyService.getCurrency(symbol) ?: throw OpexError.CurrencyNotFound.exception()
+        val systemOwner = getOrCreateSystemOwner()
+        val systemWallet = walletManager.findWalletByOwnerAndCurrencyAndType(systemOwner, WalletType.MAIN, currency)
+            ?: walletManager.createWallet(systemOwner, Amount(currency, BigDecimal.ZERO), currency, WalletType.MAIN)
+
+        if (systemWallet.balance.amount < amount) {
+            walletManager.increaseBalance(systemWallet, amount - systemWallet.balance.amount)
+        }
+    }
+
+    private suspend fun getOrCreateSystemOwner(): WalletOwner {
+        return walletOwnerManager.findWalletOwner(walletOwnerManager.systemUuid)
+            ?: walletOwnerManager.createWalletOwner(walletOwnerManager.systemUuid, "system", "1")
     }
 
     suspend fun calculateDestinationAmount(
@@ -354,7 +371,11 @@ class TransferService(
         if (senderWalletType == WalletType.CASHOUT || receiverWalletType == WalletType.CASHOUT)
             throw OpexError.InvalidCashOutUsage.exception()
         val sourceCurrency = currencyService.getCurrency(symbol) ?: throw OpexError.CurrencyNotFound.exception()
-        val sourceOwner = walletOwnerManager.findWalletOwner(senderUuid)
+        val sourceOwner = if (senderUuid == walletOwnerManager.systemUuid) {
+            getOrCreateSystemOwner()
+        } else {
+            walletOwnerManager.findWalletOwner(senderUuid)
+        }
             ?: throw OpexError.WalletOwnerNotFound.exception()
         val sourceWallet =
             walletManager.findWalletByOwnerAndCurrencyAndType(sourceOwner, senderWalletType, sourceCurrency)
@@ -400,8 +421,7 @@ class TransferService(
         finalAmount: BigDecimal?
     ) {
         val destCurrency = currencyService.getCurrency(destSymbol)!!
-        val system = walletOwnerManager.findWalletOwner(walletOwnerManager.systemUuid)
-            ?: throw OpexError.WalletOwnerNotFound.exception()
+        val system = getOrCreateSystemOwner()
 
         val systemWallet = walletManager.findWalletByOwnerAndCurrencyAndType(system, receiverWalletType, destCurrency)
             ?: throw OpexError.WalletNotFound.exception()

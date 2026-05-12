@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>시스템 상태 / System Status — zkCEX</title>
+  <meta name="description" content="zkCEX 주요 기능별 실시간 가동 상태 — 가입, KYC, 입출금, 현물 거래, 선물 거래." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="theme-color" content="#0b3aff" />
+  <style>
+    body.status { background: #07090f; color: #e6e9ef; font-family: 'Inter', sans-serif; }
+    .status-shell { max-width: 980px; margin: 0 auto; padding: 28px 24px 80px; display: flex; flex-direction: column; gap: 24px; }
+
+    .status-hero {
+      padding: 28px 32px; border-radius: 16px;
+      background: radial-gradient(800px 280px at 100% 0%, rgba(46,229,155,0.10), transparent 60%),
+                  linear-gradient(180deg, rgba(11,58,255,0.05), rgba(11,58,255,0.01));
+      border: 1px solid rgba(255,255,255,0.06);
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .status-hero .eyebrow {
+      color: #9aa3b3; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600;
+    }
+    .status-hero h1 { margin: 0; font-size: 28px; font-weight: 700; }
+    .status-hero .sub { color: #9aa3b3; font-size: 14px; line-height: 1.5; }
+
+    .overall {
+      display: flex; align-items: center; gap: 16px; padding: 18px 24px;
+      border-radius: 12px; border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(13,18,28,0.6);
+    }
+    .overall .dot {
+      width: 18px; height: 18px; border-radius: 50%; flex: 0 0 18px;
+      box-shadow: 0 0 12px currentColor;
+    }
+    .overall .dot.green  { background: #2ee59b; color: #2ee59b; }
+    .overall .dot.yellow { background: #f0b429; color: #f0b429; }
+    .overall .dot.red    { background: #ff4d4f; color: #ff4d4f; }
+    .overall .dot.grey   { background: #5b6478; color: #5b6478; }
+    .overall .label { font-size: 18px; font-weight: 600; }
+    .overall .meta { margin-left: auto; color: #9aa3b3; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      padding: 18px 22px; border-radius: 12px;
+      background: rgba(13,18,28,0.6);
+      border: 1px solid rgba(255,255,255,0.06);
+      display: flex; flex-direction: column; gap: 10px;
+      transition: border-color 0.15s ease;
+    }
+    .card:hover { border-color: rgba(255,255,255,0.14); }
+    .card .row { display: flex; align-items: center; gap: 12px; }
+    .card .dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 12px; box-shadow: 0 0 8px currentColor; }
+    .card .dot.green  { background: #2ee59b; color: #2ee59b; }
+    .card .dot.yellow { background: #f0b429; color: #f0b429; }
+    .card .dot.red    { background: #ff4d4f; color: #ff4d4f; }
+    .card .dot.grey   { background: #5b6478; color: #5b6478; }
+    .card .name { font-weight: 600; font-size: 15px; }
+    .card .desc { color: #9aa3b3; font-size: 13px; line-height: 1.45; }
+    .card .badge {
+      margin-left: auto; font-size: 11px; padding: 3px 8px; border-radius: 999px;
+      font-weight: 600; letter-spacing: 0.03em;
+    }
+    .card .badge.green  { background: rgba(46,229,155,0.14); color: #2ee59b; }
+    .card .badge.yellow { background: rgba(240,180,41,0.14); color: #f0b429; }
+    .card .badge.red    { background: rgba(255,77,79,0.16);  color: #ff7c7c; }
+    .card .badge.grey   { background: rgba(91,100,120,0.16); color: #aab2c0; }
+
+    .footnote {
+      color: #6e7787; font-size: 12px; line-height: 1.6;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      padding-top: 18px;
+    }
+    .footnote a { color: #9aa3b3; }
+    .nav-back { color: #9aa3b3; font-size: 13px; text-decoration: none; }
+    .nav-back:hover { color: #e6e9ef; }
+  </style>
+</head>
+<body class="status">
+  <main class="status-shell">
+    <a class="nav-back" href="/">&larr; 홈으로 / Back to home</a>
+
+    <section class="status-hero">
+      <span class="eyebrow">시스템 상태 / System Status</span>
+      <h1>zkCEX 주요 서비스 가동 현황</h1>
+      <p class="sub">
+        주요 고객 기능의 실시간 상태입니다. 자세한 내부 지표는 운영팀에게만 공개됩니다.<br/>
+        Real-time status of customer-facing functions. Detailed internal metrics are restricted to the operations team.
+      </p>
+    </section>
+
+    <div id="overall" class="overall">
+      <span class="dot grey" aria-hidden="true"></span>
+      <span class="label">상태 확인 중… / Checking…</span>
+      <span class="meta" id="overall-meta"></span>
+    </div>
+
+    <section class="grid" id="cards">
+      <!-- JS will populate. Static markup below is the no-JS fallback. -->
+      <noscript>
+        <div class="card">
+          <div class="row"><span class="dot grey"></span>
+            <span class="name">JavaScript가 필요합니다 / JavaScript required</span>
+          </div>
+          <p class="desc">실시간 상태 표시는 JavaScript를 필요로 합니다.<br/>
+            This live status view requires JavaScript.</p>
+        </div>
+      </noscript>
+    </section>
+
+    <p class="footnote">
+      이 페이지는 15초마다 자동 새로 고침됩니다. 노란색 상태는 일부 기능에 일시적인 지연 또는 부분 가동을 의미하며, 빨간색은 해당 기능 중단을 의미합니다. 자세한 사고 기록은 <a href="/app/safu.html">고객 자산 보호 펀드</a> 페이지를 참고하세요.<br/>
+      This page auto-refreshes every 15 seconds. Yellow indicates degraded performance, red indicates a full outage. Past incidents are listed on the <a href="/app/safu.html">Customer Asset Protection Fund</a> page.<br/><br/>
+      <span style="opacity:0.7">데이터 출처 / Data source: 내부 메트릭 어그리게이터 (port 5640)</span>
+    </p>
+  </main>
+
+  <script>
+  (function () {
+    "use strict";
+
+    // Customer-facing functions and the underlying services that back them.
+    // A function is GREEN if every backing service is up, YELLOW if any single
+    // backing service is down (but at least one is up), and RED if all are
+    // down or the metric is missing entirely.
+    var FUNCTIONS = [
+      { key: "signup",   name: "가입 / Sign up",            desc: "신규 계정 가입 및 로그인 / Account creation & login",
+        services: ["auth", "api_key"] },
+      { key: "kyc",      name: "신원 확인 / KYC",            desc: "본인 인증 및 지역 차단 검사 / Identity verification & geo checks",
+        services: ["auth"] },
+      { key: "deposit",  name: "입금 / Deposit",            desc: "온체인 입금 감지 및 적립 / On-chain deposit detection & crediting",
+        services: ["chain", "zkpol_bridge"] },
+      { key: "withdraw", name: "출금 / Withdraw",            desc: "출금 서명 및 온체인 전송 / Withdraw signing & on-chain dispatch",
+        services: ["chain", "custody_coord"] },
+      { key: "spot",     name: "현물 거래 / Spot trading",   desc: "현물 주문, 체결, 시세 / Spot orders, fills, market data",
+        services: ["proxy", "orders", "ws"] },
+      { key: "futures",  name: "선물 거래 / Perpetual futures", desc: "USDT-M 선물 계약 / USDT-margined perpetual contracts",
+        services: ["perp"] },
+      { key: "pol",      name: "잔고 증명 / Proof of Liabilities", desc: "암호학적 잔고 증명 발급 / Cryptographic balance proofs",
+        services: ["pol_py", "zkpol_bridge"] },
+      { key: "safu",     name: "고객 보호 펀드 / SAFU",      desc: "고객 자산 보호 펀드 잔액 표시 / Customer protection fund balance",
+        services: ["safu"] },
+      { key: "exports",  name: "내역 다운로드 / Data exports", desc: "거래·세금 리포트 / Trade history & tax reports",
+        services: ["export"] }
+    ];
+
+    // Endpoints to try, in order, for the metrics aggregator. We try
+    // host-relative first (in case there's a future reverse-proxy mount),
+    // then fall back to the absolute host:port. Either one returning HTTP 200
+    // means we render real data; otherwise we render "unknown" cards.
+    var METRICS_URLS = [
+      "/metrics-aggregator/metrics",
+      "http://" + window.location.hostname + ":5640/metrics"
+    ];
+
+    function $(id) { return document.getElementById(id); }
+
+    function classifyFunction(servicesUp, neededServices) {
+      var up = 0, down = 0, total = neededServices.length;
+      for (var i = 0; i < total; i++) {
+        var s = neededServices[i];
+        if (servicesUp[s] === 1) up++;
+        else if (servicesUp[s] === 0) down++;
+      }
+      if (up === total) return { color: "green", badge: "정상 / Operational" };
+      if (up === 0)     return { color: "red",   badge: "중단 / Outage" };
+      return { color: "yellow", badge: "부분 / Degraded" };
+    }
+
+    function parsePrometheus(text) {
+      // Very small parser: only handles lines like
+      //    zkcex_service_up{service="auth",job="auth"} 1
+      // We collapse multi-job services by treating service as "up" if ANY
+      // job for that service has value 1.
+      var lines = text.split(/\r?\n/);
+      var serviceUp = {};
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (!line || line.charAt(0) === "#") continue;
+        if (line.indexOf("zkcex_service_up{") !== 0) continue;
+        // Extract service= label value and trailing number
+        var labelMatch = line.match(/service="([^"]+)"/);
+        var valMatch = line.match(/\}\s+([0-9.+\-eEnNiIfF]+)\s*$/);
+        if (!labelMatch || !valMatch) continue;
+        var svc = labelMatch[1];
+        var val = Number(valMatch[1]);
+        if (!isFinite(val)) val = 0;
+        if (serviceUp[svc] === undefined) serviceUp[svc] = val ? 1 : 0;
+        else if (val === 1) serviceUp[svc] = 1;  // any up wins
+      }
+      return serviceUp;
+    }
+
+    function render(serviceUp, ageSec) {
+      var cards = $("cards");
+      cards.innerHTML = "";
+      var overallColor = "green";
+      var nDown = 0, nDegraded = 0;
+
+      for (var i = 0; i < FUNCTIONS.length; i++) {
+        var fn = FUNCTIONS[i];
+        var cls = serviceUp
+          ? classifyFunction(serviceUp, fn.services)
+          : { color: "grey", badge: "확인 불가 / Unknown" };
+        if (cls.color === "red")    { nDown++;     overallColor = "red"; }
+        else if (cls.color === "yellow") { nDegraded++; if (overallColor !== "red") overallColor = "yellow"; }
+
+        var card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML =
+          '<div class="row">' +
+            '<span class="dot ' + cls.color + '" aria-hidden="true"></span>' +
+            '<span class="name">' + fn.name + '</span>' +
+            '<span class="badge ' + cls.color + '">' + cls.badge + '</span>' +
+          '</div>' +
+          '<p class="desc">' + fn.desc + '</p>';
+        cards.appendChild(card);
+      }
+
+      var overall = $("overall");
+      overall.querySelector(".dot").className = "dot " + overallColor;
+      var label = overall.querySelector(".label");
+      if (!serviceUp) {
+        label.textContent = "상태를 가져올 수 없습니다 / Status unavailable";
+      } else if (overallColor === "green") {
+        label.textContent = "모든 시스템 정상 / All systems operational";
+      } else if (overallColor === "yellow") {
+        label.textContent = nDegraded + "개 기능 일부 지연 / " + nDegraded + " functions degraded";
+      } else {
+        label.textContent = nDown + "개 기능 중단 / " + nDown + " functions down";
+      }
+      var meta = $("overall-meta");
+      var now = new Date();
+      meta.textContent =
+        "마지막 확인 / Last check: " + now.toISOString().replace("T", " ").substr(0, 19) + " UTC" +
+        (ageSec !== null && ageSec !== undefined ? "  ·  data age: " + ageSec.toFixed(0) + "s" : "");
+    }
+
+    function fetchOnce() {
+      var tried = 0;
+      function tryNext() {
+        if (tried >= METRICS_URLS.length) {
+          render(null, null);
+          return;
+        }
+        var url = METRICS_URLS[tried++];
+        var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+        var timeoutId = setTimeout(function () { if (ctrl) ctrl.abort(); }, 3500);
+        fetch(url, { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
+          .then(function (r) {
+            clearTimeout(timeoutId);
+            if (!r.ok) throw new Error("http " + r.status);
+            return r.text();
+          })
+          .then(function (text) {
+            var serviceUp = parsePrometheus(text);
+            // We don't surface raw metric values to the public; we only show
+            // green/yellow/red. Anything more detailed is dashboards-only.
+            render(serviceUp, null);
+          })
+          .catch(function () { tryNext(); });
+      }
+      tryNext();
+    }
+
+    fetchOnce();
+    setInterval(fetchOnce, 15000);
+  })();
+  </script>
+</body>
+</html>

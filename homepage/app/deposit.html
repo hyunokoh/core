@@ -1,0 +1,1219 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>입금 / Deposit — zkCEX</title>
+  <meta name="description" content="zkCEX 거래소 입금. 자산을 거래소 주소로 보내면 자동 반영됩니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <link rel="stylesheet" href="ramp.css" />
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>입금<span class="en">Deposit</span></h1>
+  <p>거래소로 자금을 보내세요. 도착하면 자동으로 잔고에 반영됩니다 / Send funds to the exchange. They'll show up in your balance automatically.</p>
+</section>
+
+<main id="main" class="ramp-shell">
+
+  <!-- ==========================================================
+       Multi-chain selector. The demo Hardhat chain is the only
+       writable one; the others are read-only (real testnet
+       balances over public RPC). State lives in localStorage so
+       the choice persists across reloads.
+       ========================================================== -->
+  <section class="chain-picker-card" id="chain-picker-card" style="
+       margin: 0 0 18px;
+       padding: 14px 16px;
+       background: var(--surface, #11131a);
+       border: 1px solid var(--line, #1d2230);
+       border-radius: 12px;
+       display: flex;
+       flex-direction: column;
+       gap: 10px;">
+    <div id="chain-status-row" style="font-size:12px;color:var(--ink-mute,#8c93a8);font-family:'JetBrains Mono',monospace;">
+      <span id="chain-status-dot">⚪</span>
+      <span id="chain-status-text">체인 상태 확인 중… / Probing chain RPC…</span>
+    </div>
+    <div role="tablist" aria-label="Chain" id="chain-pill-row" style="
+         display:flex; flex-wrap:wrap; gap:8px;">
+      <!-- pills injected by chains-ui.js -->
+    </div>
+    <div id="chain-readonly-banner" hidden style="
+         font-size: 13px; padding: 8px 12px; border-radius: 8px;
+         background: rgba(245, 158, 11, 0.12);
+         color: #f59e0b;
+         border: 1px solid rgba(245,158,11,0.35);">
+      이 체인은 읽기 전용입니다 / Read-only on this chain — balances are live, but deposits/withdrawals only work on the Demo chain.
+    </div>
+    <div id="chain-faucet-row" hidden style="font-size:12px;color:var(--ink-mute,#8c93a8);">
+      <strong style="color:var(--ink,#dfe2ee);">테스트넷 자금 받기 / Get testnet funds:</strong>
+      <span id="chain-faucet-links" style="margin-left:6px;"></span>
+    </div>
+  </section>
+
+  <!-- ==========================================================
+       Wallet-mode tabs.
+       Two equally-prominent paths:
+        1) Demo wallet — server-side signer (default, existing path)
+        2) MetaMask    — user signs in their own browser wallet
+       The asset (ZETH/ZUSDT) selection lives further down inside
+       each panel since both modes share the same destination.
+       ========================================================== -->
+  <div class="ramp-mode-tabs" role="tablist" aria-label="Wallet mode">
+    <button class="ramp-mode-tab demo active" id="mode-tab-demo" type="button" role="tab" aria-selected="true">
+      <span class="ramp-mode-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="6" width="18" height="13" rx="2"/>
+          <path d="M16 12h.01"/>
+          <path d="M3 9h14a4 4 0 0 1 4 4v0"/>
+        </svg>
+      </span>
+      <span class="ramp-mode-text">
+        <span class="ko">데모 지갑</span>
+        <span class="en">Demo wallet · server-signed</span>
+      </span>
+      <span class="ramp-mode-state" id="mode-state-demo">기본 / Default</span>
+    </button>
+    <button class="ramp-mode-tab metamask" id="mode-tab-metamask" type="button" role="tab" aria-selected="false">
+      <span class="ramp-mode-icon" aria-hidden="true">
+        <!-- Inline simplified MetaMask fox-style mark. Not the official logo
+             — a stylised triangular fox head silhouette in MetaMask orange,
+             enough that the user instantly recognises which path this is. -->
+        <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+          <polygon points="16,3 5,9 9,15 6,21 11,29 16,25 21,29 26,21 23,15 27,9" fill="#f6851b"/>
+          <polygon points="16,3 11,12 16,11 21,12" fill="#e2761b"/>
+          <circle cx="11.5" cy="17" r="1.4" fill="#1a1300"/>
+          <circle cx="20.5" cy="17" r="1.4" fill="#1a1300"/>
+        </svg>
+      </span>
+      <span class="ramp-mode-text">
+        <span class="ko">내 MetaMask</span>
+        <span class="en">My wallet (MetaMask)</span>
+      </span>
+      <span class="ramp-mode-state" id="mode-state-metamask">미연결 / Not connected</span>
+    </button>
+  </div>
+
+  <!-- ==========================================================
+       PANEL 1: Demo wallet (existing server-signed path).
+       Layout matches the previous /deposit page 1:1 so we don't
+       break any prior expectations.
+       ========================================================== -->
+  <div class="ramp-mode-panel active" id="panel-demo" role="tabpanel" aria-labelledby="mode-tab-demo">
+
+    <div class="ramp-mode-switch">
+      <span>현재 모드: <strong>데모 지갑 (서버가 서명)</strong> / Server-signed demo wallet.</span>
+      <button type="button" data-switch-to="metamask">→ MetaMask로 전환 / Switch to MetaMask</button>
+    </div>
+
+    <section class="ramp-grid">
+
+      <div class="ramp-card ramp-main">
+        <div class="ramp-tabs" role="tablist" aria-label="Asset">
+          <button class="ramp-tab active" data-asset="ZETH" type="button" role="tab" aria-selected="true">
+            zkETH <span class="tab-en">ZETH</span>
+          </button>
+          <button class="ramp-tab" data-asset="ZUSDT" type="button" role="tab" aria-selected="false">
+            zkUSDT <span class="tab-en">ZUSDT</span>
+          </button>
+        </div>
+
+        <div class="ramp-section">
+          <div class="ramp-label">
+            거래소 입금 주소 <span class="en">/ Exchange deposit address</span>
+          </div>
+          <div class="ramp-addr-row">
+            <code class="mono ramp-addr" id="custodial-addr">—</code>
+            <button type="button" class="btn btn-ghost btn-sm" id="copy-custodial">
+              복사 <span class="btn-en">Copy</span>
+            </button>
+          </div>
+          <p class="ramp-note muted">
+            이 주소는 <strong id="active-asset-name">zkETH</strong> 전용입니다 (네트워크: <span class="mono">hardhat localhost · 31337</span>).<br/>
+            <span class="dim">Send only the active asset to this address on the local hardhat chain.</span>
+          </p>
+          <div class="ramp-qr-row">
+            <div class="ramp-qr-frame"><canvas id="qr-canvas" aria-label="Deposit address QR code"></canvas></div>
+            <div class="ramp-qr-meta">
+              <div class="ramp-meta-line">
+                <span class="muted">체인 / Chain</span>
+                <span class="mono">hardhat-31337</span>
+              </div>
+              <div class="ramp-meta-line">
+                <span class="muted">컨트랙트 / Token</span>
+                <span class="mono" id="token-contract">—</span>
+              </div>
+              <div class="ramp-meta-line">
+                <span class="muted">최소 입금 / Min deposit</span>
+                <span class="mono">no min (demo)</span>
+              </div>
+              <div class="ramp-meta-line">
+                <span class="muted">예상 처리 / ETA</span>
+                <span class="mono">~1s · 1 confirm</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ramp-section">
+          <div class="ramp-label">
+            전송 시뮬레이션 <span class="en">/ Send to exchange (demo helper)</span>
+          </div>
+          <p class="ramp-helper-note">
+            데모 빌드입니다. 실제 환경에서는 사용자가 본인 지갑(MetaMask 등)에서 직접 트랜잭션에 서명합니다.<br/>
+            <span class="dim">Demo helper — in production users sign txs in their own wallet (e.g. MetaMask).</span>
+          </p>
+          <form class="ramp-send-form" id="send-form">
+            <div class="ramp-input-row">
+              <label for="send-amount" class="ramp-input">
+                <span class="muted">금액 / Amount</span>
+                <input type="text" inputmode="decimal" id="send-amount" placeholder="0.0" />
+              </label>
+              <button type="submit" class="btn btn-primary" id="send-btn">
+                전송 <span class="btn-en">Send</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <aside class="ramp-card ramp-side">
+        <div class="ramp-label">내 지갑 <span class="en">/ Your wallet (on-chain)</span></div>
+        <div class="ramp-addr-row">
+          <code class="mono ramp-addr" id="user-addr">—</code>
+          <button type="button" class="btn btn-ghost btn-sm" id="copy-user">
+            복사 <span class="btn-en">Copy</span>
+          </button>
+        </div>
+        <p class="muted ramp-side-note">
+          본 주소는 로그인 ID로부터 자동 파생되며, 같은 계정으로 다시 로그인할 때마다 동일합니다.<br/>
+          <span class="dim">Derived deterministically from your login. Same account → same address.</span>
+        </p>
+
+        <div class="ramp-balances">
+          <div class="ramp-bal">
+            <span class="ramp-bal-asset">zkETH</span>
+            <span class="ramp-bal-amount mono" id="bal-zeth">—</span>
+          </div>
+          <div class="ramp-bal">
+            <span class="ramp-bal-asset">zkUSDT</span>
+            <span class="ramp-bal-amount mono" id="bal-zusdt">—</span>
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary ramp-faucet" id="faucet-btn">
+          수령 받기 <span class="btn-en">/ Receive test funds</span>
+        </button>
+        <p class="muted ramp-foot-note">
+          100 zkETH + 1,000 zkUSDT가 본인 주소로 발행됩니다.<br/>
+          <span class="dim">Faucet mints 100 zkETH and 1,000 zkUSDT to your address.</span>
+        </p>
+      </aside>
+
+    </section>
+  </div>
+
+  <!-- ==========================================================
+       PANEL 2: MetaMask. User-signed path.
+       This panel only renders content; the JS at the bottom of
+       the page swaps between the disconnected / connecting /
+       wrong-network / connected sub-states.
+       ========================================================== -->
+  <div class="ramp-mode-panel" id="panel-metamask" role="tabpanel" aria-labelledby="mode-tab-metamask">
+
+    <div class="ramp-mode-switch">
+      <span>현재 모드: <strong>내 MetaMask 지갑</strong> / Sign in your own MetaMask.</span>
+      <button type="button" data-switch-to="demo">← 데모 지갑으로 전환 / Switch to demo wallet</button>
+    </div>
+
+    <section class="ramp-grid">
+
+      <div class="ramp-card ramp-main">
+        <div class="ramp-section">
+          <div class="ramp-label">
+            거래소 입금 주소 <span class="en">/ Exchange deposit address</span>
+          </div>
+          <div class="ramp-addr-row">
+            <code class="mono ramp-addr" id="mm-custodial-addr">—</code>
+            <button type="button" class="btn btn-ghost btn-sm" id="mm-copy-custodial">
+              복사 <span class="btn-en">Copy</span>
+            </button>
+          </div>
+          <p class="ramp-note muted">
+            MetaMask가 같은 hardhat 체인 (chainId <span class="mono">31337</span>)에 연결되어 있어야 합니다.<br/>
+            <span class="dim">MetaMask must be connected to the same hardhat chain (chainId 31337).</span>
+          </p>
+        </div>
+
+        <div class="ramp-section">
+          <div class="ramp-label">
+            MetaMask로 입금 <span class="en">/ Deposit by signing in MetaMask</span>
+          </div>
+
+          <div class="mm-card">
+
+            <!-- DISCONNECTED -->
+            <div class="mm-state-disconnected" id="mm-state-disconnected">
+              <button type="button" class="mm-connect-btn" id="mm-connect">
+                <svg class="mm-fox-icon" viewBox="0 0 32 32" aria-hidden="true">
+                  <polygon points="16,3 5,9 9,15 6,21 11,29 16,25 21,29 26,21 23,15 27,9" fill="#f6851b"/>
+                  <polygon points="16,3 11,12 16,11 21,12" fill="#e2761b"/>
+                  <circle cx="11.5" cy="17" r="1.4" fill="#1a1300"/>
+                  <circle cx="20.5" cy="17" r="1.4" fill="#1a1300"/>
+                </svg>
+                MetaMask 연결 <span style="opacity:0.7">/ Connect MetaMask</span>
+              </button>
+              <p class="mm-help">
+                MetaMask가 없으신가요? <a href="https://metamask.io/download/" target="_blank" rel="noopener">설치하기 / Don't have MetaMask? Install it</a>.
+              </p>
+              <p class="mm-note">
+                이 기능은 데모 모드에서 로컬 hardhat 체인 (chainId 31337)에 연결됩니다.<br/>
+                <span class="dim">Demo connects to the local hardhat chain (chainId 31337).</span>
+              </p>
+            </div>
+
+            <!-- CONNECTING -->
+            <div class="mm-state-connecting" id="mm-state-connecting" hidden>
+              <span class="mm-spinner" aria-hidden="true"></span>
+              <span>MetaMask 승인을 기다리는 중… / Waiting for MetaMask approval…</span>
+            </div>
+
+            <!-- WRONG NETWORK -->
+            <div class="mm-wrong-net" id="mm-state-wrongnet" hidden>
+              <div class="mm-wrong-msg">
+                MetaMask가 다른 네트워크에 있습니다
+                <span class="mm-wrong-en">/ MetaMask is on a different network</span>
+              </div>
+              <button type="button" class="btn btn-primary" id="mm-switch-net">
+                로컬 데모 체인으로 전환 <span class="btn-en">/ Switch to demo chain</span>
+              </button>
+            </div>
+
+            <!-- CONNECTED -->
+            <div id="mm-state-connected" hidden>
+              <div class="mm-connected-head">
+                <span class="mm-conn-dot" aria-hidden="true"></span>
+                <span class="mm-conn-addr" id="mm-addr-display">—</span>
+                <div class="mm-conn-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="mm-copy-addr">
+                    복사 <span class="btn-en">Copy</span>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="mm-disconnect">
+                    연결 해제 <span class="btn-en">Disconnect</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="mm-balances">
+                <div class="ramp-bal">
+                  <span class="ramp-bal-asset">ETH (gas)</span>
+                  <span class="ramp-bal-amount mono" id="mm-bal-eth">—</span>
+                </div>
+                <div class="ramp-bal">
+                  <span class="ramp-bal-asset">zkETH</span>
+                  <span class="ramp-bal-amount mono" id="mm-bal-zeth">—</span>
+                </div>
+                <div class="ramp-bal">
+                  <span class="ramp-bal-asset">zkUSDT</span>
+                  <span class="ramp-bal-amount mono" id="mm-bal-zusdt">—</span>
+                </div>
+              </div>
+
+              <p class="mm-help">
+                잔액이 없으신가요? 아래에서 받아 옮기세요.
+                <span class="dim">/ No balance? Use the demo faucet to send funds straight to your MetaMask address.</span>
+              </p>
+              <div class="mm-faucet-row">
+                <button type="button" class="mm-faucet-btn" id="mm-faucet-btn">
+                  Demo faucet → 내 MetaMask로 발행 / mint to my MetaMask
+                </button>
+              </div>
+
+              <form id="mm-send-form" style="margin-top: 14px; display:flex; flex-direction:column; gap:10px;">
+                <div class="ramp-label">
+                  거래소로 입금 <span class="en">/ Deposit to exchange</span>
+                </div>
+                <div class="mm-asset-toggle" role="tablist" aria-label="Asset">
+                  <button type="button" data-mm-asset="ZETH" class="active" role="tab" aria-selected="true">zkETH</button>
+                  <button type="button" data-mm-asset="ZUSDT" role="tab" aria-selected="false">zkUSDT</button>
+                </div>
+                <div class="ramp-input-row">
+                  <label for="mm-amount" class="ramp-input">
+                    <span class="muted">금액 / Amount</span>
+                    <input type="text" inputmode="decimal" id="mm-amount" placeholder="0.0" />
+                  </label>
+                  <button type="submit" class="mm-send-btn" id="mm-send-btn">
+                    MetaMask에서 서명하여 입금 / Sign in MetaMask
+                  </button>
+                </div>
+              </form>
+
+              <div class="mm-tx-status" id="mm-tx-status" hidden>
+                <div class="mm-tx-line">
+                  <span id="mm-tx-stage">—</span>
+                </div>
+                <div class="mm-tx-line">
+                  <span class="dim">Tx</span>
+                  <span class="mm-tx-hash mono" id="mm-tx-hash">—</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <aside class="ramp-card ramp-side">
+        <div class="ramp-label">진행 흐름 <span class="en">/ How this works</span></div>
+        <ol class="ramp-side-list">
+          <li>MetaMask를 로컬 데모 체인 (31337)에 연결합니다.<br/><span class="dim">Connect MetaMask to the local demo chain.</span></li>
+          <li>본인 지갑이 비어 있으면 데모 faucet으로 받습니다.<br/><span class="dim">If empty, use the demo faucet.</span></li>
+          <li>금액을 입력하고 MetaMask 팝업에서 서명합니다.<br/><span class="dim">Enter amount, sign in the MetaMask popup.</span></li>
+          <li>거래소 인덱서가 Transfer 이벤트를 자동 감지하여 잔고에 반영합니다.<br/><span class="dim">The exchange indexer auto-credits within seconds.</span></li>
+        </ol>
+        <p class="muted ramp-foot-note" style="margin-top: 8px;">
+          이 경로에서는 거래소 서버가 사용자의 개인키를 보유하지 않습니다.<br/>
+          <span class="dim">In this path, the exchange never touches your private key.</span>
+        </p>
+      </aside>
+
+    </section>
+  </div>
+
+  <!-- ==========================================================
+       PANEL 3: Read-only multi-chain view.
+       Visible only when a non-Hardhat chain is selected. Shows
+       live balances pulled directly from a public testnet RPC,
+       and a faucet link group. No write controls.
+       ========================================================== -->
+  <div class="ramp-mode-panel" id="panel-readonly" hidden role="tabpanel" style="display:none;">
+    <section class="ramp-grid">
+      <div class="ramp-card ramp-main">
+        <div class="ramp-section">
+          <div class="ramp-label">
+            읽기 전용 잔고 <span class="en">/ Live testnet balances (read-only)</span>
+          </div>
+          <p class="ramp-helper-note">
+            이 체인은 읽기 전용입니다. 데모 환경이라 테스트넷 자금은 직접 보유하지 않습니다.<br/>
+            <span class="dim">Read-only on this chain — the demo doesn't hold testnet funds. Use a public faucet to top up your address, then read your balance here.</span>
+          </p>
+          <div class="ramp-addr-row" style="margin-top:8px;">
+            <code class="mono ramp-addr" id="ro-user-addr">—</code>
+            <button type="button" class="btn btn-ghost btn-sm" id="ro-copy-user">
+              복사 <span class="btn-en">Copy</span>
+            </button>
+          </div>
+          <div class="ramp-balances" id="ro-balances">
+            <div class="ramp-bal">
+              <span class="ramp-bal-asset" id="ro-native-label">ETH</span>
+              <span class="ramp-bal-amount mono" id="ro-bal-native">—</span>
+            </div>
+            <!-- additional ERC20 rows injected by JS -->
+          </div>
+          <p class="muted ramp-foot-note" id="ro-block-line">
+            최신 블록 / Latest block: <span class="mono" id="ro-block">—</span>
+          </p>
+        </div>
+      </div>
+      <aside class="ramp-card ramp-side">
+        <div class="ramp-label">
+          공개 RPC 정보 <span class="en">/ Public RPC info</span>
+        </div>
+        <p class="muted ramp-side-note" id="ro-rpc-note">
+          이 체인의 잔고는 공개 RPC를 통해 직접 조회됩니다 (API 키 없음).<br/>
+          <span class="dim">Balances read live from a public no-key RPC; nothing is cached server-side.</span>
+        </p>
+        <div class="ramp-meta-line">
+          <span class="muted">활성 RPC / Active RPC</span>
+          <span class="mono" id="ro-active-rpc">—</span>
+        </div>
+        <div class="ramp-meta-line">
+          <span class="muted">상태 / Status</span>
+          <span class="mono" id="ro-rpc-status">—</span>
+        </div>
+        <div class="ramp-label" style="margin-top:18px;">
+          테스트넷 자금 받기 <span class="en">/ Get testnet funds</span>
+        </div>
+        <ul class="ramp-side-list" id="ro-faucet-list">
+          <li class="dim">—</li>
+        </ul>
+      </aside>
+    </section>
+  </div>
+
+  <section class="ramp-history">
+    <div class="ramp-history-head">
+      <h2>최근 입금 <span class="en">/ Recent deposits</span></h2>
+      <span class="muted dim" id="dep-tick">—</span>
+    </div>
+    <div class="ramp-table-wrap">
+      <table class="ramp-table" aria-label="최근 입금 내역 / Recent deposit history">
+        <thead>
+          <tr>
+            <th scope="col">상태 / Status</th>
+            <th scope="col">자산 / Asset</th>
+            <th scope="col" class="r">금액 / Amount</th>
+            <th scope="col" class="r">컨펌 / Confirms</th>
+            <th scope="col">트랜잭션 / Tx</th>
+            <th scope="col" class="r">시간 / Time</th>
+          </tr>
+        </thead>
+        <tbody id="dep-body">
+          <tr class="ramp-empty"><td colspan="6">불러오는 중… / Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    requireSession, getSession,
+    chain, toast, escapeHtml,
+    fmtAmount, fmtRelative, poll, eip1193,
+  } from "./app.js";
+  import {
+    KNOWN_CHAINS, listChains, walletFor,
+    getCurrentChainSlug, setCurrentChainSlug, isWritable, findChain,
+    chainStatusLine, CHAIN_CHANGE_EVENT,
+  } from "./chains.js";
+
+  const session = requireSession({ redirectTo: "/app/signin.html" });
+  if (session) {
+    renderHeader("wallet");
+    renderFooter();
+
+    // ----- DEMO-WALLET PANEL ELEMENTS (existing) -----
+    const tabs = document.querySelectorAll(".ramp-tab");
+    const custodialEl = document.getElementById("custodial-addr");
+    const mmCustodialEl = document.getElementById("mm-custodial-addr");
+    const userAddrEl = document.getElementById("user-addr");
+    const tokenAddrEl = document.getElementById("token-contract");
+    const activeAssetName = document.getElementById("active-asset-name");
+    const balZeth = document.getElementById("bal-zeth");
+    const balZusdt = document.getElementById("bal-zusdt");
+    const faucetBtn = document.getElementById("faucet-btn");
+    const sendForm = document.getElementById("send-form");
+    const sendBtn = document.getElementById("send-btn");
+    const sendAmount = document.getElementById("send-amount");
+    const depBody = document.getElementById("dep-body");
+    const depTick = document.getElementById("dep-tick");
+    const qrCanvas = document.getElementById("qr-canvas");
+
+    let activeAsset = "ZETH";
+    let info = null; // /chain/info snapshot
+
+    async function refreshInfo() {
+      try {
+        info = await chain.info();
+        if (!info?.ready) {
+          custodialEl.textContent = "(체인 미준비 / chain not ready)";
+          mmCustodialEl.textContent = "(체인 미준비 / chain not ready)";
+          return;
+        }
+        custodialEl.textContent = info.custodial;
+        mmCustodialEl.textContent = info.custodial;
+        renderActiveAssetMeta();
+      } catch (e) {
+        custodialEl.textContent = "(연결 실패 / unreachable)";
+        mmCustodialEl.textContent = "(연결 실패 / unreachable)";
+      }
+    }
+
+    function renderActiveAssetMeta() {
+      if (!info?.tokens) return;
+      tokenAddrEl.textContent = info.tokens[activeAsset] || "—";
+      activeAssetName.textContent = activeAsset === "ZETH" ? "zkETH" : "zkUSDT";
+      if (info.custodial && typeof window.qrcode === "function") {
+        const qr = window.qrcode(0, "L");      // type 0 = auto-fit
+        qr.addData(info.custodial);
+        qr.make();
+        const cells = qr.getModuleCount();
+        const scale = 6;
+        const margin = 4;
+        const size = (cells + margin * 2) * scale;
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        qrCanvas.width = size * dpr;
+        qrCanvas.height = size * dpr;
+        qrCanvas.style.width = size + "px";
+        qrCanvas.style.height = size + "px";
+        const ctx = qrCanvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = "#0b0e16";
+        for (let row = 0; row < cells; row++) {
+          for (let col = 0; col < cells; col++) {
+            if (qr.isDark(row, col)) {
+              ctx.fillRect((col + margin) * scale, (row + margin) * scale, scale, scale);
+            }
+          }
+        }
+      }
+    }
+
+    async function refreshWallet() {
+      try {
+        const w = await chain.wallet();
+        userAddrEl.textContent = w.address;
+        balZeth.textContent = `${w.balances.ZETH ?? "0"} ZETH`;
+        balZusdt.textContent = `${w.balances.ZUSDT ?? "0"} ZUSDT`;
+      } catch (e) {
+        userAddrEl.textContent = "(불러오는 중 / loading…)";
+      }
+    }
+
+    async function refreshDeposits() {
+      try {
+        const rows = await chain.deposits();
+        if (!rows.length) {
+          depBody.innerHTML = `<tr class="ramp-empty"><td colspan="6">아직 입금 내역이 없습니다 / No deposits yet</td></tr>`;
+        } else {
+          depBody.innerHTML = rows.map(r => {
+            const statusKo = r.status === "credited" ? "반영됨" : "처리 중";
+            const statusEn = r.status === "credited" ? "credited" : "pending";
+            const cls = r.status === "credited" ? "ok" : "warn";
+            const tx = String(r.tx || "");
+            const txShort = tx.slice(0, 10) + "…" + tx.slice(-6);
+            return `<tr>
+              <td><span class="ramp-status ${cls}">${escapeHtml(statusKo)} <span class="dim">${escapeHtml(statusEn)}</span></span></td>
+              <td><span class="ramp-asset-pill">${escapeHtml(r.asset)}</span></td>
+              <td class="r mono">${escapeHtml(String(r.amount))}</td>
+              <td class="r mono">${escapeHtml(String(r.confirmations || 0))}</td>
+              <td>
+                <button type="button" class="ramp-tx-link mono" data-copy-tx="${escapeHtml(tx)}" title="${escapeHtml(tx)}">${escapeHtml(txShort)}</button>
+              </td>
+              <td class="r mono dim">${escapeHtml(fmtRelative((r.observed_at || 0) * 1000))}</td>
+            </tr>`;
+          }).join("");
+        }
+        depTick.textContent = `갱신 ${new Date().toLocaleTimeString()} · refreshed`;
+      } catch (e) {
+        depBody.innerHTML = `<tr class="ramp-empty"><td colspan="6">불러오기 실패 / Failed to load</td></tr>`;
+      }
+    }
+
+    // ---- copy-to-clipboard helpers ----
+    function bindCopy(btnId, getValue, label) {
+      const el = document.getElementById(btnId);
+      if (!el) return;
+      el.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(getValue());
+          toast(`${label} 복사됨`, `${label} copied`);
+        } catch {
+          toast("복사 실패", "Copy failed");
+        }
+      });
+    }
+    bindCopy("copy-custodial", () => custodialEl.textContent, "거래소 주소 / Address");
+    bindCopy("copy-user", () => userAddrEl.textContent, "내 주소 / Address");
+    bindCopy("mm-copy-custodial", () => mmCustodialEl.textContent, "거래소 주소 / Address");
+
+    // tx hash copy (delegated)
+    document.addEventListener("click", async (ev) => {
+      const t = ev.target.closest?.("[data-copy-tx]");
+      if (!t) return;
+      try {
+        await navigator.clipboard.writeText(t.dataset.copyTx);
+        toast("Tx 해시 복사됨", "Tx hash copied");
+      } catch { toast("복사 실패", "Copy failed"); }
+    });
+
+    // ---- asset tabs (demo panel) ----
+    tabs.forEach(b => b.addEventListener("click", () => {
+      tabs.forEach(x => {
+        const on = x === b;
+        x.classList.toggle("active", on);
+        x.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      activeAsset = b.dataset.asset;
+      renderActiveAssetMeta();
+    }));
+
+    // ---- demo faucet ----
+    faucetBtn.addEventListener("click", async () => {
+      faucetBtn.disabled = true;
+      faucetBtn.textContent = "발행 중… / Minting…";
+      try {
+        await chain.airdrop("all");
+        toast("100 zkETH + 1,000 zkUSDT 발행됨", "Faucet OK");
+        setTimeout(refreshWallet, 1500);
+      } catch (e) {
+        toast("Faucet 실패", e.message || "Faucet failed");
+      } finally {
+        faucetBtn.disabled = false;
+        faucetBtn.innerHTML = '수령 받기 <span class="btn-en">/ Receive test funds</span>';
+      }
+    });
+
+    // ---- demo send to exchange ----
+    sendForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const amt = (sendAmount.value || "").trim();
+      if (!amt || Number(amt) <= 0) {
+        toast("금액을 입력하세요", "Enter an amount");
+        return;
+      }
+      sendBtn.disabled = true;
+      sendBtn.textContent = "전송 중… / Sending…";
+      try {
+        const r = await chain.send(activeAsset, amt);
+        toast(`전송 완료: tx ${r.tx?.slice(0, 10)}…`, "Sent — auto-credit incoming");
+        sendAmount.value = "";
+        setTimeout(() => chain.detect().catch(() => {}), 800);
+        setTimeout(() => { refreshWallet(); refreshDeposits(); }, 1500);
+        setTimeout(() => { refreshDeposits(); }, 4500);
+      } catch (e) {
+        toast("전송 실패", e.message || "Failed");
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '전송 <span class="btn-en">Send</span>';
+      }
+    });
+
+    // =================================================================
+    // MODE TABS — switch between Demo wallet and MetaMask panels.
+    // =================================================================
+    const modeTabDemo = document.getElementById("mode-tab-demo");
+    const modeTabMm = document.getElementById("mode-tab-metamask");
+    const panelDemo = document.getElementById("panel-demo");
+    const panelMm = document.getElementById("panel-metamask");
+
+    function setMode(mode) {
+      const isDemo = mode === "demo";
+      modeTabDemo.classList.toggle("active", isDemo);
+      modeTabDemo.setAttribute("aria-selected", isDemo ? "true" : "false");
+      modeTabMm.classList.toggle("active", !isDemo);
+      modeTabMm.setAttribute("aria-selected", !isDemo ? "true" : "false");
+      panelDemo.classList.toggle("active", isDemo);
+      panelMm.classList.toggle("active", !isDemo);
+      // Persist last-chosen mode so a refresh keeps the user where they were.
+      try { localStorage.setItem("zkcex_deposit_mode", mode); } catch {}
+      if (mode === "metamask") refreshMetaMask().catch(() => {});
+    }
+    modeTabDemo.addEventListener("click", () => setMode("demo"));
+    modeTabMm.addEventListener("click", () => setMode("metamask"));
+    document.querySelectorAll("[data-switch-to]").forEach(el => {
+      el.addEventListener("click", () => setMode(el.dataset.switchTo));
+    });
+    // Restore last mode (default demo).
+    try {
+      const saved = localStorage.getItem("zkcex_deposit_mode");
+      if (saved === "metamask") setMode("metamask");
+    } catch {}
+
+    // =================================================================
+    // METAMASK PANEL
+    // =================================================================
+    const TARGET_CHAIN_ID = "0x7a69"; // 31337
+    const mmStateDisconnected = document.getElementById("mm-state-disconnected");
+    const mmStateConnecting = document.getElementById("mm-state-connecting");
+    const mmStateWrong = document.getElementById("mm-state-wrongnet");
+    const mmStateConnected = document.getElementById("mm-state-connected");
+    const mmConnectBtn = document.getElementById("mm-connect");
+    const mmSwitchBtn = document.getElementById("mm-switch-net");
+    const mmAddrDisplay = document.getElementById("mm-addr-display");
+    const mmCopyAddrBtn = document.getElementById("mm-copy-addr");
+    const mmDisconnectBtn = document.getElementById("mm-disconnect");
+    const mmBalEth = document.getElementById("mm-bal-eth");
+    const mmBalZeth = document.getElementById("mm-bal-zeth");
+    const mmBalZusdt = document.getElementById("mm-bal-zusdt");
+    const mmFaucetBtn = document.getElementById("mm-faucet-btn");
+    const mmSendForm = document.getElementById("mm-send-form");
+    const mmSendBtn = document.getElementById("mm-send-btn");
+    const mmAmount = document.getElementById("mm-amount");
+    const mmTxStatus = document.getElementById("mm-tx-status");
+    const mmTxStage = document.getElementById("mm-tx-stage");
+    const mmTxHash = document.getElementById("mm-tx-hash");
+    const mmStateLabel = document.getElementById("mode-state-metamask");
+    const mmAssetButtons = document.querySelectorAll("[data-mm-asset]");
+
+    // Local state for the MetaMask sub-tab.
+    let mmAddr = null;
+    let mmChainId = null;
+    let mmAsset = "ZETH";
+
+    function setMmSection({ disconnected = false, connecting = false, wrong = false, connected = false } = {}) {
+      mmStateDisconnected.hidden = !disconnected;
+      mmStateConnecting.hidden = !connecting;
+      mmStateWrong.hidden = !wrong;
+      mmStateConnected.hidden = !connected;
+    }
+
+    function truncAddr(a) {
+      if (!a) return "—";
+      return a.slice(0, 6) + "…" + a.slice(-4);
+    }
+
+    function fmtBigInt(v, decimals, displayDecimals) {
+      // BigInt -> decimal string with `decimals` total fractional places, then
+      // truncated to displayDecimals (default 4 for ETH-ish, 2 for USDT-ish).
+      const s = v.toString();
+      const padded = s.padStart(decimals + 1, "0");
+      const whole = padded.slice(0, padded.length - decimals);
+      let frac = padded.slice(padded.length - decimals);
+      const dd = displayDecimals ?? Math.min(decimals, 4);
+      frac = frac.slice(0, dd).padEnd(dd, "0");
+      return dd > 0 ? `${whole}.${frac}` : whole;
+    }
+
+    function setModeStateLabel(text) {
+      if (mmStateLabel) mmStateLabel.textContent = text;
+    }
+
+    async function refreshMetaMask() {
+      if (!eip1193.isAvailable()) {
+        setMmSection({ disconnected: true });
+        setModeStateLabel("미설치 / Not installed");
+        mmConnectBtn.disabled = true;
+        mmConnectBtn.title = "MetaMask not detected";
+        return;
+      }
+      try {
+        const accounts = await eip1193.accounts();
+        if (!accounts || !accounts.length) {
+          mmAddr = null;
+          setMmSection({ disconnected: true });
+          setModeStateLabel("미연결 / Not connected");
+          return;
+        }
+        mmAddr = accounts[0];
+        mmChainId = await eip1193.chainId();
+        if (mmChainId !== TARGET_CHAIN_ID) {
+          setMmSection({ wrong: true });
+          setModeStateLabel("잘못된 네트워크 / Wrong network");
+          return;
+        }
+        setMmSection({ connected: true });
+        setModeStateLabel("연결됨 / Connected");
+        mmAddrDisplay.textContent = truncAddr(mmAddr);
+        mmAddrDisplay.title = mmAddr;
+        await refreshMetaMaskBalances();
+      } catch (e) {
+        console.warn("mm refresh failed", e);
+      }
+    }
+
+    async function refreshMetaMaskBalances() {
+      if (!mmAddr || !info?.tokens) return;
+      try {
+        const eth = await eip1193.getNativeBalance(mmAddr);
+        mmBalEth.textContent = fmtBigInt(eth, 18, 4) + " ETH";
+      } catch { mmBalEth.textContent = "—"; }
+      try {
+        const z = await eip1193.getErc20Balance(mmAddr, info.tokens.ZETH);
+        mmBalZeth.textContent = fmtBigInt(z, info.decimals?.ZETH ?? 18, 4) + " ZETH";
+      } catch { mmBalZeth.textContent = "—"; }
+      try {
+        const u = await eip1193.getErc20Balance(mmAddr, info.tokens.ZUSDT);
+        mmBalZusdt.textContent = fmtBigInt(u, info.decimals?.ZUSDT ?? 6, 2) + " ZUSDT";
+      } catch { mmBalZusdt.textContent = "—"; }
+    }
+
+    // Connect.
+    mmConnectBtn.addEventListener("click", async () => {
+      if (!eip1193.isAvailable()) {
+        toast("MetaMask가 감지되지 않았습니다", "MetaMask not detected");
+        return;
+      }
+      setMmSection({ connecting: true });
+      setModeStateLabel("연결 중… / Connecting…");
+      try {
+        await eip1193.connect();
+        // Make sure they're on the right chain.
+        try {
+          await eip1193.ensureChain(TARGET_CHAIN_ID);
+        } catch (e) {
+          console.warn("ensureChain failed", e);
+        }
+        await refreshMetaMask();
+      } catch (e) {
+        toast("연결 거부됨", e?.message || "Connection rejected");
+        setMmSection({ disconnected: true });
+        setModeStateLabel("미연결 / Not connected");
+      }
+    });
+
+    // Switch network (wrong-net state).
+    mmSwitchBtn.addEventListener("click", async () => {
+      try {
+        await eip1193.ensureChain(TARGET_CHAIN_ID);
+        await refreshMetaMask();
+      } catch (e) {
+        toast("체인 전환 실패", e?.message || "Chain switch failed");
+      }
+    });
+
+    // Disconnect (UI-only — wallets don't expose a real disconnect, but we
+    // can clear our local state and make the user re-approve next time).
+    mmDisconnectBtn.addEventListener("click", () => {
+      mmAddr = null;
+      setMmSection({ disconnected: true });
+      setModeStateLabel("미연결 / Not connected");
+    });
+
+    // Copy address.
+    if (mmCopyAddrBtn) {
+      mmCopyAddrBtn.addEventListener("click", async () => {
+        if (!mmAddr) return;
+        try {
+          await navigator.clipboard.writeText(mmAddr);
+          toast("주소 복사됨", "Address copied");
+        } catch { toast("복사 실패", "Copy failed"); }
+      });
+    }
+
+    // Asset toggle.
+    mmAssetButtons.forEach(b => b.addEventListener("click", () => {
+      mmAsset = b.dataset.mmAsset;
+      mmAssetButtons.forEach(x => {
+        const on = x === b;
+        x.classList.toggle("active", on);
+        x.setAttribute("aria-selected", on ? "true" : "false");
+      });
+    }));
+
+    // Demo faucet -> MetaMask address.
+    mmFaucetBtn.addEventListener("click", async () => {
+      if (!mmAddr) {
+        toast("먼저 MetaMask를 연결하세요", "Connect MetaMask first");
+        return;
+      }
+      mmFaucetBtn.disabled = true;
+      const orig = mmFaucetBtn.textContent;
+      mmFaucetBtn.textContent = "발행 중… / Minting…";
+      try {
+        const r = await chain.airdropTo(mmAddr);
+        toast(`발행 완료: ${r.txs?.length || 0} tx`, "Mint OK");
+        setTimeout(refreshMetaMaskBalances, 1500);
+      } catch (e) {
+        if (e?.status === 429) {
+          toast("요청이 너무 많습니다", "Rate limited — try again soon");
+        } else {
+          toast("Faucet 실패", e?.message || "Faucet failed");
+        }
+      } finally {
+        mmFaucetBtn.disabled = false;
+        mmFaucetBtn.textContent = orig;
+      }
+    });
+
+    // Sign + send Transfer in MetaMask.
+    function showMmTx(stageKo, stageEn, txHash, cls = "") {
+      mmTxStatus.hidden = false;
+      mmTxStatus.classList.remove("ok", "err");
+      if (cls) mmTxStatus.classList.add(cls);
+      mmTxStage.innerHTML = `${escapeHtml(stageKo)} <span class="dim">/ ${escapeHtml(stageEn)}</span>`;
+      mmTxHash.textContent = txHash || "—";
+    }
+
+    mmSendForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!mmAddr) { toast("먼저 MetaMask를 연결하세요", "Connect MetaMask first"); return; }
+      if (!info?.tokens) { toast("체인 정보를 불러오는 중", "Chain info loading"); return; }
+      const amt = (mmAmount.value || "").trim();
+      if (!amt || Number(amt) <= 0) { toast("금액을 입력하세요", "Enter an amount"); return; }
+      const tokenAddr = info.tokens[mmAsset];
+      const decimals = info.decimals?.[mmAsset] ?? (mmAsset === "ZETH" ? 18 : 6);
+      if (!tokenAddr) { toast("토큰 주소 미확인", "Token address missing"); return; }
+
+      mmSendBtn.disabled = true;
+      const origLabel = mmSendBtn.textContent;
+      mmSendBtn.textContent = "MetaMask 승인 대기… / Waiting for MetaMask…";
+      showMmTx("MetaMask 승인 대기", "Waiting for MetaMask approval", null);
+      let txHash = null;
+      try {
+        const r = await eip1193.sendErc20Transfer({
+          from: mmAddr,
+          tokenAddr,
+          to: info.custodial,
+          amount: amt,
+          decimals,
+        });
+        txHash = r.txHash;
+        showMmTx("대기 중", "Pending — broadcasted to chain", txHash);
+        // Wait for receipt.
+        await eip1193.waitForReceipt(txHash, { intervalMs: 1000, timeoutMs: 60000 });
+        showMmTx("확인됨 — 자동 감지 중", "Confirmed — auto-detection in progress", txHash, "ok");
+
+        // Poke indexer + refresh deposits aggressively for a few cycles.
+        setTimeout(() => chain.detect().catch(() => {}), 600);
+        const startedAt = Date.now();
+        const timer = setInterval(async () => {
+          if (Date.now() - startedAt > 30000) { clearInterval(timer); return; }
+          try {
+            const rows = await chain.deposits();
+            const found = rows.find(r => (r.tx || "").toLowerCase() === String(txHash).toLowerCase());
+            if (found) {
+              if (found.status === "credited") {
+                showMmTx("잔고에 반영됨", "Credited to balance", txHash, "ok");
+                clearInterval(timer);
+              } else {
+                showMmTx("감지됨 (반영 대기)", "Detected — credit pending", txHash, "ok");
+              }
+            }
+          } catch {}
+          refreshDeposits();
+          refreshMetaMaskBalances();
+        }, 2000);
+
+        mmAmount.value = "";
+      } catch (e) {
+        console.warn("mm send error", e);
+        const msg = e?.message || "Failed";
+        showMmTx("전송 실패", msg, txHash, "err");
+        if (/User rejected|user denied|4001/i.test(msg)) {
+          toast("사용자가 거절했습니다", "User rejected");
+        } else {
+          toast("전송 실패", msg);
+        }
+      } finally {
+        mmSendBtn.disabled = false;
+        mmSendBtn.textContent = origLabel;
+      }
+    });
+
+    // React to MetaMask account / chain changes.
+    if (eip1193.isAvailable()) {
+      const p = window.ethereum;
+      try {
+        p.on?.("accountsChanged", () => { refreshMetaMask().catch(() => {}); });
+        p.on?.("chainChanged", () => { refreshMetaMask().catch(() => {}); });
+      } catch {}
+    }
+
+    // =================================================================
+    // CHAIN SELECTOR (multi-chain pill row above the wallet-mode tabs).
+    // The Demo Hardhat chain is the only writable one; the others fetch
+    // live testnet balances over public RPC and disable the write UI.
+    // =================================================================
+    const chainPillRow = document.getElementById("chain-pill-row");
+    const chainStatusDot = document.getElementById("chain-status-dot");
+    const chainStatusText = document.getElementById("chain-status-text");
+    const chainReadonlyBanner = document.getElementById("chain-readonly-banner");
+    const chainFaucetRow = document.getElementById("chain-faucet-row");
+    const chainFaucetLinks = document.getElementById("chain-faucet-links");
+    const panelReadonly = document.getElementById("panel-readonly");
+    const modeTabs = document.querySelectorAll(".ramp-mode-tabs");
+    const roUserAddrEl = document.getElementById("ro-user-addr");
+    const roBalancesEl = document.getElementById("ro-balances");
+    const roBlockEl = document.getElementById("ro-block");
+    const roActiveRpcEl = document.getElementById("ro-active-rpc");
+    const roRpcStatusEl = document.getElementById("ro-rpc-status");
+    const roFaucetList = document.getElementById("ro-faucet-list");
+    const roNativeLabel = document.getElementById("ro-native-label");
+    const roBalNative = document.getElementById("ro-bal-native");
+
+    let chainList = []; // /chain/info chains array, populated on first load.
+
+    function renderChainPills() {
+      const current = getCurrentChainSlug();
+      const sourceList = (chainList && chainList.length) ? chainList : KNOWN_CHAINS;
+      chainPillRow.innerHTML = sourceList.map(c => {
+        const slug = c.slug;
+        const active = slug === current;
+        const dot = c.rpc_status === "ok" ? "🟢"
+                  : c.rpc_status === "degraded" ? "🟡"
+                  : "⚪";
+        const name = c.name || slug;
+        const label = c.is_demo
+          ? `${dot} Demo Hardhat`
+          : `${dot} ${escapeHtml(name)}`;
+        return `<button type="button" data-chain-pill="${escapeHtml(slug)}"
+            role="tab" aria-selected="${active ? "true" : "false"}"
+            style="
+              padding: 7px 14px; border-radius: 999px;
+              border: 1px solid ${active ? "var(--brand,#5471ff)" : "var(--line,#1d2230)"};
+              background: ${active ? "rgba(84,113,255,0.12)" : "transparent"};
+              color: ${active ? "var(--ink,#dfe2ee)" : "var(--ink-mute,#8c93a8)"};
+              font-size: 13px; font-weight: 500; cursor: pointer;
+              transition: all 0.15s ease;">
+          ${label}
+        </button>`;
+      }).join("");
+      chainPillRow.querySelectorAll("[data-chain-pill]").forEach(b => {
+        b.addEventListener("click", () => {
+          setCurrentChainSlug(b.dataset.chainPill);
+        });
+      });
+    }
+
+    function renderChainStatus() {
+      const slug = getCurrentChainSlug();
+      const c = findChain(chainList, slug);
+      if (!c) {
+        chainStatusDot.textContent = "⚪";
+        chainStatusText.textContent = "체인 정보 없음 / Chain info pending";
+        return;
+      }
+      const line = chainStatusLine(c);
+      chainStatusDot.textContent = line.dot;
+      chainStatusText.textContent = line.text;
+    }
+
+    function applyChainView() {
+      const slug = getCurrentChainSlug();
+      const writable = isWritable(chainList, slug) || (slug === "hardhat");
+      const c = findChain(chainList, slug);
+
+      // Hide the tab strip and demo/MM panels on read-only chains; show the
+      // read-only-balances panel instead.
+      const tabStrip = document.querySelector(".ramp-mode-tabs");
+      const demoPanel = document.getElementById("panel-demo");
+      const mmPanel = document.getElementById("panel-metamask");
+      if (writable) {
+        if (tabStrip) tabStrip.style.display = "";
+        if (demoPanel) demoPanel.style.display = "";
+        if (mmPanel) mmPanel.style.display = "";
+        if (panelReadonly) {
+          panelReadonly.style.display = "none";
+          panelReadonly.hidden = true;
+        }
+        chainReadonlyBanner.hidden = true;
+        chainFaucetRow.hidden = true;
+      } else {
+        if (tabStrip) tabStrip.style.display = "none";
+        if (demoPanel) demoPanel.style.display = "none";
+        if (mmPanel) mmPanel.style.display = "none";
+        if (panelReadonly) {
+          panelReadonly.style.display = "";
+          panelReadonly.hidden = false;
+        }
+        chainReadonlyBanner.hidden = false;
+        // Render faucet quick-links inline above + sidebar list.
+        const faucets = (c?.faucets || []);
+        if (faucets.length) {
+          chainFaucetLinks.innerHTML = faucets.map(f =>
+            `<a href="${escapeHtml(f.url)}" target="_blank" rel="noopener noreferrer"
+                style="margin-right:10px;color:var(--brand,#5471ff);text-decoration:none;">
+                ${escapeHtml(f.label)} ↗
+             </a>`
+          ).join("");
+          chainFaucetRow.hidden = false;
+          roFaucetList.innerHTML = faucets.map(f =>
+            `<li><a href="${escapeHtml(f.url)}" target="_blank" rel="noopener noreferrer"
+                  style="color:var(--brand,#5471ff);">${escapeHtml(f.label)}</a></li>`
+          ).join("");
+        } else {
+          chainFaucetRow.hidden = true;
+          roFaucetList.innerHTML = `<li class="dim">—</li>`;
+        }
+        // Update RPC info side panel.
+        const host = (() => { try { return new URL(c?.active_rpc || "").host; } catch { return c?.active_rpc || "—"; } })();
+        roActiveRpcEl.textContent = host;
+        roRpcStatusEl.textContent = c?.rpc_status || "unknown";
+        roBlockEl.textContent = c?.block_number != null ? c.block_number : "—";
+        roNativeLabel.textContent = c?.native || "ETH";
+        // Fetch live wallet balance.
+        refreshReadOnlyWallet(slug, c).catch(err => {
+          console.warn("readonly wallet refresh", err);
+        });
+      }
+    }
+
+    async function refreshReadOnlyWallet(slug, chainCfg) {
+      try {
+        const w = await walletFor(slug);
+        roUserAddrEl.textContent = w.address || "—";
+        const tokens = (chainCfg && chainCfg.tokens) || {};
+        const nativeSym = chainCfg?.native || "ETH";
+        const nativeBal = w.balances?.[nativeSym] ?? "0";
+        roBalNative.textContent = `${nativeBal} ${nativeSym}`;
+        // Render any ERC20 rows in addition to the native balance row.
+        const fragments = [];
+        for (const sym of Object.keys(tokens)) {
+          const v = w.balances?.[sym] ?? "0";
+          fragments.push(`
+            <div class="ramp-bal">
+              <span class="ramp-bal-asset">${escapeHtml(sym)}</span>
+              <span class="ramp-bal-amount mono">${escapeHtml(String(v))}</span>
+            </div>`);
+        }
+        // Reset the balances container with native + ERC20 rows.
+        roBalancesEl.innerHTML = `
+          <div class="ramp-bal">
+            <span class="ramp-bal-asset" id="ro-native-label">${escapeHtml(nativeSym)}</span>
+            <span class="ramp-bal-amount mono" id="ro-bal-native">${escapeHtml(String(nativeBal))} ${escapeHtml(nativeSym)}</span>
+          </div>
+          ${fragments.join("")}
+        `;
+        if (w.rpc_status) roRpcStatusEl.textContent = w.rpc_status;
+        if (w.block_number != null) roBlockEl.textContent = w.block_number;
+      } catch (e) {
+        console.warn("walletFor failed", e);
+        roUserAddrEl.textContent = "(불러오기 실패 / load failed)";
+      }
+    }
+
+    async function refreshChainList() {
+      try {
+        const info = await listChains();
+        chainList = info?.chains || [];
+        renderChainPills();
+        renderChainStatus();
+        applyChainView();
+      } catch (e) {
+        console.warn("listChains failed", e);
+      }
+    }
+
+    // Reactive: when the user clicks a pill, `setCurrentChainSlug` fires
+    // CHAIN_CHANGE_EVENT — re-render and re-apply.
+    window.addEventListener(CHAIN_CHANGE_EVENT, () => {
+      renderChainPills();
+      renderChainStatus();
+      applyChainView();
+    });
+
+    // Read-only address copy.
+    document.getElementById("ro-copy-user")?.addEventListener("click", async () => {
+      const v = (roUserAddrEl.textContent || "").trim();
+      if (!v || v.startsWith("(")) return;
+      try { await navigator.clipboard.writeText(v); toast("주소 복사됨", "Address copied"); }
+      catch { toast("복사 실패", "Copy failed"); }
+    });
+
+    // Initial paint & refresh loops.
+    renderChainPills();
+    refreshChainList();
+    poll(refreshChainList, 30000, { immediate: false });
+
+    // ---- bootstrap + polling ----
+    refreshInfo();
+    refreshWallet();
+    refreshDeposits();
+    refreshMetaMask().catch(() => {});
+    poll(refreshWallet, 5000, { immediate: false });
+    poll(refreshDeposits, 5000, { immediate: false });
+    poll(() => {
+      // Only refresh MetaMask state when its panel is the active one — saves
+      // chatter against window.ethereum for users who never click that tab.
+      if (panelMm.classList.contains("active")) {
+        return refreshMetaMask();
+      }
+    }, 5000, { immediate: false });
+  }
+</script>
+
+</body>
+</html>

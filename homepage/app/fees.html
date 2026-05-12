@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VIP 등급 / VIP fees — zkCEX</title>
+  <meta name="description" content="zkCEX VIP 등급별 메이커/테이커 수수료. 30일 거래량과 보유량에 따라 단계가 결정됩니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <style>
+    .fees-shell { max-width: 1080px; margin: 0 auto; padding: 28px 22px 80px; }
+    .fees-hero {
+      background: linear-gradient(135deg, rgba(11,58,255,0.10) 0%, rgba(46,229,155,0.06) 100%);
+      border: 1px solid rgba(11,58,255,0.30);
+      border-radius: 14px;
+      padding: 22px;
+      display: grid;
+      grid-template-columns: minmax(180px, 280px) 1fr;
+      gap: 22px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    @media (max-width: 720px) { .fees-hero { grid-template-columns: 1fr; } }
+
+    .vip-badge {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 6px;
+      background: rgba(11,58,255,0.18);
+      border: 1px solid rgba(11,58,255,0.45);
+      border-radius: 14px;
+      padding: 22px 18px;
+      min-height: 140px;
+    }
+    .vip-badge .level {
+      font-size: 38px;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.02em;
+      color: #fff;
+      line-height: 1;
+    }
+    .vip-badge .level small { font-size: 12px; opacity: 0.6; font-weight: 600; margin-right: 4px;}
+    .vip-badge .name {
+      font-size: 13px;
+      color: #a3b6ff;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .hero-stats { display: flex; flex-direction: column; gap: 14px; }
+    .hero-stats h2 { margin: 0; font-size: 16px; color: var(--ink-mute); font-weight: 600; }
+    .hero-stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .hero-stat .lbl { font-size: 11px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em;}
+    .hero-stat .val { font-family: 'JetBrains Mono', monospace; font-size: 18px; color: #fff; margin-top: 2px; }
+    .hero-stat .sub { color: var(--ink-dim); font-size: 11px; margin-top: 1px; }
+
+    .progress-bar {
+      position: relative;
+      height: 10px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .progress-bar > span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, #0b3aff 0%, #2ee59b 100%);
+      transition: width 0.3s ease;
+    }
+    .progress-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-dim); margin-top: 6px;}
+
+    .panel {
+      background: var(--panel, #11151f);
+      border: 1px solid var(--line, rgba(255,255,255,0.06));
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 18px;
+    }
+    .panel h3 { margin: 0 0 4px; font-size: 13px; color: var(--ink-mute);
+      text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+    .panel .panel-desc { margin: 0 0 14px; color: var(--ink-dim); font-size: 12px; }
+
+    table.tier-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.tier-table th, table.tier-table td {
+      text-align: right; padding: 9px 8px;
+      border-bottom: 1px solid var(--line, rgba(255,255,255,0.06));
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+    }
+    table.tier-table th { color: var(--ink-mute); font-weight: 600; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.04em; }
+    table.tier-table td.l, table.tier-table th.l { text-align: left; font-family: inherit;}
+    table.tier-table tr.current-row {
+      background: rgba(11,58,255,0.12);
+      box-shadow: inset 3px 0 0 #2ee59b;
+    }
+    table.tier-table tr.current-row td.l { color: #2ee59b; font-weight: 700; }
+    table.tier-table td.dim { color: var(--ink-dim); }
+
+    .pillette {
+      display: inline-block; padding: 2px 7px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.06em; border: 1px solid transparent;
+    }
+    .pillette.spot   { color: #7aa2ff; background: rgba(42,85,255,0.14); border-color: rgba(42,85,255,0.3); }
+    .pillette.fut    { color: #f0b429; background: rgba(240,180,41,0.14); border-color: rgba(240,180,41,0.3); }
+    .pillette.maker  { color: #2ee59b; background: rgba(46,229,155,0.10); border-color: rgba(46,229,155,0.32); }
+    .pillette.taker  { color: #ff7a8c; background: rgba(255,77,99,0.12);  border-color: rgba(255,77,99,0.30); }
+
+    .row-flex { display: flex; gap: 18px; flex-wrap: wrap; }
+    .row-flex > .panel { flex: 1 1 320px; }
+
+    .chart {
+      width: 100%;
+      height: 120px;
+      display: block;
+      overflow: visible;
+    }
+    .chart .gridline { stroke: rgba(255,255,255,0.06); stroke-dasharray: 2 4; }
+    .chart .axis-lbl { fill: var(--ink-dim); font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+    .chart path.area { fill: rgba(11,58,255,0.18); stroke: #0b3aff; stroke-width: 1.6; }
+    .chart circle.last { fill: #2ee59b; stroke: #11151f; stroke-width: 2; }
+
+    .trades-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .trades-table th, .trades-table td {
+      text-align: right; padding: 7px 8px;
+      border-bottom: 1px solid var(--line, rgba(255,255,255,0.06));
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .trades-table th { color: var(--ink-mute); font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.05em; }
+    .trades-table td.l, .trades-table th.l { text-align: left; }
+    .trades-table td.dim { color: var(--ink-dim); }
+
+    .save-card { display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap;}
+    .save-card .save-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 28px;
+      color: #2ee59b;
+      font-weight: 700;
+    }
+    .save-card .save-sub { color: var(--ink-dim); font-size: 12px;}
+
+    .levelup ul { padding-left: 18px; margin: 6px 0 0; color: var(--ink); font-size: 13px; line-height: 1.55;}
+    .levelup ul li { margin-bottom: 4px; }
+    .levelup .needs { font-family: 'JetBrains Mono', monospace; color: #f0b429;}
+
+    .pagination { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px;}
+    .pagination button {
+      font-size: 11px; padding: 4px 10px; border-radius: 6px;
+      border: 1px solid var(--line-strong, rgba(255,255,255,0.12));
+      background: transparent; color: var(--ink-mute); cursor: pointer;
+    }
+    .pagination button:disabled { opacity: 0.4; cursor: default;}
+
+    .empty-row { color: var(--ink-dim); font-size: 13px; text-align: center; padding: 22px 0; }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>VIP 등급 / 수수료<span class="en">VIP fee tier</span></h1>
+  <p>30일 거래량과 보유량에 따라 메이커/테이커 수수료가 자동으로 조정됩니다. / Your 30-day trading volume and holdings determine maker/taker fees automatically.</p>
+</section>
+
+<main id="main" class="fees-shell">
+
+  <!-- =========================================================
+       Hero card: current tier badge + 30d volume + progress to next tier
+       ========================================================= -->
+  <section class="fees-hero" id="hero">
+    <div class="vip-badge">
+      <div class="level"><small>VIP</small><span id="hero-level">—</span></div>
+      <div class="name" id="hero-name">불러오는 중 / Loading</div>
+    </div>
+    <div class="hero-stats">
+      <h2 id="hero-blurb">현재 등급 정보를 불러오는 중… / Loading current tier…</h2>
+      <div class="hero-stat-row">
+        <div class="hero-stat">
+          <div class="lbl">30d 거래량 / Volume</div>
+          <div class="val" id="hero-volume">—</div>
+          <div class="sub" id="hero-volume-sub">spot + futures (USDT)</div>
+        </div>
+        <div class="hero-stat">
+          <div class="lbl">보유량 / Holdings</div>
+          <div class="val" id="hero-holdings">—</div>
+          <div class="sub">USDT-equiv</div>
+        </div>
+      </div>
+      <div class="hero-stat-row">
+        <div class="hero-stat">
+          <div class="lbl">Spot maker / taker</div>
+          <div class="val">
+            <span class="pillette maker" id="hero-spot-maker">— bps</span>
+            <span class="pillette taker" id="hero-spot-taker">— bps</span>
+          </div>
+        </div>
+        <div class="hero-stat">
+          <div class="lbl">Futures maker / taker</div>
+          <div class="val">
+            <span class="pillette maker" id="hero-fut-maker">— bps</span>
+            <span class="pillette taker" id="hero-fut-taker">— bps</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="progress-bar"><span id="hero-progress" style="width:0%;"></span></div>
+        <div class="progress-meta">
+          <span id="hero-progress-from">현재 / current</span>
+          <span id="hero-progress-to">다음 / next</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================================================
+       Savings vs Regular
+       ========================================================= -->
+  <div class="row-flex">
+    <section class="panel save-card" style="flex:1 1 320px;">
+      <div>
+        <h3>이번 달 절약 / Your savings this month</h3>
+        <p class="panel-desc">기본 등급(VIP 0)과 비교했을 때 추가로 절약한 수수료 / Fees you saved vs the Regular tier</p>
+        <div class="save-num" id="save-num">—</div>
+        <div class="save-sub" id="save-sub">최근 30일 누적 기준 / Across the past 30 days</div>
+      </div>
+    </section>
+
+    <section class="panel levelup" style="flex:1 1 320px;">
+      <h3>등급 올리기 / How to level up</h3>
+      <p class="panel-desc">다음 등급까지 필요한 조건 / What's needed for the next tier</p>
+      <ul id="levelup-list">
+        <li class="dim">불러오는 중 / Loading…</li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- =========================================================
+       30d daily volume sparkline
+       ========================================================= -->
+  <section class="panel">
+    <h3>일별 거래량 / Daily volume (last 30 days)</h3>
+    <p class="panel-desc">매일의 spot + futures 누적 거래량 USDT / Daily spot + futures notional in USDT</p>
+    <svg class="chart" id="vol-chart" viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true">
+      <line class="gridline" x1="0" y1="30"  x2="600" y2="30" />
+      <line class="gridline" x1="0" y1="60"  x2="600" y2="60" />
+      <line class="gridline" x1="0" y1="90"  x2="600" y2="90" />
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink-dim);margin-top:6px;font-family:'JetBrains Mono', monospace;">
+      <span id="chart-from">—</span>
+      <span id="chart-peak">peak —</span>
+      <span id="chart-to">today</span>
+    </div>
+  </section>
+
+  <!-- =========================================================
+       Tier ladder table
+       ========================================================= -->
+  <section class="panel">
+    <h3>등급별 수수료 / Tier ladder</h3>
+    <p class="panel-desc">현재 등급에는 강조 표시가 적용됩니다. / Your current tier is highlighted.</p>
+    <div style="overflow-x:auto;">
+      <table class="tier-table" id="tier-table" aria-label="등급별 수수료 / Tier fees">
+        <thead>
+          <tr>
+            <th scope="col" class="l">Tier</th>
+            <th scope="col">30d 거래량 / Volume</th>
+            <th scope="col">보유량 / Holdings</th>
+            <th scope="col">Spot maker</th>
+            <th scope="col">Spot taker</th>
+            <th scope="col">Futures maker</th>
+            <th scope="col">Futures taker</th>
+          </tr>
+        </thead>
+        <tbody id="tier-tbody">
+          <tr><td class="empty-row" colspan="7">불러오는 중… / Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- =========================================================
+       Recent trades with fees
+       ========================================================= -->
+  <section class="panel">
+    <h3>최근 체결 / Recent trades &amp; fees</h3>
+    <p class="panel-desc">현재 등급으로 적용된 메이커/테이커 수수료 내역 / Maker/taker fees recorded at your tier</p>
+    <div style="overflow-x:auto;">
+      <table class="trades-table" aria-label="최근 체결 및 수수료 / Recent trades and fees">
+        <thead>
+          <tr>
+            <th scope="col" class="l">시각 / Time</th>
+            <th scope="col" class="l">시장 / Market</th>
+            <th scope="col" class="l">심볼</th>
+            <th scope="col" class="l">Side</th>
+            <th scope="col">Notional (USDT)</th>
+            <th scope="col">bps</th>
+            <th scope="col">Fee (USDT)</th>
+            <th scope="col" class="l">Type</th>
+          </tr>
+        </thead>
+        <tbody id="trades-tbody">
+          <tr><td class="empty-row" colspan="8">기록 없음 / No fills recorded yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination">
+      <button id="prev-page" disabled>← 이전 / Prev</button>
+      <span id="page-info" style="font-size:11px;color:var(--ink-dim);align-self:center;">—</span>
+      <button id="next-page" disabled>다음 / Next →</button>
+    </div>
+  </section>
+
+</main>
+
+<script type="module">
+  import { renderHeader, requireSession, authedFetch, escapeHtml, toast } from "./app.js";
+
+  renderHeader("wallet");
+  const session = requireSession();
+  if (!session) {
+    // requireSession redirects; render nothing else.
+  } else {
+    boot();
+  }
+
+  function fmtUsdt(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    if (n === 0) return "0";
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(2) + "K";
+    return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  }
+
+  function fmtFull(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "0";
+    return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  }
+
+  function fmtBps(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    if (n === 0) return "0 bps";
+    if (Number.isInteger(n)) return n + " bps";
+    return n.toFixed(1) + " bps";
+  }
+
+  function fmtPct(bps) {
+    const n = Number(bps);
+    if (!Number.isFinite(n)) return "—";
+    return (n / 100).toFixed(n < 10 ? 3 : 2) + "%";
+  }
+
+  function fmtTs(ts) {
+    if (!ts) return "—";
+    try { return new Date(ts * 1000).toLocaleString(); } catch { return "—"; }
+  }
+
+  // ---- page state ----
+  let mineCache = null;
+  let tradesPage = 0;
+  const PAGE_SIZE = 10;
+
+  async function boot() {
+    try {
+      const [tiers, mine] = await Promise.all([
+        authedFetch("/fees/tiers").catch(() => ({ tiers: [] })),
+        authedFetch("/fees/my-tier"),
+      ]);
+      mineCache = mine;
+      renderHero(mine, tiers.tiers || []);
+      renderLevelUp(mine, tiers.tiers || []);
+      renderSavings(mine);
+      renderChart(mine);
+      renderLadder(tiers.tiers || [], mine);
+      renderTrades(mine);
+    } catch (e) {
+      console.error("fees.html boot:", e);
+      toast("VIP 등급 정보를 불러오지 못했습니다", "Failed to load VIP fee info");
+    }
+  }
+
+  function renderHero(mine, tiers) {
+    document.getElementById("hero-level").textContent = String(mine.current_tier ?? "—");
+    document.getElementById("hero-name").textContent = mine.tier_name || "—";
+    document.getElementById("hero-volume").textContent = fmtUsdt(mine["30d_volume_usdt"]) + " USDT";
+    document.getElementById("hero-holdings").textContent = fmtUsdt(mine.holdings_usdt) + " USDT";
+    document.getElementById("hero-spot-maker").textContent = "Maker " + fmtBps(mine.spot_maker_bps);
+    document.getElementById("hero-spot-taker").textContent = "Taker " + fmtBps(mine.spot_taker_bps);
+    document.getElementById("hero-fut-maker").textContent = "Maker " + fmtBps(mine.futures_maker_bps);
+    document.getElementById("hero-fut-taker").textContent = "Taker " + fmtBps(mine.futures_taker_bps);
+
+    // Progress bar to next tier (volume only — clearest single metric).
+    const nxt = mine.next_tier;
+    if (!nxt) {
+      document.getElementById("hero-blurb").textContent =
+        "최고 등급에 도달했습니다 / You're at the top tier — congratulations.";
+      document.getElementById("hero-progress").style.width = "100%";
+      document.getElementById("hero-progress-from").textContent = mine.tier_name || "—";
+      document.getElementById("hero-progress-to").textContent = "MAX";
+      return;
+    }
+    const curVol = Number(mine["30d_volume_usdt"]) || 0;
+    const curTierRow = (tiers || []).find(t => t.level === mine.current_tier);
+    const curMin = curTierRow ? Number(curTierRow.min_30d_volume_usdt) : 0;
+    const nxtMin = curMin + Math.max(1, Number(nxt.volume_needed_usdt) + (curVol - curMin));
+    const denom = nxtMin - curMin;
+    const pct = denom > 0 ? Math.max(0, Math.min(100, ((curVol - curMin) / denom) * 100)) : 0;
+    document.getElementById("hero-progress").style.width = pct.toFixed(1) + "%";
+    document.getElementById("hero-progress-from").textContent = mine.tier_name;
+    document.getElementById("hero-progress-to").textContent = nxt.name;
+    document.getElementById("hero-blurb").textContent =
+      "다음 등급(" + nxt.name + ")까지 " + fmtUsdt(nxt.volume_needed_usdt) +
+      " USDT 거래량이 더 필요합니다 / " +
+      fmtUsdt(nxt.volume_needed_usdt) + " USDT more volume to reach " + nxt.name + ".";
+  }
+
+  function renderLevelUp(mine, _tiers) {
+    const ul = document.getElementById("levelup-list");
+    const nxt = mine.next_tier;
+    if (!nxt) {
+      ul.innerHTML =
+        "<li>최고 등급에 도달했습니다. 마켓 메이커 프로그램에 대한 문의는 운영팀에 문의하세요. / " +
+        "You're at the top tier. Contact ops about the market-maker program.</li>";
+      return;
+    }
+    const vNeed = Number(nxt.volume_needed_usdt) || 0;
+    const hNeed = Number(nxt.holdings_needed_usdt) || 0;
+    const items = [];
+    items.push(
+      `<li>30일 거래량 <span class="needs">+${fmtFull(vNeed)} USDT</span> ` +
+      `더 필요 → ${escapeHtml(nxt.name)} / Need ${fmtFull(vNeed)} USDT more 30-day volume.</li>`,
+    );
+    if (hNeed > 0) {
+      items.push(
+        `<li>또는 zkCEX 토큰 보유 <span class="needs">+${fmtFull(hNeed)} USDT</span> ` +
+        `상당 / Or hold ${fmtFull(hNeed)} USDT-equivalent more.</li>`,
+      );
+    }
+    items.push(
+      `<li class="dim">메이커 주문은 ${fmtBps(nxt.spot_maker_bps)}, 테이커는 ${fmtBps(nxt.spot_taker_bps)} ` +
+      `(spot) / Maker ${fmtBps(nxt.spot_maker_bps)} · taker ${fmtBps(nxt.spot_taker_bps)}.</li>`,
+    );
+    ul.innerHTML = items.join("");
+  }
+
+  function renderSavings(mine) {
+    const sv = Number(mine.savings_vs_regular_usdt) || 0;
+    const el = document.getElementById("save-num");
+    if (sv <= 0) {
+      el.textContent = "—";
+      document.getElementById("save-sub").textContent =
+        "아직 절약 내역이 없습니다 / No savings recorded yet — make a trade.";
+    } else {
+      el.textContent = "$" + fmtFull(sv);
+    }
+  }
+
+  function renderChart(mine) {
+    const daily = (mine["30d_daily"] || []).map(d => ({
+      day: d.day, vol: Number(d.volume_usdt) || 0, date: d.date,
+    }));
+    const svg = document.getElementById("vol-chart");
+    // Remove any previous path/circle but keep gridlines.
+    svg.querySelectorAll("path, circle, text.tip").forEach(n => n.remove());
+    if (!daily.length) {
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("x", "300"); t.setAttribute("y", "65");
+      t.setAttribute("text-anchor", "middle"); t.setAttribute("class", "axis-lbl tip");
+      t.textContent = "체결이 없습니다 / No volume yet";
+      svg.appendChild(t);
+      document.getElementById("chart-from").textContent = "—";
+      document.getElementById("chart-to").textContent = "—";
+      document.getElementById("chart-peak").textContent = "peak —";
+      return;
+    }
+    const W = 600, H = 120, padX = 4, padY = 8;
+    const max = Math.max(1, ...daily.map(d => d.vol));
+    // Render as a closed area path. X = evenly spaced; missing days collapsed.
+    const n = daily.length;
+    const step = (W - 2 * padX) / Math.max(1, n - 1);
+    let d = "M " + padX + " " + (H - padY);
+    daily.forEach((row, i) => {
+      const x = padX + i * step;
+      const y = padY + (1 - row.vol / max) * (H - 2 * padY);
+      d += " L " + x.toFixed(1) + " " + y.toFixed(1);
+    });
+    d += " L " + (padX + (n - 1) * step).toFixed(1) + " " + (H - padY) + " Z";
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("class", "area"); p.setAttribute("d", d);
+    svg.appendChild(p);
+    // Last point dot.
+    const last = daily[n - 1];
+    const lastX = padX + (n - 1) * step;
+    const lastY = padY + (1 - last.vol / max) * (H - 2 * padY);
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("class", "last");
+    c.setAttribute("cx", lastX.toFixed(1));
+    c.setAttribute("cy", lastY.toFixed(1));
+    c.setAttribute("r", "3");
+    svg.appendChild(c);
+
+    document.getElementById("chart-from").textContent = daily[0].date;
+    document.getElementById("chart-to").textContent = last.date;
+    const peak = Math.max(...daily.map(d => d.vol));
+    document.getElementById("chart-peak").textContent = "peak " + fmtUsdt(peak) + " USDT";
+  }
+
+  function renderLadder(tiers, mine) {
+    const tbody = document.getElementById("tier-tbody");
+    if (!tiers.length) {
+      tbody.innerHTML = `<tr><td class="empty-row" colspan="7">데이터 없음 / No tier data</td></tr>`;
+      return;
+    }
+    const cur = mine.current_tier;
+    tbody.innerHTML = tiers.map(t => {
+      const klass = (t.level === cur) ? "current-row" : "";
+      return `<tr class="${klass}">
+        <td class="l">
+          <strong>${escapeHtml(t.name)}</strong>
+          ${t.level === cur ? '<span class="pillette spot" style="margin-left:6px;">현재 / current</span>' : ''}
+          <div class="dim" style="font-size:10px;font-family:'JetBrains Mono',monospace;">level ${t.level}</div>
+        </td>
+        <td>${escapeHtml(fmtUsdt(t.min_30d_volume_usdt))}</td>
+        <td class="dim">${escapeHtml(fmtUsdt(t.min_holdings_usdt))}</td>
+        <td>${fmtBps(t.spot_maker_bps)}<div class="dim" style="font-size:10px;">${fmtPct(t.spot_maker_bps)}</div></td>
+        <td>${fmtBps(t.spot_taker_bps)}<div class="dim" style="font-size:10px;">${fmtPct(t.spot_taker_bps)}</div></td>
+        <td>${fmtBps(t.futures_maker_bps)}<div class="dim" style="font-size:10px;">${fmtPct(t.futures_maker_bps)}</div></td>
+        <td>${fmtBps(t.futures_taker_bps)}<div class="dim" style="font-size:10px;">${fmtPct(t.futures_taker_bps)}</div></td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderTrades(mine) {
+    const all = mine["30d_history"] || [];
+    const tbody = document.getElementById("trades-tbody");
+    const info = document.getElementById("page-info");
+    const prev = document.getElementById("prev-page");
+    const next = document.getElementById("next-page");
+
+    const totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+    if (tradesPage >= totalPages) tradesPage = totalPages - 1;
+    if (tradesPage < 0) tradesPage = 0;
+
+    const start = tradesPage * PAGE_SIZE;
+    const slice = all.slice(start, start + PAGE_SIZE);
+
+    if (slice.length === 0) {
+      tbody.innerHTML = `<tr><td class="empty-row" colspan="8">기록 없음 / No fills recorded yet</td></tr>`;
+    } else {
+      tbody.innerHTML = slice.map(r => {
+        const type = r.is_maker ? '<span class="pillette maker">MAKER</span>' : '<span class="pillette taker">TAKER</span>';
+        const mkt  = r.market === "futures"
+          ? '<span class="pillette fut">FUT</span>'
+          : '<span class="pillette spot">SPOT</span>';
+        return `<tr>
+          <td class="l dim">${escapeHtml(fmtTs(r.ts))}</td>
+          <td class="l">${mkt}</td>
+          <td class="l">${escapeHtml(r.symbol || "—")}</td>
+          <td class="l">${escapeHtml(r.side || "—")}</td>
+          <td>${escapeHtml(fmtFull(r.notional_usdt))}</td>
+          <td class="dim">${fmtBps(r.fee_bps)}</td>
+          <td>${escapeHtml(fmtFull(r.fee_usdt))}</td>
+          <td class="l">${type}</td>
+        </tr>`;
+      }).join("");
+    }
+    info.textContent = (tradesPage + 1) + " / " + totalPages + "  ·  " + all.length + " 건";
+    prev.disabled = tradesPage <= 0;
+    next.disabled = tradesPage >= totalPages - 1;
+  }
+
+  document.getElementById("prev-page").addEventListener("click", () => {
+    if (!mineCache) return;
+    tradesPage = Math.max(0, tradesPage - 1);
+    renderTrades(mineCache);
+  });
+  document.getElementById("next-page").addEventListener("click", () => {
+    if (!mineCache) return;
+    tradesPage += 1;
+    renderTrades(mineCache);
+  });
+</script>
+</body>
+</html>

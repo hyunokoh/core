@@ -1,0 +1,253 @@
+# Patroni-managed Postgres StatefulSet.
+#
+# Each pod runs the Zalando Spilo image, which bundles:
+#   * PostgreSQL 15
+#   * Patroni (Python) — leader election + failover orchestration
+#   * WAL-G — continuous WAL archiving + base backups
+#   * pgBouncer (disabled by default in Spilo; we keep it off here)
+#
+# DCS choice: Kubernetes API endpoints (PATRONI_KUBERNETES_*), so there is
+# no separate etcd/consul to operate. The K8s API server is the quorum.
+#
+# Pod role labels: Patroni updates `spilo-role=master|replica` on its own
+# pod each tick. service-primary.yaml selects on master; service-replica.yaml
+# selects on replica. Failover is therefore reflected by the Services within
+# one Patroni tick (ttl=30s, loop_wait=10s — typical convergence 10-30s).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: patroni
+  labels:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: zkcex
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: patroni-headless
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: patroni
+      app.kubernetes.io/part-of: zkcex
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: patroni
+        app.kubernetes.io/part-of: zkcex
+        app.kubernetes.io/component: postgres
+        # Patroni overwrites this label on its own pod every loop_wait tick.
+        # Initial value is harmless; the first reconciliation sets it correctly.
+        spilo-role: replica
+    spec:
+      serviceAccountName: patroni
+      terminationGracePeriodSeconds: 600
+      # Patroni needs write access to its own pod's labels. We grant that via
+      # the patroni ServiceAccount in rbac.yaml (verbs: get, list, watch, patch).
+      affinity:
+        podAntiAffinity:
+          # Hard: never co-locate two Patroni members on the same node — that
+          # would defeat the point of failover.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: patroni
+              topologyKey: kubernetes.io/hostname
+          # Soft: prefer separate zones.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: patroni
+                topologyKey: topology.kubernetes.io/zone
+      securityContext:
+        # Spilo's PGDATA is owned by uid 101 (postgres in the image).
+        fsGroup: 103
+      containers:
+        - name: patroni
+          image: ghcr.io/zalando/spilo-15:3.0-p1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+            - name: patroni-api
+              containerPort: 8008
+          env:
+            # --- Identity ---
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: PATRONI_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: PATRONI_KUBERNETES_POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            - name: PATRONI_KUBERNETES_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: PATRONI_KUBERNETES_LABELS
+              # Patroni queries pods carrying this label to enumerate members.
+              value: '{"app.kubernetes.io/name":"patroni"}'
+            - name: PATRONI_KUBERNETES_USE_ENDPOINTS
+              value: "true"
+            - name: PATRONI_KUBERNETES_BYPASS_API_SERVICE
+              value: "true"
+            - name: PATRONI_RESTAPI_LISTEN
+              value: 0.0.0.0:8008
+            - name: PATRONI_RESTAPI_CONNECT_ADDRESS
+              value: $(POD_IP):8008
+            - name: PATRONI_POSTGRESQL_LISTEN
+              value: 0.0.0.0:5432
+            - name: PATRONI_POSTGRESQL_CONNECT_ADDRESS
+              value: $(POD_IP):5432
+            - name: PATRONI_POSTGRESQL_DATA_DIR
+              value: /home/postgres/pgdata/pgroot/data
+            - name: PATRONI_POSTGRESQL_PGPASS
+              value: /home/postgres/.pgpass
+
+            # --- Cluster scope ---
+            - name: SCOPE
+              value: zkcex
+            - name: PATRONI_SCOPE
+              value: zkcex
+            - name: PGVERSION
+              value: "15"
+
+            # --- Credentials (sourced from secrets) ---
+            - name: PATRONI_SUPERUSER_USERNAME
+              valueFrom:
+                secretKeyRef: {name: postgres-superuser, key: username}
+            - name: PATRONI_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: postgres-superuser, key: password}
+            - name: PATRONI_REPLICATION_USERNAME
+              valueFrom:
+                secretKeyRef: {name: postgres-replication-user, key: username}
+            - name: PATRONI_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: postgres-replication-user, key: password}
+            # Spilo bootstrap uses the PGUSER_* variants. Keep both in sync.
+            - name: PGUSER_SUPERUSER
+              valueFrom:
+                secretKeyRef: {name: postgres-superuser, key: username}
+            - name: PGPASSWORD_SUPERUSER
+              valueFrom:
+                secretKeyRef: {name: postgres-superuser, key: password}
+            - name: PGUSER_STANDBY
+              valueFrom:
+                secretKeyRef: {name: postgres-replication-user, key: username}
+            - name: PGPASSWORD_STANDBY
+              valueFrom:
+                secretKeyRef: {name: postgres-replication-user, key: password}
+            - name: PGUSER_ADMIN
+              valueFrom:
+                secretKeyRef: {name: postgres-superuser, key: username}
+            - name: PGPASSWORD_ADMIN
+              valueFrom:
+                secretKeyRef: {name: postgres-superuser, key: password}
+
+            # --- WAL-G archiving (disabled in this baseline; flip to true
+            #     once the bucket + IAM role are provisioned). The Spilo
+            #     image picks up these envs to wire up wal-g push/pull.
+            - name: USE_WALG_BACKUP
+              value: "false"
+            - name: USE_WALG_RESTORE
+              value: "false"
+            - name: ENABLE_PG_MON
+              value: "false"
+
+            # --- Patroni tunables (also mirrored in configmap-patroni for
+            #     anything not expressible via env). The env wins on conflicts.
+            - name: PATRONI_TTL
+              value: "30"
+            - name: PATRONI_LOOP_WAIT
+              value: "10"
+            - name: PATRONI_RETRY_TIMEOUT
+              value: "10"
+            - name: PATRONI_MAXIMUM_LAG_ON_FAILOVER
+              value: "1048576"   # 1 MiB
+
+          volumeMounts:
+            - name: pgdata
+              mountPath: /home/postgres/pgdata
+            - name: patroni-config
+              mountPath: /etc/patroni
+              readOnly: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            # /readiness on Patroni's REST API returns 200 only when the local
+            # PG is up (any role). This is what `kubectl get pods` should track.
+            httpGet:
+              path: /readiness
+              port: 8008
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            # /liveness returns 200 if Patroni itself (not necessarily PG) is
+            # alive. We tolerate brief PG restarts during failover without
+            # killing the pod.
+            httpGet:
+              path: /liveness
+              port: 8008
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                # Hand the leader off cleanly on shutdown. switchover blocks
+                # until another replica is caught up enough to take over,
+                # which is what we want before the pod terminates.
+                command:
+                  - /bin/bash
+                  - -c
+                  - patronictl -c /etc/patroni/patroni.yaml switchover --master $POD_NAME --force || true
+      volumes:
+        - name: patroni-config
+          configMap:
+            name: patroni-config
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 50Gi
+---
+# Headless Service used by the StatefulSet for stable pod DNS.
+# Patroni's K8s DCS also uses the Endpoints behind this Service to discover
+# peers, so it must exist before the StatefulSet starts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: patroni-headless
+  labels:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: zkcex
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: zkcex
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+    - name: patroni-api
+      port: 8008
+      targetPort: 8008

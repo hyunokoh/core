@@ -15,13 +15,13 @@ class KafkaTopicConfig {
 
     private val logger = LoggerFactory.getLogger(KafkaTopicConfig::class.java)
 
-    @Value("\${spring.kafka.replica:3}")
+    @Value("\${opex.kafka.topic.replicas:3}")
     private var replicaCount: Int = 3
 
-    @Value("\${spring.kafka.partitions:10}")
+    @Value("\${opex.kafka.topic.partitions:10}")
     private var partitionCount: Int = 10
 
-    @Value("\${spring.kafka.min-sync-replica:2}")
+    @Value("\${opex.kafka.topic.min-insync-replicas:2}")
     private lateinit var minSyncReplicaCount: String
 
     @Autowired

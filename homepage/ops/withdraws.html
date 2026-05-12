@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Withdraws — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>Large-withdraw approval queue</h1>
+    <div class="split">
+      <div>
+        <div class="panel">
+          <h3>Pending review</h3>
+          <table class="dense" id="t">
+            <thead><tr><th>withdraw_id</th><th>opex_user</th><th>asset</th><th>amount</th><th>USDT-eq</th><th>created</th></tr></thead>
+            <tbody><tr><td colspan="6" class="loading">loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div class="panel" id="detail">
+          <h3>Select a row</h3>
+          <div class="empty">Pick a withdraw to view chain wallet info, destination history, and AML decision.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requireOpsSession, opsFetch, renderChrome, renderActionToast,
+             fmtTs, escapeHtml, statusBadge, truncate } from "/ops/ops.js";
+
+    if (!requireOpsSession()) { /* redirect */ } else {
+      renderChrome("withdraws");
+      let current = null;
+
+      async function loadQueue() {
+        const r = await opsFetch("/withdraws/pending");
+        const tbody = document.querySelector("#t tbody");
+        if (!r || !r.ok) { tbody.innerHTML = `<tr><td colspan="6" class="empty">failed to load</td></tr>`; return; }
+        const rows = r.body.withdraws || [];
+        if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">queue empty</td></tr>`; return; }
+        tbody.innerHTML = rows.map(w => `
+          <tr class="selectable" data-id="${escapeHtml(w.withdraw_id)}">
+            <td class="mono">${escapeHtml(truncate(w.withdraw_id, 22))}</td>
+            <td class="mono">${escapeHtml(w.opex_user)}</td>
+            <td>${escapeHtml(w.asset)}</td>
+            <td class="mono">${escapeHtml(w.amount)}</td>
+            <td class="mono">${escapeHtml(w.amount_usdt || "—")}</td>
+            <td>${fmtTs(w.created_at)}</td>
+          </tr>`).join("");
+        tbody.querySelectorAll("tr.selectable").forEach(tr => {
+          tr.addEventListener("click", () => selectWd(tr.dataset.id));
+        });
+      }
+
+      async function selectWd(wid) {
+        document.querySelectorAll("#t tr.selectable").forEach(tr => {
+          tr.classList.toggle("selected", tr.dataset.id === wid);
+        });
+        const r = await opsFetch("/withdraws/" + encodeURIComponent(wid));
+        const det = document.getElementById("detail");
+        if (!r || !r.ok) { det.innerHTML = `<div class="empty">load failed</div>`; return; }
+        const w = r.body.withdraw;
+        current = w;
+        let aml = "—";
+        if (w.aml_decision_json) {
+          try {
+            const d = JSON.parse(w.aml_decision_json);
+            aml = `${escapeHtml(d.decision || "")} · risk=${escapeHtml(String(d.risk_score ?? ""))} · ${escapeHtml(d.source || "")}`;
+          } catch {}
+        }
+        det.innerHTML = `
+          <h3>${escapeHtml(w.withdraw_id)}</h3>
+          <dl class="kv">
+            <dt>opex_user</dt><dd>${escapeHtml(w.opex_user)}</dd>
+            <dt>asset</dt><dd>${escapeHtml(w.asset)}</dd>
+            <dt>amount</dt><dd>${escapeHtml(w.amount)}</dd>
+            <dt>amount_usdt</dt><dd>${escapeHtml(w.amount_usdt || "—")}</dd>
+            <dt>destination</dt><dd>${escapeHtml(w.destination)}</dd>
+            <dt>chain</dt><dd>${escapeHtml(w.chain)}</dd>
+            <dt>status</dt><dd>${statusBadge(w.status)}</dd>
+            <dt>aml_status</dt><dd>${escapeHtml(w.aml_status || "—")}</dd>
+            <dt>aml_decision</dt><dd>${aml}</dd>
+            <dt>created</dt><dd>${fmtTs(w.created_at)}</dd>
+          </dl>
+          <h3 style="margin-top:18px;">Decision</h3>
+          <div class="field"><label>Reason</label><input id="rIn" placeholder="audit-log reason"></div>
+          <div class="row">
+            <button class="btn ok" id="aBtn" ${w.status !== "pending_review" ? "disabled" : ""}>Approve & broadcast</button>
+            <button class="btn danger" id="rBtn" ${w.status !== "pending_review" ? "disabled" : ""}>Reject & refund</button>
+          </div>`;
+        document.getElementById("aBtn")?.addEventListener("click", () => act("approve"));
+        document.getElementById("rBtn")?.addEventListener("click", () => act("reject"));
+      }
+
+      async function act(verb) {
+        if (!current) return;
+        const reason = document.getElementById("rIn").value.trim();
+        if (verb === "reject" && !reason) {
+          renderActionToast("rejection reason required", "warn"); return;
+        }
+        const path = "/withdraws/" + encodeURIComponent(current.withdraw_id) + "/" + verb;
+        const r = await opsFetch(path, { method: "POST", body: JSON.stringify({ reason }) });
+        if (!r || !r.ok) {
+          renderActionToast((r && r.body && (r.body.message || r.body.error)) || "Action failed", "err");
+          return;
+        }
+        renderActionToast(verb + " ok", "ok");
+        await loadQueue();
+        document.getElementById("detail").innerHTML =
+          `<h3>Done</h3><div class="empty">${verb} applied.</div>`;
+        current = null;
+      }
+      loadQueue();
+    }
+  </script>
+</body>
+</html>

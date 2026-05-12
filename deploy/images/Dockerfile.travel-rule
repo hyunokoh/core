@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=travel-rule
+
+COPY --chown=65532:65532 tools/travel_rule_server.py /app/tools/travel_rule_server.py
+
+ENV PORT=5630
+EXPOSE 5630
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5630", "/travel-rule/health"]
+CMD ["-u", "/app/tools/travel_rule_server.py", "5630"]

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Sign in — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+</head>
+<body>
+  <div class="login-shell">
+    <form class="login-card" id="loginForm" autocomplete="off">
+      <h1>Operator sign-in</h1>
+      <div class="sub">zkCEX internal compliance console. Staff token required.</div>
+      <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" required autocomplete="username"></div>
+      <div class="field"><label for="password">Customer password</label><input id="password" name="password" type="password" required autocomplete="current-password"></div>
+      <div class="field"><label for="staff">Staff token</label><input id="staff" name="staff" type="password" required spellcheck="false"></div>
+      <button class="btn primary" type="submit" style="width:100%; justify-content:center;">Sign in</button>
+      <div class="err" id="err"></div>
+    </form>
+  </div>
+
+  <script type="module">
+    import { saveSession, loadSession } from "/ops/ops.js";
+    if (loadSession()) {
+      const next = new URLSearchParams(location.search).get("next") || "/ops/";
+      window.location.href = next;
+    }
+    document.getElementById("loginForm").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const errEl = document.getElementById("err");
+      errEl.textContent = "";
+      const body = {
+        email: document.getElementById("email").value.trim().toLowerCase(),
+        password: document.getElementById("password").value,
+        staff_token: document.getElementById("staff").value.trim(),
+      };
+      try {
+        const r = await fetch("/ops-api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          errEl.textContent = data.error === "invalid_credentials"
+            ? "Invalid email, password, or staff token."
+            : (data.message || data.error || "Sign-in failed.");
+          return;
+        }
+        saveSession(data);
+        const next = new URLSearchParams(location.search).get("next") || "/ops/";
+        window.location.href = next;
+      } catch (e) {
+        errEl.textContent = "Network error: " + e.message;
+      }
+    });
+  </script>
+</body>
+</html>

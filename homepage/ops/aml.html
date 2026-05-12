@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>AML escalations — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>AML escalation queue</h1>
+    <div class="notice">REVIEW decisions land here. Cleared = release the underlying credit/withdraw.
+      Blocked = permanent address blocklist entry.</div>
+    <div class="split">
+      <div>
+        <div class="panel">
+          <h3>Open escalations</h3>
+          <table class="dense" id="t">
+            <thead><tr><th>#</th><th>opex_user</th><th>trigger</th><th>source</th><th>risk</th><th>opened</th></tr></thead>
+            <tbody><tr><td colspan="6" class="loading">loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div class="panel" id="detail">
+          <h3>Select an escalation</h3>
+          <div class="empty">Pick a row to decide whether to clear or block.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requireOpsSession, opsFetch, renderChrome, renderActionToast,
+             fmtTs, escapeHtml, statusBadge } from "/ops/ops.js";
+
+    if (!requireOpsSession()) { /* redirect */ } else {
+      renderChrome("aml");
+      let current = null;
+      async function loadQueue() {
+        const r = await opsFetch("/aml/escalations?status=open");
+        const tbody = document.querySelector("#t tbody");
+        if (!r || !r.ok) { tbody.innerHTML = `<tr><td colspan="6" class="empty">failed</td></tr>`; return; }
+        const rows = r.body.escalations || [];
+        if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">no open escalations</td></tr>`; return; }
+        tbody.innerHTML = rows.map(e => `
+          <tr class="selectable" data-row='${escapeHtml(JSON.stringify(e))}'>
+            <td>${e.id}</td>
+            <td class="mono">${escapeHtml(e.opex_user)}</td>
+            <td>${escapeHtml(e.trigger_kind)}</td>
+            <td>${escapeHtml(e.decision_source || "—")}</td>
+            <td class="mono">${e.risk_score ?? "—"}</td>
+            <td>${fmtTs(e.opened_at)}</td>
+          </tr>`).join("");
+        tbody.querySelectorAll("tr.selectable").forEach(tr => {
+          tr.addEventListener("click", () => selectRow(JSON.parse(tr.dataset.row)));
+        });
+      }
+
+      function selectRow(e) {
+        current = e;
+        document.querySelectorAll("#t tr.selectable").forEach(tr => {
+          tr.classList.toggle("selected", JSON.parse(tr.dataset.row).id === e.id);
+        });
+        let reasons = [];
+        try { reasons = JSON.parse(e.reasons_json || "[]"); } catch {}
+        document.getElementById("detail").innerHTML = `
+          <h3>Escalation #${e.id}</h3>
+          <dl class="kv">
+            <dt>opex_user</dt><dd>${escapeHtml(e.opex_user)}</dd>
+            <dt>trigger</dt><dd>${escapeHtml(e.trigger_kind)} · ${escapeHtml(e.trigger_ref || "—")}</dd>
+            <dt>source</dt><dd>${escapeHtml(e.decision_source || "—")}</dd>
+            <dt>risk_score</dt><dd>${e.risk_score ?? "—"}</dd>
+            <dt>address</dt><dd>${escapeHtml(e.address || "—")}</dd>
+            <dt>opened</dt><dd>${fmtTs(e.opened_at)}</dd>
+            <dt>status</dt><dd>${statusBadge(e.status)}</dd>
+          </dl>
+          ${reasons.length ? `<h3 style="margin-top:18px;">Reasons</h3><ul>${reasons.map(r => `<li>${escapeHtml(String(r))}</li>`).join("")}</ul>` : ""}
+          <h3 style="margin-top:18px;">Decision</h3>
+          <div class="field"><label>Reason</label><input id="rIn" placeholder="audit-log reason"></div>
+          <div class="row">
+            <button class="btn ok" id="cBtn">Clear</button>
+            <button class="btn danger" id="bBtn">Block permanently</button>
+          </div>`;
+        document.getElementById("cBtn").addEventListener("click", () => act("clear"));
+        document.getElementById("bBtn").addEventListener("click", () => act("block"));
+      }
+
+      async function act(verb) {
+        if (!current) return;
+        const reason = document.getElementById("rIn").value.trim();
+        if (!reason) { renderActionToast("reason required", "warn"); return; }
+        const r = await opsFetch("/aml/escalations/" + current.id + "/" + verb,
+                                 { method: "POST", body: JSON.stringify({ reason }) });
+        if (!r || !r.ok) { renderActionToast((r && r.body && (r.body.message || r.body.error)) || "Action failed", "err"); return; }
+        renderActionToast(verb + " ok", "ok");
+        await loadQueue();
+        document.getElementById("detail").innerHTML = `<h3>Done</h3><div class="empty">${verb} recorded.</div>`;
+        current = null;
+      }
+      loadQueue();
+    }
+  </script>
+</body>
+</html>

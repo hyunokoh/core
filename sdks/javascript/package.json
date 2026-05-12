@@ -1,0 +1,24 @@
+{
+  "name": "zkcex",
+  "version": "1.0.0",
+  "description": "Official minimal JavaScript SDK for zkCEX (Node + browser, zero dependencies).",
+  "type": "module",
+  "main": "./zkcex.cjs",
+  "module": "./zkcex.mjs",
+  "exports": {
+    ".": {
+      "import": "./zkcex.mjs",
+      "require": "./zkcex.cjs"
+    }
+  },
+  "files": [
+    "zkcex.mjs",
+    "zkcex.cjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "SEE LICENSE-THIRD-PARTY",
+  "dependencies": {}
+}

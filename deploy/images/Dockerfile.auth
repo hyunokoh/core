@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=auth
+
+# pg8000 is already baked into /app/site-packages by the base image (it is the
+# only pip dep in the entire fleet). Distroless has no pip, so we can't install
+# it here — and we don't need to. Auth simply imports `pg8000.dbapi`.
+
+# Copy the auth tree. Keep /app/tools/* so HERE-based sys.path imports keep working.
+COPY --chown=65532:65532 tools/auth_server.py /app/tools/auth_server.py
+COPY --chown=65532:65532 tools/auth_db.py     /app/tools/auth_db.py
+COPY --chown=65532:65532 tools/auth_schema/   /app/tools/auth_schema/
+COPY --chown=65532:65532 tools/providers/     /app/tools/providers/
+
+ENV PORT=5501
+EXPOSE 5501
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5501", "/auth/health"]
+CMD ["-u", "/app/tools/auth_server.py", "5501"]

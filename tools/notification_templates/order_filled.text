@@ -1,0 +1,10 @@
+{title}
+
+{body}
+
+Symbol: {symbol}
+Side:   {side}
+Price:  {price}
+Qty:    {quantity}
+
+— zkCEX

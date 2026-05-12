@@ -1,0 +1,67 @@
+# auth service authorization.
+#
+# The auth service exposes a mix of:
+#   - public endpoints (only the proxy may reach them: login, signup, ...),
+#   - internal endpoints called by other backends (snapshot / geo / withdraw 2FA).
+#
+# We enforce per-path SPIFFE-principal allowlists so a compromised, say,
+# ws-feed pod can't pivot into /auth/2fa/verify-withdraw.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: auth-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth
+  action: ALLOW
+  rules:
+    # Public-facing auth endpoints: only the proxy may call them.
+    - to:
+        - operation:
+            paths:
+              - /auth/login
+              - /auth/signup
+              - /auth/me
+              - /auth/logout
+              - /auth/2fa/*
+              - /auth/webauthn/*
+              - /kyc/*
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/proxy
+    # Snapshot + geo: only the PoL pipeline and chain.
+    - to:
+        - operation:
+            paths:
+              - /auth/users-for-snapshot
+              - /auth/geo/check
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/pol
+              - cluster.local/ns/zkcex/sa/zkpol-bridge
+              - cluster.local/ns/zkcex/sa/chain
+              - cluster.local/ns/zkcex/sa/pol-feed
+    # Withdraw 2FA confirmation: only chain may call it.
+    - to:
+        - operation:
+            paths:
+              - /auth/2fa/verify-withdraw
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/chain
+    # Health endpoint: scraping from istio-system / monitoring is fine.
+    - to:
+        - operation:
+            paths:
+              - /auth/health
+      from:
+        - source:
+            namespaces:
+              - istio-system
+              - monitoring
+              - zkcex

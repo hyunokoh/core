@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=waf
+
+COPY --chown=65532:65532 tools/waf.py       /app/tools/waf.py
+COPY --chown=65532:65532 tools/providers/   /app/tools/providers/
+
+ENV PORT=5499
+EXPOSE 5499
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5499", "/waf/health"]
+CMD ["-u", "/app/tools/waf.py", "5499"]

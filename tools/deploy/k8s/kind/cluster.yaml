@@ -1,0 +1,40 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: zkcex
+networking:
+  # IPv4 only on macOS to keep things simple.
+  ipFamily: ipv4
+  apiServerAddress: "127.0.0.1"
+# Trust the local docker registry that deploy/images/init-registry.sh starts.
+# The registry container "zkcex-registry" is joined to the kind docker network
+# at the end of up.sh; nodes resolve it by container DNS name on port 5000.
+containerdConfigPatches:
+  - |
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."127.0.0.1:5050"]
+      endpoint = ["http://zkcex-registry:5000"]
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true,topology.kubernetes.io/zone=zone-a"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8500
+        protocol: TCP
+        listenAddress: "127.0.0.1"
+      - containerPort: 443
+        hostPort: 8501
+        protocol: TCP
+        listenAddress: "127.0.0.1"
+  - role: worker
+    labels:
+      topology.kubernetes.io/zone: zone-a
+  - role: worker
+    labels:
+      topology.kubernetes.io/zone: zone-b
+  - role: worker
+    labels:
+      topology.kubernetes.io/zone: zone-c

@@ -1,0 +1,30 @@
+{
+  "name": "zkCEX",
+  "short_name": "zkCEX",
+  "description": "Verifiable exchange. Trade with confidence. Verify your balance yourself.",
+  "start_url": "/app/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0b3aff",
+  "background_color": "#0b0e16",
+  "lang": "ko",
+  "icons": [
+    {"src": "/icons/icon-192.png",  "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-256.png",  "sizes": "256x256", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-384.png",  "sizes": "384x384", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-512.png",  "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ],
+  "shortcuts": [
+    {"name": "거래 / Trade",   "url": "/app/trade.html?symbol=ETHUSDT", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "지갑 / Wallet",  "url": "/app/wallet.html",                "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "잔고 검증 / Verify", "url": "/app/verify.html",            "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]}
+  ],
+  "screenshots": [
+    {"src": "/icons/screenshot-mobile.png", "sizes": "1080x1920", "type": "image/png", "form_factor": "narrow", "label": "거래 화면"},
+    {"src": "/icons/screenshot-desktop.png", "sizes": "1920x1080", "type": "image/png", "form_factor": "wide", "label": "Trading desktop"}
+  ],
+  "categories": ["finance", "business"],
+  "prefer_related_applications": false
+}

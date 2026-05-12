@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=custody-coord
+
+COPY --chown=65532:65532 tools/custody/ /app/tools/custody/
+
+ENV PORT=5530 \
+    CUSTODY_COORDINATOR_PORT=5530 \
+    CUSTODY_PUBLIC_JSON=/app/tools/custody/public.json
+EXPOSE 5530
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5530", "/health"]
+# coordinator requires --public-json; expected to be mounted via configmap/secret
+# at /app/tools/custody/public.json in a real deployment.
+CMD ["-u", "-m", "custody.coordinator", "--bind", "0.0.0.0"]

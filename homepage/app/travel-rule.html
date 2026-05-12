@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>여행 규칙 / Travel Rule — zkCEX</title>
+  <meta name="description" content="FATF 여행 규칙에 따른 zkCEX의 KYC 메시지 교환 정책. $1,000 이상 자산 송금 시 송신·수신자 정보가 상대 사업자에게 전송됩니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    body.tr { background: #07090f; }
+    .tr-shell {
+      max-width: 1180px; margin: 0 auto; padding: 8px 28px 80px;
+      display: flex; flex-direction: column; gap: 22px;
+    }
+    .tr-hero {
+      padding: 30px 36px; border-radius: 16px;
+      background:
+        radial-gradient(900px 320px at 100% 0%, rgba(124,193,255,0.10), transparent 60%),
+        radial-gradient(700px 280px at 0% 100%, rgba(11,58,255,0.10), transparent 60%),
+        linear-gradient(180deg, rgba(11,58,255,0.05), rgba(11,58,255,0.01));
+      border: 1px solid #1d2230;
+    }
+    .tr-hero .eyebrow {
+      display: inline-flex; gap: 8px; align-items: center;
+      color: #9aa3b3; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      font-weight: 600;
+    }
+    .tr-hero .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #7cc1ff;
+      box-shadow: 0 0 0 4px rgba(124,193,255,0.18);
+    }
+    .tr-hero h1 {
+      margin: 12px 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -0.02em;
+      color: #fff;
+    }
+    .tr-hero h1 .en { display: block; color: #8c93a8; font-weight: 500; font-size: 15px; margin-top: 4px; }
+    .tr-hero .lede { color: #c4cad8; font-size: 14px; max-width: 800px; line-height: 1.55; margin: 0 0 4px; }
+    .tr-hero .lede .en { color: #8c93a8; font-size: 12px; display: block; margin-top: 4px; }
+
+    .tr-stats { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+    .tr-stat {
+      background: #11131a; border: 1px solid #1d2230; border-radius: 12px;
+      padding: 18px 20px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .tr-stat .ko { color: #e5e7ee; font-size: 13px; font-weight: 600; }
+    .tr-stat .en { color: #8c93a8; font-size: 11px; }
+    .tr-stat .big {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 28px; font-weight: 700; color: #fff;
+      font-variant-numeric: tabular-nums; margin-top: 4px;
+    }
+
+    .tr-section {
+      background: #0d1018; border: 1px solid #1d2230; border-radius: 12px;
+      padding: 22px 26px;
+    }
+    .tr-section h2 {
+      margin: 0 0 14px; font-size: 18px; font-weight: 700; color: #fff;
+    }
+    .tr-section h2 .en { color: #8c93a8; font-weight: 500; font-size: 13px; margin-left: 10px; }
+
+    .tr-faq details {
+      border-top: 1px solid #1d2230;
+      padding: 14px 0;
+    }
+    .tr-faq details:first-of-type { border-top: 0; padding-top: 0; }
+    .tr-faq summary {
+      cursor: pointer; color: #e5e7ee; font-weight: 600; font-size: 14px;
+      list-style: none;
+    }
+    .tr-faq summary::-webkit-details-marker { display: none; }
+    .tr-faq summary::before { content: "▸ "; color: #7cc1ff; margin-right: 4px; }
+    .tr-faq details[open] summary::before { content: "▾ "; }
+    .tr-faq .answer {
+      color: #c4cad8; font-size: 13px; line-height: 1.6; margin-top: 10px;
+    }
+    .tr-faq .answer .en {
+      display: block; color: #8c93a8; font-size: 12px; margin-top: 4px;
+    }
+
+    .tr-vasp-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    .tr-vasp-table th {
+      text-align: left; font-weight: 600; color: #8c93a8;
+      padding: 10px 12px; border-bottom: 1px solid #1d2230;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .tr-vasp-table td {
+      padding: 12px;
+      border-bottom: 1px solid #15171f;
+      color: #e5e7ee;
+    }
+    .tr-vasp-table tr:last-child td { border-bottom: 0; }
+    .tr-status-pill {
+      display: inline-block; padding: 2px 10px; border-radius: 99px;
+      font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 600;
+    }
+    .tr-status-partner {
+      background: rgba(46,229,155,0.14); color: #2ee59b;
+      border: 1px solid rgba(46,229,155,0.35);
+    }
+    .tr-status-trusted {
+      background: rgba(124,193,255,0.14); color: #7cc1ff;
+      border: 1px solid rgba(124,193,255,0.35);
+    }
+    .tr-status-untrusted {
+      background: rgba(140,147,168,0.14); color: #8c93a8;
+      border: 1px solid rgba(140,147,168,0.35);
+    }
+
+    /* Ops console (only shown when ops bearer present) */
+    .ops-only { display: none; }
+    body.has-ops .ops-only { display: block; }
+    .ops-only-hide { display: block; }
+    body.has-ops .ops-only-hide { display: none; }
+
+    .tr-ops-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .tr-ops-table th {
+      text-align: left; padding: 8px 10px;
+      color: #8c93a8; font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.08em; border-bottom: 1px solid #1d2230;
+    }
+    .tr-ops-table td {
+      padding: 10px;
+      border-bottom: 1px solid #15171f;
+      color: #e5e7ee; font-family: 'JetBrains Mono', monospace;
+    }
+    .tr-ops-actions button {
+      margin-right: 6px; padding: 4px 10px; font-size: 12px;
+      border-radius: 6px; cursor: pointer; border: 1px solid #1d2230;
+      background: #15171f; color: #e5e7ee; font-family: inherit;
+    }
+    .tr-ops-actions button.approve { border-color: #10b981; color: #10b981; }
+    .tr-ops-actions button.reject  { border-color: #ef4444; color: #ef4444; }
+
+    .ops-login {
+      background: #11131a; border: 1px solid #1d2230;
+      padding: 16px 20px; border-radius: 12px; margin-top: 8px;
+    }
+    .ops-login input {
+      width: 100%; max-width: 360px; padding: 8px 10px; border-radius: 8px;
+      background: #07090f; color: #e5e7ee; border: 1px solid #1d2230;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    }
+    .ops-login button {
+      margin-left: 8px; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+      background: #0b3aff; color: #fff; border: 0; font-weight: 600;
+    }
+
+    @media (max-width: 720px) {
+      .tr-stats { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body class="tr">
+
+<div id="app-header"></div>
+
+<main class="tr-shell">
+
+  <!-- ============== Hero ============== -->
+  <section class="tr-hero">
+    <span class="eyebrow"><span class="dot"></span> 규정 준수 / Compliance</span>
+    <h1>
+      여행 규칙 (Travel Rule)
+      <span class="en">FATF Travel Rule</span>
+    </h1>
+    <p class="lede">
+      국제자금세탁방지기구(FATF)가 정한 표준에 따라, $1,000 이상의 가상자산 송금 시
+      송신자와 수신자의 KYC 정보를 상대 사업자(VASP)와 자동으로 교환합니다.
+      자체 보관 지갑으로 보내는 경우에는 본인 소유 확인서만 받습니다.
+      <span class="en">Under the FATF Travel Rule, for crypto transfers ≥ $1,000 we automatically exchange originator and beneficiary KYC data with the counterparty VASP. Self-hosted wallet destinations only need a self-attestation of ownership.</span>
+    </p>
+  </section>
+
+  <!-- ============== Stats ============== -->
+  <section class="tr-stats">
+    <div class="tr-stat">
+      <div class="ko">출금 임계값</div>
+      <div class="en">Withdraw threshold</div>
+      <div class="big" id="stat-threshold">$1,000</div>
+    </div>
+    <div class="tr-stat">
+      <div class="ko">메시지 표준</div>
+      <div class="en">Message standard</div>
+      <div class="big" id="stat-ivms">IVMS 101</div>
+    </div>
+    <div class="tr-stat">
+      <div class="ko">서명 방식</div>
+      <div class="en">Signature scheme</div>
+      <div class="big" id="stat-sig">Ed25519</div>
+    </div>
+  </section>
+
+  <!-- ============== Partner VASP directory ============== -->
+  <section class="tr-section">
+    <h2>파트너 사업자 목록 <span class="en">/ Partner VASPs</span></h2>
+    <p style="color:#8c93a8;font-size:12px;margin:-8px 0 14px;">
+      여행 규칙 메시지를 교환할 수 있는 사업자 목록입니다. 'partner' 상태는 신뢰 키 교환이 완료된 사업자를 의미합니다.<br/>
+      <span style="color:#6b7280;">VASPs we can exchange Travel Rule messages with. The 'partner' status indicates a completed trust-key exchange.</span>
+    </p>
+    <table class="tr-vasp-table" id="vasp-table">
+      <thead>
+        <tr>
+          <th>이름 / Name</th>
+          <th>국가 / Country</th>
+          <th>신뢰 상태 / Trust</th>
+        </tr>
+      </thead>
+      <tbody id="vasp-body">
+        <tr><td colspan="3" style="text-align:center;color:#8c93a8;">불러오는 중… / Loading…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============== FAQ ============== -->
+  <section class="tr-section tr-faq">
+    <h2>자주 묻는 질문 <span class="en">/ FAQ</span></h2>
+
+    <details open>
+      <summary>왜 출금 시 받는 사람 정보를 묻나요? / Why do you ask about the recipient?</summary>
+      <div class="answer">
+        FATF는 가상자산 사업자에게 일정 금액 이상의 송금 시 송신자·수신자 정보를 교환할 의무를 부여합니다.
+        한국은 「특정금융정보의 보고 및 이용 등에 관한 법률(특금법)」 시행령에서 이를 반영하고 있으며,
+        본 거래소는 모든 적용 관할의 규정을 준수합니다.
+        <span class="en">FATF requires VASPs to exchange originator + beneficiary information for transfers above a threshold. South Korea codified this in the SFTA decree. We comply with the rules of every jurisdiction where we operate.</span>
+      </div>
+    </details>
+
+    <details>
+      <summary>자체 보관 지갑 (MetaMask, Ledger 등) 으로 보낼 때는요? / What about self-hosted wallets?</summary>
+      <div class="answer">
+        본인이 직접 관리하는 지갑(개인 키 보관)으로 송금하는 경우에는 카운터파티 VASP가 존재하지 않으므로,
+        본인 소유 확인서(self-declaration)만 받습니다. 메시지 교환은 발생하지 않습니다.
+        <span class="en">Self-hosted destinations have no counterparty VASP, so we only collect a self-ownership declaration — no IVMS message is exchanged.</span>
+      </div>
+    </details>
+
+    <details>
+      <summary>제 KYC 정보는 어떻게 보호되나요? / How is my KYC data protected?</summary>
+      <div class="answer">
+        Ed25519로 서명된 IVMS 101 메시지로 전송되며, 한국 RRN은 앞 7자리만 송신되고 나머지는 마스킹됩니다.
+        전화번호 또한 중간 4자리가 가려집니다. 카운터파티는 사전 등록된 신뢰 키로만 메시지를 복호화·검증할 수 있습니다.
+        <span class="en">Messages are sent as IVMS 101 payloads signed with Ed25519. Korean RRNs are masked beyond the first 7 chars; phones beyond the middle 4 digits. Counterparties can only verify with a pre-registered trust key.</span>
+      </div>
+    </details>
+
+    <details>
+      <summary>임계값 미만의 송금은요? / What about transfers below the threshold?</summary>
+      <div class="answer">
+        $1,000 미만 송금은 여행 규칙 대상이 아니므로 추가 정보 입력 없이 진행됩니다.
+        다만 자금세탁방지(AML) 검사와 제재 대상자 검사는 모든 송금에 적용됩니다.
+        <span class="en">Transfers below $1,000 are out of scope for the Travel Rule and proceed without extra info. AML and sanctions screening still apply to every transfer regardless of amount.</span>
+      </div>
+    </details>
+
+    <details>
+      <summary>여행 규칙 검토에 시간이 걸리는 경우는요? / What if the review takes time?</summary>
+      <div class="answer">
+        수취 사업자가 신뢰 파트너인 경우 자동 승인되어 즉시 출금이 진행됩니다.
+        파트너가 아닌 사업자나 신원이 불분명한 주소는 수동 검토(보통 수 분 이내)를 거치며,
+        검토 중에는 출금이 보류됩니다. 검토 결과는 출금 내역 페이지에서 확인할 수 있습니다.
+        <span class="en">Trusted partner VASPs auto-approve and the withdraw proceeds immediately. Untrusted or unknown destinations are queued for ops review (usually a few minutes). The withdraw is held until approval.</span>
+      </div>
+    </details>
+  </section>
+
+  <!-- ============== Operator console ============== -->
+  <section class="tr-section">
+    <h2>운영자 콘솔 <span class="en">/ Operator console</span></h2>
+    <div class="ops-only-hide ops-login">
+      <p style="color:#8c93a8;font-size:13px;margin:0 0 10px;">
+        운영자 전용 — Bearer 토큰을 입력하면 보류 중인 여행 규칙 요청을 검토할 수 있습니다.<br/>
+        <span style="font-size:11px;">Operator-only. Enter the TRAVEL_RULE_ADMIN_TOKEN to review pending requests.</span>
+      </p>
+      <input id="ops-token-input" type="password" placeholder="tr_…" autocomplete="off" />
+      <button id="ops-login-btn">로그인 / Sign in</button>
+    </div>
+    <div class="ops-only">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="color:#8c93a8;font-size:12px;">
+          상태: <span id="ops-status">대기 중 / Pending only</span>
+        </span>
+        <button id="ops-logout-btn" style="border:1px solid #1d2230;background:#15171f;color:#8c93a8;
+                padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;">
+          로그아웃 / Sign out
+        </button>
+      </div>
+      <table class="tr-ops-table" id="ops-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>사용자 / User</th>
+            <th>금액 / Amount</th>
+            <th>수신 주소 / Destination</th>
+            <th>방법 / Method</th>
+            <th>이유 / Reason</th>
+            <th>액션 / Actions</th>
+          </tr>
+        </thead>
+        <tbody id="ops-body">
+          <tr><td colspan="7" style="text-align:center;color:#8c93a8;padding:24px;">불러오는 중… / Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import { renderHeader, renderFooter, escapeHtml } from "./app.js";
+  renderHeader();
+  renderFooter();
+
+  // -- Hero stats ---------------------------------------------------
+  fetch("/travel-rule/server-info").then(r => r.json()).then(info => {
+    const t = Number(info?.threshold_usdt || 1000);
+    document.getElementById("stat-threshold").textContent = "$" + t.toLocaleString();
+    document.getElementById("stat-ivms").textContent = info?.ivms_version
+      ? `IVMS 101 v${info.ivms_version}` : "IVMS 101";
+    document.getElementById("stat-sig").textContent = info?.sig_scheme || "Ed25519";
+  }).catch(() => {});
+
+  // -- VASP directory -----------------------------------------------
+  fetch("/travel-rule/vasps").then(r => r.json()).then(d => {
+    const rows = d?.vasps || [];
+    const body = document.getElementById("vasp-body");
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#8c93a8;">파트너 사업자가 없습니다 / No partner VASPs yet</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map(v => {
+      const trust = v.trust_status || "untrusted";
+      const cls = trust === "partner" ? "tr-status-partner" :
+                  trust === "trusted" ? "tr-status-trusted" : "tr-status-untrusted";
+      return `<tr>
+        <td>${escapeHtml(v.name)}</td>
+        <td>${escapeHtml(v.country || "—")}</td>
+        <td><span class="tr-status-pill ${cls}">${escapeHtml(trust)}</span></td>
+      </tr>`;
+    }).join("");
+  }).catch(e => {
+    document.getElementById("vasp-body").innerHTML =
+      `<tr><td colspan="3" style="text-align:center;color:#ef4444;">불러오기 실패 / Failed</td></tr>`;
+  });
+
+  // -- Operator console ---------------------------------------------
+  // The admin token is stored in sessionStorage only — never localStorage,
+  // so closing the tab signs out. Provided manually via the form; the
+  // /travel-rule/admin/* endpoints are hidden from the public proxy, so
+  // the ops console must be loaded against the loopback/internal address
+  // (or via the URL query param ?ops_token=… if running against the
+  // localhost dev server). Document this lightly so reviewers know.
+  const KEY = "tr_ops_token";
+  const opsToken = () => sessionStorage.getItem(KEY) || "";
+  function setOpsToken(t) {
+    if (t) sessionStorage.setItem(KEY, t);
+    else sessionStorage.removeItem(KEY);
+    document.body.classList.toggle("has-ops", !!opsToken());
+  }
+  // Pick up ?ops_token=… from URL once and stash in sessionStorage.
+  const urlOps = new URLSearchParams(location.search).get("ops_token");
+  if (urlOps) {
+    setOpsToken(urlOps);
+    // Strip from the URL so it doesn't get bookmarked.
+    history.replaceState(null, "", location.pathname);
+  } else {
+    setOpsToken(opsToken());  // re-sync class on load
+  }
+
+  document.getElementById("ops-login-btn").addEventListener("click", () => {
+    const t = document.getElementById("ops-token-input").value.trim();
+    if (!t) return;
+    setOpsToken(t);
+    loadOpsQueue();
+  });
+  document.getElementById("ops-logout-btn").addEventListener("click", () => {
+    setOpsToken("");
+    document.getElementById("ops-body").innerHTML = "";
+  });
+
+  async function adminFetch(url, opts = {}) {
+    const token = opsToken();
+    return fetch(url, {
+      ...opts,
+      headers: { ...(opts.headers || {}), "Authorization": `Bearer ${token}` },
+    });
+  }
+
+  async function loadOpsQueue() {
+    if (!opsToken()) return;
+    const body = document.getElementById("ops-body");
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#8c93a8;padding:24px;">불러오는 중… / Loading…</td></tr>`;
+    try {
+      const r = await adminFetch("/travel-rule/requests?status=pending&limit=100");
+      if (r.status === 401) {
+        body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#ef4444;padding:24px;">인증 실패 / Bad token</td></tr>`;
+        return;
+      }
+      const d = await r.json();
+      const rows = d?.requests || [];
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#10b981;padding:24px;">대기 중인 요청 없음 / No pending requests</td></tr>`;
+        return;
+      }
+      body.innerHTML = rows.map(row => {
+        const dest = String(row.destination_address || "");
+        const destShort = dest.length > 16 ? dest.slice(0, 10) + "…" + dest.slice(-6) : dest;
+        return `<tr>
+          <td title="${escapeHtml(row.id)}">${escapeHtml(row.id.slice(0, 10))}…</td>
+          <td>${escapeHtml(row.opex_user)}</td>
+          <td>${escapeHtml(row.amount)} ${escapeHtml(row.asset)} <span style="color:#8c93a8;">($${escapeHtml(row.amount_usdt)})</span></td>
+          <td title="${escapeHtml(dest)}">${escapeHtml(destShort)}</td>
+          <td>${escapeHtml(row.destination_vasp_method || "unknown")}</td>
+          <td style="max-width:240px;color:#8c93a8;font-family:Inter,sans-serif;font-size:11px;">${escapeHtml(row.decision_reason || "")}</td>
+          <td class="tr-ops-actions">
+            <button class="approve" data-action="approve" data-id="${escapeHtml(row.id)}">승인 / Approve</button>
+            <button class="reject"  data-action="reject"  data-id="${escapeHtml(row.id)}">반려 / Reject</button>
+          </td>
+        </tr>`;
+      }).join("");
+      document.getElementById("ops-status").textContent =
+        `${rows.length} 건 대기 중 / ${rows.length} pending`;
+    } catch (e) {
+      body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#ef4444;padding:24px;">불러오기 실패: ${escapeHtml(String(e))}</td></tr>`;
+    }
+  }
+
+  document.getElementById("ops-body").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id = btn.dataset.id;
+    const reason = prompt(action === "approve"
+      ? "승인 사유 / Approval reason:"
+      : "반려 사유 / Rejection reason:") || "";
+    btn.disabled = true;
+    try {
+      const r = await adminFetch(`/travel-rule/admin/${action}/${encodeURIComponent(id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        alert(`Failed: ${r.status} ${txt}`);
+      }
+    } catch (err) {
+      alert(`Failed: ${err}`);
+    }
+    loadOpsQueue();
+  });
+
+  if (opsToken()) loadOpsQueue();
+  setInterval(() => { if (opsToken()) loadOpsQueue(); }, 8000);
+</script>
+
+</body>
+</html>

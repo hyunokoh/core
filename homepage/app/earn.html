@@ -1,0 +1,940 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>적립 / Earn — zkCEX</title>
+  <meta name="description" content="zkCEX Earn — 자산을 공급해 이자를 받고, 담보를 맡겨 빌리세요. 이용률 기반 APY, 자동 청산. Supply assets to earn interest, post collateral to borrow." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <style>
+    body.earn { background: #07090f; }
+    .earn-shell {
+      max-width: 1180px; margin: 0 auto; padding: 8px 28px 80px;
+      display: flex; flex-direction: column; gap: 22px;
+    }
+    /* Hero */
+    .earn-hero {
+      padding: 28px 34px; border-radius: var(--radius-lg);
+      background:
+        radial-gradient(900px 320px at 100% 0%, rgba(46,229,155,0.10), transparent 60%),
+        radial-gradient(800px 320px at 0% 100%, rgba(11,58,255,0.10), transparent 60%),
+        linear-gradient(180deg, rgba(11,58,255,0.05), rgba(11,58,255,0.01));
+      border: 1px solid var(--line-strong);
+    }
+    .earn-hero .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: #9aa3b3; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      font-weight: 600;
+    }
+    .earn-hero .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #2ee59b;
+      box-shadow: 0 0 0 4px rgba(46,229,155,0.18);
+    }
+    .earn-hero h1 {
+      margin: 12px 0 6px; font-size: 26px; font-weight: 800; letter-spacing: -0.02em;
+      color: #fff; line-height: 1.14;
+    }
+    .earn-hero h1 .en { display: block; color: var(--ink-mute); font-weight: 500; font-size: 14px; margin-top: 4px; }
+    .earn-hero .lede { color: var(--ink-mute); font-size: 13px; max-width: 700px; margin: 0 0 18px; line-height: 1.55; }
+    .earn-hero-stats {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 18px; margin-top: 6px;
+    }
+    .earn-hero-stat .label {
+      color: var(--ink-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .earn-hero-stat .num {
+      font-family: var(--font-mono); font-size: 28px; font-weight: 700;
+      color: #fff; letter-spacing: -0.02em; line-height: 1.1; margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .earn-hero-stat .sub { color: var(--ink-dim); font-size: 11px; margin-top: 2px; }
+    @media (max-width: 760px) {
+      .earn-hero-stats { grid-template-columns: 1fr; }
+    }
+
+    /* Tabs */
+    .earn-tabs {
+      display: inline-flex; gap: 4px; background: rgba(255,255,255,0.03);
+      border: 1px solid var(--line); border-radius: 999px; padding: 4px;
+    }
+    .earn-tab {
+      background: transparent; border: 0; color: var(--ink-mute);
+      padding: 8px 18px; border-radius: 999px; cursor: pointer;
+      font-size: 13px; font-weight: 600;
+    }
+    .earn-tab.active { background: var(--surface); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+    .earn-card {
+      background: var(--surface, #11131a); border: 1px solid var(--line, #1d2230);
+      border-radius: var(--radius-md, 14px); padding: 18px 20px;
+    }
+    .earn-card h2 {
+      margin: 0 0 14px; font-size: 16px; font-weight: 700; color: #fff;
+    }
+    .earn-card h2 .en { color: var(--ink-mute); font-weight: 400; font-size: 13px; margin-left: 6px; }
+
+    .pool-table { width: 100%; border-collapse: collapse; }
+    .pool-table th, .pool-table td {
+      text-align: left; padding: 10px 12px; font-size: 13px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .pool-table th {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--ink-dim); font-weight: 600;
+    }
+    .pool-table td { color: #dfe5f1; font-family: var(--font-mono); font-size: 13px; }
+    .pool-table td.asset { font-family: inherit; font-weight: 700; color: #fff; }
+    .pool-table tr:last-child td { border-bottom: 0; }
+    .pool-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .util-bar {
+      position: relative; height: 6px; width: 100px; background: rgba(255,255,255,0.06);
+      border-radius: 99px; overflow: hidden; display: inline-block; vertical-align: middle;
+      margin-right: 8px;
+    }
+    .util-bar .fill {
+      position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #2ee59b, #0b3aff);
+      border-radius: 99px;
+    }
+    .pill-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 999px;
+      background: rgba(11,58,255,0.12); border: 1px solid rgba(11,58,255,0.32);
+      color: #c7d2ff; font-size: 12px; font-weight: 600; cursor: pointer;
+      font-family: inherit;
+    }
+    .pill-btn:hover { background: rgba(11,58,255,0.22); color: #fff; }
+    .pill-btn.warn {
+      background: rgba(240,180,41,0.08); border-color: rgba(240,180,41,0.32); color: #f0b429;
+    }
+    .pill-btn.warn:hover { background: rgba(240,180,41,0.16); color: #fff; }
+
+    /* Positions table */
+    .pos-table { width: 100%; border-collapse: collapse; }
+    .pos-table th, .pos-table td {
+      text-align: left; padding: 10px 12px; font-size: 13px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .pos-table th {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--ink-dim); font-weight: 600;
+    }
+    .pos-table td { color: #dfe5f1; font-family: var(--font-mono); font-size: 13px; }
+    .health-bar {
+      height: 6px; width: 110px; background: rgba(255,255,255,0.06);
+      border-radius: 99px; overflow: hidden; display: inline-block; vertical-align: middle;
+      margin-right: 8px;
+    }
+    .health-bar .fill { height: 100%; transition: width 0.3s ease; }
+    .health-bar .fill.green { background: #2ee59b; }
+    .health-bar .fill.amber { background: #f0b429; }
+    .health-bar .fill.red { background: #ff4d63; }
+    .health-label { font-size: 11px; color: var(--ink-mute); }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(7,9,15,0.78);
+      display: none; align-items: center; justify-content: center; z-index: 90;
+      backdrop-filter: blur(8px);
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      max-width: 460px; width: 92vw; background: #11131a; border: 1px solid var(--line-strong);
+      border-radius: 16px; padding: 20px 22px; box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+    }
+    .modal h3 { margin: 0 0 12px; color: #fff; font-size: 17px; }
+    .modal h3 .en { color: var(--ink-mute); font-size: 13px; font-weight: 400; margin-left: 6px; }
+    .modal .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .modal .field label { color: var(--ink-mute); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .modal .field input, .modal .field select {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+      color: #fff; padding: 9px 12px; border-radius: 8px; font-family: var(--font-mono);
+      font-size: 14px; outline: none;
+    }
+    .modal .field input:focus, .modal .field select:focus { border-color: rgba(11,58,255,0.6); }
+    .modal .hint { color: var(--ink-dim); font-size: 11px; margin-top: 4px; }
+    .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+    .modal .btn-primary, .modal .btn-secondary {
+      padding: 9px 18px; border-radius: 999px; font-weight: 600; cursor: pointer;
+      font-size: 13px; border: 1px solid transparent;
+    }
+    .modal .btn-primary { background: #0b3aff; color: #fff; border-color: #0b3aff; }
+    .modal .btn-primary:hover { background: #2444c9; }
+    .modal .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .modal .btn-secondary {
+      background: transparent; color: var(--ink-mute); border-color: var(--line);
+    }
+    .modal .btn-secondary:hover { color: #fff; border-color: var(--ink-mute); }
+    .modal .summary {
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px; padding: 10px 12px; font-size: 12px; color: var(--ink-mute);
+      font-family: var(--font-mono); margin: 8px 0 12px;
+    }
+    .modal .summary .row { display: flex; justify-content: space-between; padding: 2px 0; }
+    .modal .summary .row strong { color: #dfe5f1; }
+    .modal .error {
+      background: rgba(255,77,99,0.08); border: 1px solid rgba(255,77,99,0.4);
+      color: #ff9aaa; padding: 8px 12px; border-radius: 8px; font-size: 12px;
+      margin-top: 8px; word-break: break-word;
+    }
+
+    /* Education panel */
+    .edu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 760px) { .edu-grid { grid-template-columns: 1fr; } }
+    .edu-grid .edu-item {
+      padding: 14px 16px; background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05); border-radius: 12px;
+    }
+    .edu-grid h4 { margin: 0 0 6px; font-size: 14px; color: #fff; font-weight: 700; }
+    .edu-grid p { margin: 0; font-size: 12px; line-height: 1.55; color: var(--ink-mute); }
+    .edu-grid .en { display: block; margin-top: 4px; color: var(--ink-dim); font-size: 11px; }
+
+    .empty-row td { text-align: center; color: var(--ink-dim); padding: 20px; font-style: italic; }
+    .signin-cta {
+      display: block; padding: 22px; text-align: center; color: var(--ink-mute);
+      font-size: 13px;
+    }
+    .signin-cta a { color: #c7d2ff; }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+  </style>
+</head>
+<body class="earn">
+
+<div id="app-header"></div>
+
+<main class="earn-shell">
+
+  <!-- ============ HERO ============ -->
+  <section class="earn-hero">
+    <span class="eyebrow"><span class="dot"></span> zkcex earn</span>
+    <h1>적립 & 대출<span class="en">/ Earn &amp; Borrow</span></h1>
+    <p class="lede">
+      자산을 공급해 이자를 받거나, 담보를 맡기고 빌리세요. 이용률(utilization)이
+      높을수록 공급/대출 APY가 함께 올라갑니다. LTV가 청산 임계치를 넘으면
+      포지션이 자동 청산됩니다.
+      <span style="display:block;margin-top:4px;color:var(--ink-dim);font-size:12px;">
+        Supply assets to earn yield, or post collateral to borrow against it.
+        Utilisation drives both supply and borrow APY via a Compound-style
+        two-slope curve. Positions whose LTV exceeds the liquidation threshold
+        get force-closed automatically.
+      </span>
+    </p>
+    <div class="earn-hero-stats">
+      <div class="earn-hero-stat">
+        <div class="label">Total supplied / 총 공급</div>
+        <div class="num" id="hero-supplied">$0.00</div>
+        <div class="sub">USDT equivalent across all pools</div>
+      </div>
+      <div class="earn-hero-stat">
+        <div class="label">Total borrowed / 총 대출</div>
+        <div class="num" id="hero-borrowed">$0.00</div>
+        <div class="sub">Live outstanding debt</div>
+      </div>
+      <div class="earn-hero-stat">
+        <div class="label">Avg supply APY / 평균 공급 APY</div>
+        <div class="num" id="hero-apy">—</div>
+        <div class="sub">Utilisation-weighted across pools</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TAB SWITCHER ============ -->
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div class="earn-tabs" role="tablist">
+      <button class="earn-tab active" data-tab="supply">공급 / Supply</button>
+      <button class="earn-tab" data-tab="borrow">대출 / Borrow</button>
+      <button class="earn-tab" data-tab="positions">내 포지션 / My positions</button>
+    </div>
+    <span style="margin-left:auto;color:var(--ink-dim);font-size:12px;font-family:var(--font-mono);" id="last-updated">—</span>
+  </div>
+
+  <!-- ============ SUPPLY TAB ============ -->
+  <section class="earn-card tab-panel active" data-panel="supply">
+    <h2>풀 목록 <span class="en">— Supply pools</span></h2>
+    <table class="pool-table" id="supply-pools">
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th>Total supplied</th>
+          <th>Utilisation</th>
+          <th>Supply APY</th>
+          <th>Borrow APY</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="supply-pools-body">
+        <tr class="empty-row"><td colspan="6">불러오는 중… / Loading pools…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ BORROW TAB ============ -->
+  <section class="earn-card tab-panel" data-panel="borrow">
+    <h2>대출 풀 <span class="en">— Borrow pools</span></h2>
+    <table class="pool-table" id="borrow-pools">
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th>Available</th>
+          <th>Max LTV</th>
+          <th>Liquidation @</th>
+          <th>Borrow APY</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="borrow-pools-body">
+        <tr class="empty-row"><td colspan="6">불러오는 중… / Loading pools…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ MY POSITIONS ============ -->
+  <section class="earn-card tab-panel" data-panel="positions">
+    <h2>내 공급 / Supply positions</h2>
+    <table class="pos-table">
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th>Principal</th>
+          <th>Interest accrued</th>
+          <th>Total</th>
+          <th>Since</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="my-supply-body">
+        <tr class="empty-row"><td colspan="6">로그인 후 보입니다 / Sign in to see positions</td></tr>
+      </tbody>
+    </table>
+    <h2 style="margin-top:22px;">내 대출 / Borrow positions</h2>
+    <table class="pos-table">
+      <thead>
+        <tr>
+          <th>Borrowed</th>
+          <th>Outstanding</th>
+          <th>Collateral</th>
+          <th>LTV / Health</th>
+          <th>Liq price</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="my-borrow-body">
+        <tr class="empty-row"><td colspan="6">로그인 후 보입니다 / Sign in to see positions</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:10px;color:var(--ink-dim);font-size:11px;" id="borrow-cap-line"></div>
+  </section>
+
+  <!-- ============ EDUCATION ============ -->
+  <section class="earn-card">
+    <h2>이해하기 <span class="en">— Understand the mechanics</span></h2>
+    <div class="edu-grid">
+      <div class="edu-item">
+        <h4>LTV (Loan-to-Value)</h4>
+        <p>
+          대출 USDT 환산 가치 ÷ 담보 USDT 환산 가치. 풀의 max LTV(예: ETH 70%)
+          이내에서만 신규 대출이 가능합니다.
+          <span class="en">debt_usdt / collateral_usdt. New borrows are
+          capped by the pool's collateral factor (e.g. ETH = 70%).</span>
+        </p>
+      </div>
+      <div class="edu-item">
+        <h4>Liquidation threshold / 청산 임계치</h4>
+        <p>
+          현재 LTV가 청산 임계치(예: ETH 78%)를 넘으면 60초 주기 엔진이
+          담보를 매각해 부채 + bonus(예: 8%)를 회수합니다. 남은 담보는
+          본 지갑으로 반환됩니다.
+          <span class="en">Once current LTV crosses the threshold, the
+          60s liquidation engine seizes collateral equal to outstanding
+          debt + bonus. Remainder is returned.</span>
+        </p>
+      </div>
+      <div class="edu-item">
+        <h4>APY 계산 / How APY is set</h4>
+        <p>
+          Compound v2 풍의 두-기울기 곡선. U ≤ 80%이면 base + slope1·U/U*;
+          그 위는 base + slope1 + slope2·(U-U*)/(1-U*). 공급 APY =
+          대출 APY × U × (1 - reserve_factor).
+          <span class="en">Compound v2-style two-slope curve. Supply APY
+          inherits the borrow APY scaled by utilisation and net of the
+          reserve factor.</span>
+        </p>
+      </div>
+      <div class="edu-item">
+        <h4>리스크 / Risks</h4>
+        <p>
+          가격 오라클 조작, 동시-블록 flash-loan, 유동성 부족으로 인한 출금
+          지연 가능성. 풀의 reserve와 SAFU 펀드가 일부 backstop 역할을
+          하지만 손실을 보장하지는 않습니다.
+          <span class="en">Oracle manipulation, same-block flash loans,
+          withdrawal delays during low liquidity. Pool reserves + SAFU
+          fund partially backstop bad debt but do not guarantee.</span>
+        </p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ MODAL ============ -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" id="modal" role="dialog" aria-modal="true">
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { renderHeader, getSession } from "./app.js";
+  renderHeader("transparency");
+
+  // -------- Helpers ---------------------------------------------------
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => document.querySelectorAll(s);
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
+    }[c]));
+  }
+  function fmtUsdt(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    if (Math.abs(n) >= 1000) {
+      return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    }
+    return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  }
+  function fmtAmount(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return n.toLocaleString("en-US", { maximumFractionDigits: 6 });
+  }
+  function fmtPct(v, dp = 2) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return n.toFixed(dp) + "%";
+  }
+  function fmtTs(s) {
+    if (!s) return "—";
+    try { return new Date(Number(s) * 1000).toLocaleString(); } catch { return "—"; }
+  }
+  function authHeaders() {
+    const tok = getSession()?.token;
+    return tok ? { "Authorization": "Bearer " + tok, "Content-Type": "application/json" }
+               : { "Content-Type": "application/json" };
+  }
+  async function api(method, path, body) {
+    const r = await fetch(path, {
+      method,
+      headers: authHeaders(),
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      credentials: "same-origin",
+    });
+    let j = null;
+    try { j = await r.json(); } catch (_) { /* ignore */ }
+    if (!r.ok) {
+      const err = new Error((j && (j.error || j.message)) || `HTTP ${r.status}`);
+      err.detail = j;
+      throw err;
+    }
+    return j;
+  }
+
+  // -------- Tab routing ----------------------------------------------
+  $$(".earn-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.tab;
+      $$(".earn-tab").forEach(b => b.classList.toggle("active", b === btn));
+      $$(".tab-panel").forEach(p =>
+        p.classList.toggle("active", p.dataset.panel === tab)
+      );
+      // Re-render positions when switching to it.
+      if (tab === "positions") loadMyPositions();
+    });
+  });
+
+  // -------- State -----------------------------------------------------
+  let POOLS = [];
+  let TOTALS = null;
+
+  // -------- Pools fetch + render --------------------------------------
+  async function loadPools() {
+    try {
+      const data = await api("GET", "/lending/pools");
+      POOLS = data.pools || [];
+      TOTALS = data.totals_usdt;
+      renderHero();
+      renderSupplyPools();
+      renderBorrowPools();
+      $("#last-updated").textContent =
+        "updated " + new Date().toLocaleTimeString();
+    } catch (e) {
+      $("#supply-pools-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">load failed — ${escapeHtml(e.message)}</td></tr>`;
+      $("#borrow-pools-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">load failed — ${escapeHtml(e.message)}</td></tr>`;
+    }
+  }
+
+  function renderHero() {
+    if (!TOTALS) return;
+    $("#hero-supplied").textContent = fmtUsdt(TOTALS.supplied);
+    $("#hero-borrowed").textContent = fmtUsdt(TOTALS.borrowed);
+    // Utilisation-weighted average supply APY.
+    let wt = 0, sum = 0;
+    POOLS.forEach(p => {
+      const tvl_usdt = Number(p.total_supplied) * Number(p.price_usdt);
+      if (tvl_usdt > 0) {
+        sum += tvl_usdt * (p.supply_apy_pct);
+        wt += tvl_usdt;
+      }
+    });
+    const avg = wt > 0 ? (sum / wt) : 0;
+    $("#hero-apy").textContent = avg.toFixed(2) + "%";
+  }
+
+  function renderSupplyPools() {
+    if (POOLS.length === 0) {
+      $("#supply-pools-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">No active pools.</td></tr>`;
+      return;
+    }
+    $("#supply-pools-body").innerHTML = POOLS.map(p => {
+      const utilPct = p.utilization_pct.toFixed(1);
+      return `<tr>
+        <td class="asset">${escapeHtml(p.asset)}</td>
+        <td>${fmtAmount(p.total_supplied)} ${escapeHtml(p.asset)}</td>
+        <td>
+          <span class="util-bar"><span class="fill" style="width:${Math.min(100, p.utilization_pct)}%"></span></span>
+          ${utilPct}%
+        </td>
+        <td style="color:#2ee59b;">${fmtPct(p.supply_apy_pct)}</td>
+        <td style="color:#f0b429;">${fmtPct(p.borrow_apy_pct)}</td>
+        <td style="text-align:right;">
+          <button class="pill-btn" data-action="supply" data-asset="${escapeHtml(p.asset)}">
+            공급 / Supply
+          </button>
+        </td>
+      </tr>`;
+    }).join("");
+    $$("#supply-pools-body [data-action=supply]").forEach(b =>
+      b.addEventListener("click", () => openSupplyModal(b.dataset.asset))
+    );
+  }
+
+  function renderBorrowPools() {
+    if (POOLS.length === 0) {
+      $("#borrow-pools-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">No active pools.</td></tr>`;
+      return;
+    }
+    $("#borrow-pools-body").innerHTML = POOLS.map(p => {
+      const available = Number(p.total_supplied) - Number(p.total_borrowed);
+      return `<tr>
+        <td class="asset">${escapeHtml(p.asset)}</td>
+        <td>${fmtAmount(available)} ${escapeHtml(p.asset)}</td>
+        <td>${fmtPct(p.max_ltv_pct, 0)}</td>
+        <td>${fmtPct(p.liquidation_threshold_pct, 0)}</td>
+        <td style="color:#f0b429;">${fmtPct(p.borrow_apy_pct)}</td>
+        <td style="text-align:right;">
+          <button class="pill-btn warn" data-action="borrow" data-asset="${escapeHtml(p.asset)}">
+            대출 / Borrow
+          </button>
+        </td>
+      </tr>`;
+    }).join("");
+    $$("#borrow-pools-body [data-action=borrow]").forEach(b =>
+      b.addEventListener("click", () => openBorrowModal(b.dataset.asset))
+    );
+  }
+
+  // -------- My positions ---------------------------------------------
+  async function loadMyPositions() {
+    if (!getSession()) {
+      $("#my-supply-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">로그인이 필요합니다 — <a href="signin.html?next=${encodeURIComponent("/app/earn.html")}">Sign in</a></td></tr>`;
+      $("#my-borrow-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">Sign in to view borrow positions</td></tr>`;
+      $("#borrow-cap-line").textContent = "";
+      return;
+    }
+    try {
+      const data = await api("GET", "/lending/my-positions");
+      renderMySupply(data.supply_positions || []);
+      renderMyBorrow(data.borrow_positions || []);
+      const cap = data.borrow_limit || {};
+      $("#borrow-cap-line").innerHTML =
+        `Borrow limit (KYC=<strong>${escapeHtml(cap.kyc_status || "none")}</strong>): ` +
+        `${fmtUsdt(cap.tier_cap_usdt)} cap, ${fmtUsdt(cap.available_usdt)} available. ` +
+        `Outstanding debt: ${fmtUsdt(data.totals_usdt?.borrowed)}.`;
+    } catch (e) {
+      $("#my-supply-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">load failed — ${escapeHtml(e.message)}</td></tr>`;
+    }
+  }
+
+  function renderMySupply(rows) {
+    if (rows.length === 0) {
+      $("#my-supply-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">No active supply positions.</td></tr>`;
+      return;
+    }
+    $("#my-supply-body").innerHTML = rows.map(r => `
+      <tr>
+        <td class="asset" style="font-family:inherit;font-weight:700;color:#fff;">${escapeHtml(r.asset)}</td>
+        <td>${fmtAmount(r.principal)}</td>
+        <td style="color:#2ee59b;">+${fmtAmount(r.accrued_interest)}</td>
+        <td><strong style="color:#fff;">${fmtAmount(r.total)}</strong> ${escapeHtml(r.asset)}</td>
+        <td>${fmtTs(r.supplied_at)}</td>
+        <td style="text-align:right;">
+          <button class="pill-btn" data-action="withdraw" data-pid="${r.id}" data-asset="${escapeHtml(r.asset)}" data-total="${escapeHtml(r.total)}">
+            출금 / Withdraw
+          </button>
+        </td>
+      </tr>`).join("");
+    $$("#my-supply-body [data-action=withdraw]").forEach(b =>
+      b.addEventListener("click", () => openWithdrawModal(
+        Number(b.dataset.pid), b.dataset.asset, b.dataset.total
+      ))
+    );
+  }
+
+  function renderMyBorrow(rows) {
+    if (rows.length === 0) {
+      $("#my-borrow-body").innerHTML =
+        `<tr class="empty-row"><td colspan="6">No active borrow positions.</td></tr>`;
+      return;
+    }
+    $("#my-borrow-body").innerHTML = rows.map(r => {
+      const pct = Number(r.distance_to_liq_pct ?? 0);
+      const fillPct = Math.max(2, Math.min(100, pct));
+      const band = r.health_band || "green";
+      const ltvBps = r.current_ltv_bps ?? r.ltv_at_open_bps;
+      return `<tr>
+        <td><strong style="color:#fff;">${fmtAmount(r.outstanding)}</strong> ${escapeHtml(r.borrowed_asset)}</td>
+        <td>${fmtAmount(r.borrowed_principal)} + ${fmtAmount(r.borrowed_interest)} int</td>
+        <td>${fmtAmount(r.collateral_amount)} ${escapeHtml(r.collateral_asset)}</td>
+        <td>
+          <span class="health-bar"><span class="fill ${band}" style="width:${fillPct}%"></span></span>
+          <span class="health-label">${(ltvBps/100).toFixed(2)}% LTV · ${pct.toFixed(1)}% to liq</span>
+        </td>
+        <td>${fmtUsdt(r.liquidation_price_usdt)}</td>
+        <td style="text-align:right;">
+          <button class="pill-btn" data-action="repay" data-pid="${r.id}" data-asset="${escapeHtml(r.borrowed_asset)}" data-out="${escapeHtml(r.outstanding)}">
+            상환 / Repay
+          </button>
+          <button class="pill-btn warn" data-action="addcoll" data-pid="${r.id}" data-asset="${escapeHtml(r.collateral_asset)}">
+            +담보
+          </button>
+        </td>
+      </tr>`;
+    }).join("");
+    $$("#my-borrow-body [data-action=repay]").forEach(b =>
+      b.addEventListener("click", () => openRepayModal(
+        Number(b.dataset.pid), b.dataset.asset, b.dataset.out
+      ))
+    );
+    $$("#my-borrow-body [data-action=addcoll]").forEach(b =>
+      b.addEventListener("click", () => openAddCollModal(
+        Number(b.dataset.pid), b.dataset.asset
+      ))
+    );
+  }
+
+  // -------- Modals ----------------------------------------------------
+  function openModal(html) {
+    $("#modal-content").innerHTML = html;
+    $("#modal-backdrop").classList.add("open");
+  }
+  function closeModal() {
+    $("#modal-backdrop").classList.remove("open");
+    $("#modal-content").innerHTML = "";
+  }
+  $("#modal-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "modal-backdrop") closeModal();
+  });
+
+  function requireSignedIn() {
+    if (!getSession()) {
+      openModal(`
+        <h3>로그인이 필요합니다 <span class="en">/ Please sign in</span></h3>
+        <p style="color:var(--ink-mute);font-size:13px;">
+          Earn 기능은 로그인 후 사용할 수 있습니다.
+        </p>
+        <div class="actions">
+          <a class="btn-primary" href="signin.html?next=${encodeURIComponent("/app/earn.html")}">Sign in</a>
+          <button class="btn-secondary" data-action="close">닫기</button>
+        </div>
+      `);
+      $('[data-action="close"]').addEventListener("click", closeModal);
+      return false;
+    }
+    return true;
+  }
+
+  function openSupplyModal(asset) {
+    if (!requireSignedIn()) return;
+    const pool = POOLS.find(p => p.asset === asset);
+    openModal(`
+      <h3>${escapeHtml(asset)} 공급 <span class="en">/ Supply ${escapeHtml(asset)}</span></h3>
+      <div class="field">
+        <label>Amount (${escapeHtml(asset)})</label>
+        <input id="m-amount" type="text" inputmode="decimal" placeholder="0.0" />
+        <div class="hint">Supply APY: <strong style="color:#2ee59b;">${fmtPct(pool?.supply_apy_pct ?? 0)}</strong>
+          · Utilisation: ${fmtPct(pool?.utilization_pct ?? 0, 1)}
+          · 1 ${escapeHtml(asset)} ≈ ${fmtUsdt(pool?.price_usdt ?? 0)}
+        </div>
+      </div>
+      <div class="summary">
+        <div class="row"><span>You receive</span> <strong>interest-bearing position</strong></div>
+        <div class="row"><span>Withdrawable anytime</span> <strong>if pool has liquidity</strong></div>
+      </div>
+      <div id="m-error"></div>
+      <div class="actions">
+        <button class="btn-secondary" data-action="close">취소</button>
+        <button class="btn-primary" id="m-submit">공급 / Supply</button>
+      </div>
+    `);
+    $('[data-action="close"]').addEventListener("click", closeModal);
+    $("#m-submit").addEventListener("click", async () => {
+      const v = $("#m-amount").value.trim();
+      if (!v || Number(v) <= 0) { showModalError("amount must be > 0"); return; }
+      $("#m-submit").disabled = true;
+      try {
+        await api("POST", "/lending/supply", { asset, amount: v });
+        closeModal();
+        await loadPools();
+        await loadMyPositions();
+        switchTab("positions");
+      } catch (e) {
+        showModalError(e.message + (e.detail?.detail ? `: ${e.detail.detail}` : ""));
+      } finally {
+        $("#m-submit").disabled = false;
+      }
+    });
+  }
+
+  function openBorrowModal(borrowed) {
+    if (!requireSignedIn()) return;
+    const pool = POOLS.find(p => p.asset === borrowed);
+    const collOptions = POOLS.filter(p => p.asset !== borrowed)
+      .map(p => `<option value="${escapeHtml(p.asset)}">${escapeHtml(p.asset)} (max LTV ${fmtPct(p.max_ltv_pct, 0)})</option>`)
+      .join("");
+    openModal(`
+      <h3>${escapeHtml(borrowed)} 대출 <span class="en">/ Borrow ${escapeHtml(borrowed)}</span></h3>
+      <div class="field">
+        <label>Collateral asset / 담보 자산</label>
+        <select id="m-coll-asset">${collOptions}</select>
+      </div>
+      <div class="field">
+        <label>Collateral amount</label>
+        <input id="m-coll-amount" type="text" inputmode="decimal" placeholder="0.0" />
+      </div>
+      <div class="field">
+        <label>Borrow amount (${escapeHtml(borrowed)})</label>
+        <input id="m-borrow-amount" type="text" inputmode="decimal" placeholder="0.0" />
+      </div>
+      <div class="summary" id="m-borrow-summary">
+        <div class="row"><span>Borrow APY</span> <strong style="color:#f0b429;">${fmtPct(pool?.borrow_apy_pct ?? 0)}</strong></div>
+        <div class="row"><span>Liquidation threshold</span> <strong>${fmtPct(pool?.liquidation_threshold_pct ?? 0, 0)}</strong></div>
+        <div class="row"><span>Resulting LTV</span> <strong id="m-ltv-preview">—</strong></div>
+        <div class="row"><span>Est. liquidation price</span> <strong id="m-liqpx-preview">—</strong></div>
+      </div>
+      <div id="m-error"></div>
+      <div class="actions">
+        <button class="btn-secondary" data-action="close">취소</button>
+        <button class="btn-primary" id="m-submit">대출 / Borrow</button>
+      </div>
+    `);
+    $('[data-action="close"]').addEventListener("click", closeModal);
+
+    function recalc() {
+      const coll = POOLS.find(p => p.asset === $("#m-coll-asset").value);
+      const cAmt = Number($("#m-coll-amount").value);
+      const bAmt = Number($("#m-borrow-amount").value);
+      if (!coll || !cAmt || !bAmt || cAmt <= 0 || bAmt <= 0) {
+        $("#m-ltv-preview").textContent = "—";
+        $("#m-liqpx-preview").textContent = "—";
+        return;
+      }
+      const debtUsdt = bAmt * Number(pool.price_usdt);
+      const collUsdt = cAmt * Number(coll.price_usdt);
+      const ltv = collUsdt > 0 ? (debtUsdt / collUsdt) * 100 : 0;
+      const thr = coll.liquidation_threshold_pct;
+      $("#m-ltv-preview").textContent = ltv.toFixed(2) + "%" +
+        (ltv > coll.max_ltv_pct ? " (exceeds max!)" : "");
+      $("#m-ltv-preview").style.color = ltv > coll.max_ltv_pct ? "#ff4d63" : "#fff";
+      // Liquidation price for collateral asset: debt / (threshold * cAmt).
+      const liqPx = (debtUsdt) / ((thr / 100) * cAmt);
+      $("#m-liqpx-preview").textContent = fmtUsdt(liqPx) + " / " + coll.asset;
+    }
+    $("#m-coll-asset").addEventListener("change", recalc);
+    $("#m-coll-amount").addEventListener("input", recalc);
+    $("#m-borrow-amount").addEventListener("input", recalc);
+
+    $("#m-submit").addEventListener("click", async () => {
+      const collateral_asset = $("#m-coll-asset").value;
+      const collateral_amount = $("#m-coll-amount").value.trim();
+      const borrow_amount = $("#m-borrow-amount").value.trim();
+      if (!collateral_amount || Number(collateral_amount) <= 0) {
+        showModalError("collateral_amount must be > 0"); return;
+      }
+      if (!borrow_amount || Number(borrow_amount) <= 0) {
+        showModalError("borrow_amount must be > 0"); return;
+      }
+      $("#m-submit").disabled = true;
+      try {
+        await api("POST", "/lending/borrow", {
+          borrowed_asset: borrowed,
+          borrow_amount,
+          collateral_asset,
+          collateral_amount,
+        });
+        closeModal();
+        await loadPools();
+        await loadMyPositions();
+        switchTab("positions");
+      } catch (e) {
+        const detail = e.detail ? JSON.stringify(e.detail) : "";
+        showModalError(e.message + (detail ? ` — ${detail}` : ""));
+      } finally {
+        $("#m-submit").disabled = false;
+      }
+    });
+  }
+
+  function openWithdrawModal(position_id, asset, total) {
+    openModal(`
+      <h3>${escapeHtml(asset)} 출금 <span class="en">/ Withdraw</span></h3>
+      <div class="field">
+        <label>Amount (leave empty for full)</label>
+        <input id="m-amount" type="text" inputmode="decimal" placeholder="${escapeHtml(total)}" />
+        <div class="hint">Withdrawable: <strong>${escapeHtml(total)} ${escapeHtml(asset)}</strong></div>
+      </div>
+      <div id="m-error"></div>
+      <div class="actions">
+        <button class="btn-secondary" data-action="close">취소</button>
+        <button class="btn-primary" id="m-submit">출금</button>
+      </div>
+    `);
+    $('[data-action="close"]').addEventListener("click", closeModal);
+    $("#m-submit").addEventListener("click", async () => {
+      const v = $("#m-amount").value.trim();
+      const body = { position_id };
+      if (v) body.amount = v;
+      $("#m-submit").disabled = true;
+      try {
+        await api("POST", "/lending/withdraw-supply", body);
+        closeModal();
+        await loadPools();
+        await loadMyPositions();
+      } catch (e) {
+        showModalError(e.message + (e.detail ? ` — ${JSON.stringify(e.detail)}` : ""));
+      } finally {
+        $("#m-submit").disabled = false;
+      }
+    });
+  }
+
+  function openRepayModal(position_id, asset, outstanding) {
+    openModal(`
+      <h3>${escapeHtml(asset)} 상환 <span class="en">/ Repay</span></h3>
+      <div class="field">
+        <label>Repay amount (leave empty for full)</label>
+        <input id="m-amount" type="text" inputmode="decimal" placeholder="${escapeHtml(outstanding)}" />
+        <div class="hint">Outstanding: <strong>${escapeHtml(outstanding)} ${escapeHtml(asset)}</strong>.
+          Collateral is released proportionally.</div>
+      </div>
+      <div id="m-error"></div>
+      <div class="actions">
+        <button class="btn-secondary" data-action="close">취소</button>
+        <button class="btn-primary" id="m-submit">상환</button>
+      </div>
+    `);
+    $('[data-action="close"]').addEventListener("click", closeModal);
+    $("#m-submit").addEventListener("click", async () => {
+      const v = $("#m-amount").value.trim();
+      const body = { position_id };
+      if (v) body.amount = v;
+      $("#m-submit").disabled = true;
+      try {
+        await api("POST", "/lending/repay", body);
+        closeModal();
+        await loadPools();
+        await loadMyPositions();
+      } catch (e) {
+        showModalError(e.message + (e.detail ? ` — ${JSON.stringify(e.detail)}` : ""));
+      } finally {
+        $("#m-submit").disabled = false;
+      }
+    });
+  }
+
+  function openAddCollModal(position_id, asset) {
+    openModal(`
+      <h3>${escapeHtml(asset)} 담보 추가 <span class="en">/ Add collateral</span></h3>
+      <div class="field">
+        <label>Amount (${escapeHtml(asset)})</label>
+        <input id="m-amount" type="text" inputmode="decimal" placeholder="0.0" />
+        <div class="hint">담보를 추가하면 LTV가 낮아지고 청산 거리가 멀어집니다.</div>
+      </div>
+      <div id="m-error"></div>
+      <div class="actions">
+        <button class="btn-secondary" data-action="close">취소</button>
+        <button class="btn-primary" id="m-submit">담보 추가</button>
+      </div>
+    `);
+    $('[data-action="close"]').addEventListener("click", closeModal);
+    $("#m-submit").addEventListener("click", async () => {
+      const v = $("#m-amount").value.trim();
+      if (!v || Number(v) <= 0) { showModalError("amount must be > 0"); return; }
+      $("#m-submit").disabled = true;
+      try {
+        await api("POST", "/lending/add-collateral", { position_id, amount: v });
+        closeModal();
+        await loadPools();
+        await loadMyPositions();
+      } catch (e) {
+        showModalError(e.message + (e.detail ? ` — ${JSON.stringify(e.detail)}` : ""));
+      } finally {
+        $("#m-submit").disabled = false;
+      }
+    });
+  }
+
+  function showModalError(msg) {
+    const el = $("#m-error");
+    if (el) el.innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
+  }
+
+  function switchTab(tab) {
+    $$(".earn-tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    $$(".tab-panel").forEach(p => p.classList.toggle("active", p.dataset.panel === tab));
+    if (tab === "positions") loadMyPositions();
+  }
+
+  // -------- Boot ------------------------------------------------------
+  loadPools();
+  if (getSession()) {
+    loadMyPositions();
+  }
+  // Refresh every 30s.
+  setInterval(loadPools, 30000);
+  setInterval(() => {
+    if ($('.tab-panel[data-panel="positions"]').classList.contains("active") && getSession()) {
+      loadMyPositions();
+    }
+  }, 30000);
+</script>
+
+</body>
+</html>

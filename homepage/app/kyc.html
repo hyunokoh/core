@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>본인인증 / Verify identity — zkCEX</title>
+  <meta name="description" content="휴대폰 본인인증 시뮬레이터로 zkCEX 거래소 KYC를 완료하세요." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+</head>
+<body class="kyc-page">
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<header class="kyc-header">
+  <a class="brand brand-lg" href="../">
+    <span class="brand-mark"></span>
+    <span>zkCEX</span>
+  </a>
+  <a class="kyc-cancel" href="/app/" id="kyc-cancel">취소 <span class="en">/ Cancel</span></a>
+</header>
+
+<main id="main" class="kyc-shell">
+  <section class="kyc-card" aria-live="polite">
+    <!-- Progress -->
+    <ol class="kyc-steps" id="kyc-stepper">
+      <li data-step="method" class="active">방식 / Method</li>
+      <li data-step="carrier">통신사 / Carrier</li>
+      <li data-step="info">정보 입력 / Info</li>
+      <li data-step="code">인증번호 / Code</li>
+      <li data-step="done">완료 / Done</li>
+    </ol>
+
+    <!-- 0. Method tabs -->
+    <section class="kyc-screen" data-screen="method">
+      <h1 class="kyc-h1">본인인증 방법 선택 <span class="en">/ Choose verification method</span></h1>
+      <p class="kyc-lead">
+        한국 휴대폰 본인인증(데모) 또는 글로벌 신분증 인증(Sumsub) 중 선택하세요.<br/>
+        <span class="muted">Pick Korean PASS-style verification (demo) or global document verification via Sumsub.</span>
+      </p>
+      <div class="method-tabs" role="tablist">
+        <button class="method-tab active" type="button"
+                data-method="pass" role="tab" aria-selected="true">
+          <span class="method-flag">🇰🇷</span>
+          <span>
+            <strong>PASS 휴대폰 인증</strong>
+            <span class="method-en">데모 / Demo (default)</span>
+          </span>
+        </button>
+        <button class="method-tab" type="button" id="method-tab-sumsub"
+                data-method="sumsub" role="tab" aria-selected="false" hidden>
+          <span class="method-flag">🌍</span>
+          <span>
+            <strong>Sumsub WebSDK</strong>
+            <span class="method-en">실 서비스 / Real document KYC</span>
+          </span>
+        </button>
+      </div>
+
+      <!-- PASS panel: lightweight intro then "다음" -->
+      <div class="method-panel" data-panel="pass">
+        <p class="kyc-note muted">
+          ※ 시연용 시뮬레이터입니다. 실제 SMS는 발송되지 않으며, 인증번호는 화면에 표시됩니다.<br/>
+          Simulation only — no real SMS is sent. The verification code is shown on screen for demo convenience.
+        </p>
+        <button class="btn btn-primary signin-btn" id="pass-continue" type="button">
+          시작 <span class="btn-en">/ Continue with PASS</span>
+        </button>
+      </div>
+
+      <!-- Sumsub panel: SDK iframe + status panel -->
+      <div class="method-panel" data-panel="sumsub" hidden>
+        <div class="sumsub-grid">
+          <div id="sumsub-websdk-container" aria-label="Sumsub document verification"></div>
+          <aside id="sumsub-status" class="sumsub-status-panel">
+            <div class="sumsub-status sumsub-status-init">
+              <span class="sumsub-status-dot"></span>
+              <div>
+                <div class="sumsub-status-ko">신원 확인 단계를 시작하세요</div>
+                <div class="sumsub-status-en">Begin verification</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <p class="kyc-note muted">
+          여권/운전면허/주소증명을 Sumsub 보안 인프라에서 처리합니다. 문서 데이터는 zkCEX에 저장되지 않습니다.<br/>
+          Passport / driver license / proof-of-address are handled by Sumsub. Document data is never stored on zkCEX.
+        </p>
+      </div>
+    </section>
+
+    <!-- 1. Carrier picker -->
+    <section class="kyc-screen" data-screen="carrier" hidden>
+      <h2 class="kyc-h1">휴대폰 본인인증 <span class="en">/ Phone verification</span></h2>
+      <p class="kyc-lead">
+        통신사를 선택해 주세요.<br/>
+        <span class="muted">Choose your mobile carrier to begin.</span>
+      </p>
+      <div class="carrier-grid">
+        <button class="carrier-card" data-carrier="SKT" type="button">
+          <span class="carrier-logo skt">SKT</span>
+          <span class="carrier-name">SKT</span>
+          <span class="carrier-tag">SK텔레콤</span>
+        </button>
+        <button class="carrier-card" data-carrier="KT" type="button">
+          <span class="carrier-logo kt">kt</span>
+          <span class="carrier-name">KT</span>
+          <span class="carrier-tag">올레</span>
+        </button>
+        <button class="carrier-card" data-carrier="LGU" type="button">
+          <span class="carrier-logo lgu">U+</span>
+          <span class="carrier-name">LG U+</span>
+          <span class="carrier-tag">LG 유플러스</span>
+        </button>
+        <button class="carrier-card mvno" data-carrier="SKT_MVNO" type="button">
+          <span class="carrier-logo skt">SKT</span>
+          <span class="carrier-name">SKT 알뜰폰</span>
+          <span class="carrier-tag">MVNO</span>
+        </button>
+        <button class="carrier-card mvno" data-carrier="KT_MVNO" type="button">
+          <span class="carrier-logo kt">kt</span>
+          <span class="carrier-name">KT 알뜰폰</span>
+          <span class="carrier-tag">MVNO</span>
+        </button>
+        <button class="carrier-card mvno" data-carrier="LGU_MVNO" type="button">
+          <span class="carrier-logo lgu">U+</span>
+          <span class="carrier-name">LG U+ 알뜰폰</span>
+          <span class="carrier-tag">MVNO</span>
+        </button>
+      </div>
+      <p class="kyc-note muted">
+        ※ 시연용 시뮬레이터입니다. 실제 SMS는 발송되지 않으며, 인증번호는 화면에 표시됩니다.<br/>
+        Simulation only — no SMS is sent. The verification code is shown on screen for demo convenience.
+      </p>
+      <button class="kyc-back" type="button" data-back="method">← 방식 변경 / Change method</button>
+    </section>
+
+    <!-- 2. Personal info -->
+    <section class="kyc-screen" data-screen="info" hidden>
+      <button class="kyc-back" type="button" data-back="carrier">← 통신사 변경 / Change carrier</button>
+      <h2 class="kyc-h1">본인 정보 입력 <span class="en">/ Personal info</span></h2>
+      <div class="kyc-carrier-pill" id="info-carrier"></div>
+
+      <form id="info-form" novalidate>
+        <label class="field-label" for="kyc-name">이름 / Name</label>
+        <div class="signin-input">
+          <input id="kyc-name" name="name" type="text"
+                 placeholder="홍길동" maxlength="16"
+                 autocomplete="name" required />
+        </div>
+        <div class="field-help" id="name-help">실명을 입력해 주세요 / Enter your full name</div>
+
+        <label for="kyc-rrn-front" class="field-label">주민등록번호 / Resident registration number</label>
+        <div class="rrn-row">
+          <div class="signin-input rrn-front">
+            <input id="kyc-rrn-front" type="text" inputmode="numeric"
+                   pattern="\d{6}" maxlength="6" placeholder="YYMMDD"
+                   autocomplete="off" required />
+          </div>
+          <span class="rrn-dash">-</span>
+          <div class="signin-input rrn-back">
+            <input id="kyc-rrn-back1" type="text" inputmode="numeric"
+                   pattern="[1-4]" maxlength="1" placeholder="•"
+                   autocomplete="off" required
+                   aria-label="주민등록번호 뒷자리 첫번째 숫자 / Resident registration number, first digit of back part" />
+            <span class="rrn-mask" aria-hidden="true">••••••</span>
+          </div>
+        </div>
+        <div class="field-help" id="rrn-help">
+          앞 6자리 + 뒷자리 첫번째 숫자만 / First 6 digits + first digit of the back. The remaining digits are never collected.
+        </div>
+
+        <label class="field-label" for="kyc-phone">휴대폰번호 / Phone</label>
+        <div class="signin-input">
+          <input id="kyc-phone" type="tel" inputmode="numeric"
+                 placeholder="010-1234-5678" maxlength="13"
+                 autocomplete="tel" required />
+        </div>
+        <div class="field-help" id="phone-help">010으로 시작하는 11자리 / 11 digits starting with 010</div>
+
+        <button class="btn btn-primary signin-btn" type="submit" id="info-submit">
+          인증 요청 <span class="btn-en">/ Send code</span>
+        </button>
+      </form>
+    </section>
+
+    <!-- 3. Code input -->
+    <section class="kyc-screen" data-screen="code" hidden>
+      <button class="kyc-back" type="button" data-back="info">← 정보 수정 / Edit info</button>
+      <h2 class="kyc-h1">인증번호 입력 <span class="en">/ Enter verification code</span></h2>
+      <p class="kyc-lead">
+        <span id="code-phone-line">—</span> 으로 전송된 6자리 인증번호를 입력해 주세요.<br/>
+        <span class="muted">Enter the 6-digit code sent to the masked number above.</span>
+      </p>
+
+      <div class="kyc-demo-banner" id="demo-banner" hidden>
+        <strong>DEMO</strong>
+        <span>데모 모드: 인증번호 <code id="demo-code">------</code></span>
+      </div>
+
+      <form id="code-form" novalidate>
+        <label class="field-label" for="kyc-code">인증번호 / Code</label>
+        <div class="signin-input code-input-wrap">
+          <input id="kyc-code" type="text" inputmode="numeric"
+                 pattern="\d{6}" maxlength="6" autocomplete="one-time-code"
+                 placeholder="000000" required />
+        </div>
+        <div class="field-help" id="code-help">
+          남은 시간 / Time left: <span class="mono" id="code-timer">5:00</span>
+          &nbsp;·&nbsp;
+          <button type="button" class="link-btn" id="code-resend">재발송 / Resend</button>
+        </div>
+
+        <button class="btn btn-primary signin-btn" type="submit" id="code-submit">
+          확인 <span class="btn-en">/ Verify</span>
+        </button>
+      </form>
+    </section>
+
+    <!-- 4. Done -->
+    <section class="kyc-screen" data-screen="done" hidden>
+      <div class="kyc-success">
+        <span class="kyc-check">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M7 12.5l3.2 3.2L17 9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <h2 class="kyc-h1">본인인증이 완료되었습니다 <span class="en">/ Verification complete</span></h2>
+        <p class="kyc-lead muted">계정 보호와 거래 이용을 위한 본인인증이 정상적으로 처리되었습니다.<br/>
+          Your identity has been verified. You can now use trading features that require KYC.</p>
+        <a class="btn btn-primary signin-btn" id="done-continue" href="/app/">
+          다음 <span class="btn-en">/ Continue</span>
+        </a>
+      </div>
+    </section>
+  </section>
+</main>
+
+<script type="module">
+  import {
+    getSession, requireSession, patchSessionUser, toast, escapeHtml,
+  } from "./app.js";
+  import { mountSumsub, probeSumsubConfigured } from "./sumsub.js";
+
+  // Block unauthenticated access.
+  const sess = requireSession({ redirectTo: "/app/signin.html" });
+  if (sess) {
+    init();
+  }
+
+  function init() {
+    // ---- State ---------------------------------------------------------
+    const state = {
+      carrier: null,
+      info: null,            // { name, rrn_front, rrn_back1, phone }
+      verification_id: null,
+      expires_at: 0,
+      attempts_left: 3,
+      timerHandle: null,
+    };
+
+    function sanitizedNext() {
+      const next = new URLSearchParams(location.search).get("next");
+      if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+      return "/app/";
+    }
+    document.getElementById("done-continue").href = sanitizedNext();
+    document.getElementById("kyc-cancel").href = sanitizedNext();
+
+    // Initial screen is the method picker. If already verified, jump to done.
+    showScreen("method");
+    refreshSelf().then(s => {
+      if (s && (s.user?.kyc_status || "none") === "verified") {
+        showScreen("done");
+      }
+    });
+
+    async function refreshSelf() {
+      try {
+        const r = await fetch("/auth/me", {
+          headers: { Authorization: `Bearer ${sess.token}` },
+        });
+        if (!r.ok) return null;
+        const body = await r.json();
+        if (body?.user) patchSessionUser(body.user);
+        return body;
+      } catch { return null; }
+    }
+
+    // ---- Screen / step machinery --------------------------------------
+    const screens = document.querySelectorAll(".kyc-screen");
+    const stepper = document.querySelectorAll("#kyc-stepper li");
+    const order = ["method", "carrier", "info", "code", "done"];
+
+    function showScreen(name) {
+      screens.forEach(s => { s.hidden = s.dataset.screen !== name; });
+      const idx = order.indexOf(name);
+      stepper.forEach((li, i) => {
+        li.classList.toggle("active", li.dataset.step === name);
+        li.classList.toggle("done", i < idx);
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    // ---- 0. Method tabs (PASS vs Sumsub) ------------------------------
+    let sumsubMounted = null;   // { stop, refresh }
+    const methodTabs = document.querySelectorAll(".method-tab");
+    const methodPanels = document.querySelectorAll(".method-panel");
+
+    function showMethodPanel(method) {
+      methodTabs.forEach(t => {
+        const on = t.dataset.method === method;
+        t.classList.toggle("active", on);
+        t.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      methodPanels.forEach(p => {
+        p.hidden = p.dataset.panel !== method;
+      });
+    }
+
+    methodTabs.forEach(tab => {
+      tab.addEventListener("click", async () => {
+        const m = tab.dataset.method;
+        showMethodPanel(m);
+        document.body.classList.toggle("sumsub-active", m === "sumsub");
+        if (m === "sumsub") {
+          await activateSumsub();
+        } else if (sumsubMounted) {
+          sumsubMounted.stop();
+          sumsubMounted = null;
+        }
+      });
+    });
+
+    document.getElementById("pass-continue").addEventListener("click", () => {
+      showScreen("carrier");
+    });
+
+    async function activateSumsub() {
+      if (sumsubMounted) return;
+      const container = document.getElementById("sumsub-websdk-container");
+      const statusEl  = document.getElementById("sumsub-status");
+      try {
+        sumsubMounted = await mountSumsub({
+          container, statusEl,
+          onVerified: () => {
+            const next = sanitizedNext();
+            setTimeout(() => { location.href = next; }, 1500);
+          },
+        });
+      } catch (e) {
+        if (e.code === "sumsub_not_configured") {
+          // Hide the tab and bounce back to PASS.
+          document.getElementById("method-tab-sumsub").hidden = true;
+          showMethodPanel("pass");
+        } else {
+          console.warn("Sumsub mount failed:", e);
+        }
+      }
+    }
+
+    // Probe whether Sumsub is configured server-side; reveal the tab if so.
+    probeSumsubConfigured().then(({ configured }) => {
+      if (configured) {
+        document.getElementById("method-tab-sumsub").hidden = false;
+      }
+    });
+
+    document.querySelectorAll("[data-back]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        clearTimer();
+        showScreen(btn.dataset.back);
+      });
+    });
+
+    // ---- 1. Carrier ----------------------------------------------------
+    document.querySelectorAll(".carrier-card").forEach(card => {
+      card.addEventListener("click", () => {
+        state.carrier = card.dataset.carrier;
+        const label = card.querySelector(".carrier-name").textContent;
+        document.getElementById("info-carrier").innerHTML = `
+          <span class="dot"></span>
+          <span>선택한 통신사 / Carrier:</span>
+          <strong>${escapeHtml(label)}</strong>
+          <button type="button" class="link-btn" data-back="carrier">변경</button>
+        `;
+        document.querySelector("#info-carrier [data-back]")
+          .addEventListener("click", () => showScreen("carrier"));
+        showScreen("info");
+        document.getElementById("kyc-name").focus();
+      });
+    });
+
+    // ---- 2. Personal info ---------------------------------------------
+    const infoForm = document.getElementById("info-form");
+    const phoneInput = document.getElementById("kyc-phone");
+    const rrnFront = document.getElementById("kyc-rrn-front");
+    const rrnBack1 = document.getElementById("kyc-rrn-back1");
+    const nameInput = document.getElementById("kyc-name");
+
+    function formatPhone(v) {
+      const d = v.replace(/\D/g, "").slice(0, 11);
+      if (d.length <= 3) return d;
+      if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+      return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+    }
+    phoneInput.addEventListener("input", () => {
+      phoneInput.value = formatPhone(phoneInput.value);
+      setHelp("phone-help", "010으로 시작하는 11자리 / 11 digits starting with 010", false);
+    });
+    rrnFront.addEventListener("input", () => {
+      rrnFront.value = rrnFront.value.replace(/\D/g, "").slice(0, 6);
+      if (rrnFront.value.length === 6) rrnBack1.focus();
+      setHelp("rrn-help", "앞 6자리 + 뒷자리 첫번째 숫자만 / First 6 digits + first digit of the back. The remaining digits are never collected.", false);
+    });
+    rrnBack1.addEventListener("input", () => {
+      rrnBack1.value = rrnBack1.value.replace(/\D/g, "").slice(0, 1);
+    });
+
+    function setHelp(id, text, isError) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.classList.toggle("error", !!isError);
+    }
+
+    infoForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = nameInput.value.trim();
+      const rf = rrnFront.value;
+      const rb = rrnBack1.value;
+      const phoneDigits = phoneInput.value.replace(/\D/g, "");
+
+      let bad = false;
+      if (!name || name.length < 2 || name.length > 16) {
+        setHelp("name-help", "이름은 2-16자입니다 / Name must be 2-16 chars", true); bad = true;
+      } else setHelp("name-help", "실명을 입력해 주세요 / Enter your full name", false);
+
+      if (!/^\d{6}$/.test(rf) || !/^[1-4]$/.test(rb)) {
+        setHelp("rrn-help", "주민번호 형식을 확인해 주세요 / Check the RRN format", true); bad = true;
+      }
+      if (!/^010\d{8}$/.test(phoneDigits)) {
+        setHelp("phone-help", "010으로 시작하는 11자리 숫자 / Must be 11 digits starting with 010", true); bad = true;
+      }
+      if (bad) return;
+
+      const submit = document.getElementById("info-submit");
+      submit.disabled = true;
+      submit.textContent = "전송 중… / Sending…";
+      try {
+        const res = await fetch("/kyc/start", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sess.token}`,
+          },
+          body: JSON.stringify({
+            carrier: state.carrier,
+            name,
+            rrn_front: rf,
+            rrn_back1: rb,
+            phone: phoneDigits,
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = ({
+            invalid_carrier: "통신사를 다시 선택해 주세요 / Pick your carrier again",
+            invalid_name: "이름 형식을 확인해 주세요 / Check the name format",
+            invalid_rrn_front: "주민번호 앞자리를 확인해 주세요 / Check RRN front",
+            invalid_rrn_back1: "주민번호 뒷자리(성별 코드)를 확인해 주세요 / Check RRN gender digit",
+            invalid_phone: "휴대폰번호를 확인해 주세요 / Check phone number",
+          })[body.error] || `요청 실패 / Request failed: ${body.error || res.status}`;
+          setHelp("phone-help", msg, true);
+          return;
+        }
+        state.info = { name, rrn_front: rf, rrn_back1: rb, phone: phoneDigits };
+        state.verification_id = body.verification_id;
+        state.expires_at = body.expires_at;
+        state.attempts_left = 3;
+
+        document.getElementById("code-phone-line").textContent = body.masked_phone;
+        if (body.__demo && body.__demo_code) {
+          const banner = document.getElementById("demo-banner");
+          banner.hidden = false;
+          document.getElementById("demo-code").textContent = body.__demo_code;
+          // Don't auto-fill — let the user see the box, but pre-populate so the
+          // demo user can press Verify in one click.
+          document.getElementById("kyc-code").value = body.__demo_code;
+        }
+        showScreen("code");
+        startTimer();
+      } catch (e) {
+        setHelp("phone-help", `네트워크 오류 / Network error: ${e.message || e}`, true);
+      } finally {
+        submit.disabled = false;
+        submit.innerHTML = '인증 요청 <span class="btn-en">/ Send code</span>';
+      }
+    });
+
+    // ---- 3. Code -------------------------------------------------------
+    const codeForm = document.getElementById("code-form");
+    const codeInput = document.getElementById("kyc-code");
+    const codeTimer = document.getElementById("code-timer");
+    const codeHelp = document.getElementById("code-help");
+
+    codeInput.addEventListener("input", () => {
+      codeInput.value = codeInput.value.replace(/\D/g, "").slice(0, 6);
+      codeHelp.classList.remove("error");
+    });
+
+    function clearTimer() {
+      if (state.timerHandle) {
+        clearInterval(state.timerHandle);
+        state.timerHandle = null;
+      }
+    }
+    function startTimer() {
+      clearTimer();
+      function tick() {
+        const left = Math.max(0, state.expires_at - Math.floor(Date.now() / 1000));
+        const m = Math.floor(left / 60);
+        const s = left % 60;
+        codeTimer.textContent = `${m}:${String(s).padStart(2, "0")}`;
+        if (left <= 0) {
+          clearTimer();
+          codeTimer.textContent = "0:00";
+        }
+      }
+      tick();
+      state.timerHandle = setInterval(tick, 500);
+    }
+
+    document.getElementById("code-resend").addEventListener("click", () => {
+      // Just re-submit /kyc/start with the cached info.
+      if (!state.info) { showScreen("info"); return; }
+      const submit = document.getElementById("info-submit");
+      submit.click();  // not visible right now, but the handler is wired generic enough
+    });
+
+    codeForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const code = codeInput.value;
+      if (!/^\d{6}$/.test(code)) {
+        codeHelp.classList.add("error");
+        codeHelp.innerHTML = `6자리 숫자를 입력해 주세요 / Enter 6 digits`;
+        return;
+      }
+      const submit = document.getElementById("code-submit");
+      submit.disabled = true;
+      submit.textContent = "확인 중… / Verifying…";
+      try {
+        const res = await fetch("/kyc/verify", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sess.token}`,
+          },
+          body: JSON.stringify({
+            verification_id: state.verification_id,
+            code,
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          codeHelp.classList.add("error");
+          if (body.error === "wrong_code") {
+            state.attempts_left = body.attempts_left;
+            codeHelp.innerHTML = `인증번호가 올바르지 않습니다. 남은 시도 ${body.attempts_left}회 / Wrong code. ${body.attempts_left} attempts left.`;
+          } else if (body.error === "too_many_attempts") {
+            codeHelp.innerHTML = `시도 횟수를 초과했습니다. 처음부터 다시 시도해 주세요 / Too many attempts. Please restart.`;
+            setTimeout(() => showScreen("info"), 1500);
+          } else if (body.error === "expired") {
+            codeHelp.innerHTML = `인증번호가 만료되었습니다. 재발송하세요 / Code expired. Please resend.`;
+          } else {
+            codeHelp.innerHTML = `확인 실패 / Verify failed: ${escapeHtml(body.error || String(res.status))}`;
+          }
+          return;
+        }
+        clearTimer();
+        // Update local cache so header badge flips to KYC 완료 immediately.
+        patchSessionUser({ kyc_status: "verified" });
+        toast("본인인증이 완료되었습니다", "Verification complete");
+        showScreen("done");
+      } catch (e) {
+        codeHelp.classList.add("error");
+        codeHelp.innerHTML = `네트워크 오류 / Network error: ${escapeHtml(e.message || String(e))}`;
+      } finally {
+        submit.disabled = false;
+        submit.innerHTML = '확인 <span class="btn-en">/ Verify</span>';
+      }
+    });
+  }
+</script>
+
+</body>
+</html>

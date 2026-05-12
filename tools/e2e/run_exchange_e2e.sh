@@ -1,7 +1,24 @@
 #!/usr/bin/env bash
+
+if [[ -n "${BASH_VERSION:-}" ]]; then
+  if (( BASH_VERSINFO[0] < 4 )); then
+    script_path="${BASH_SOURCE[0]:-$0}"
+    root_dir="$(cd "$(dirname "$script_path")/../.." && pwd)"
+    for candidate in "$root_dir/.local-tools/bash-5.3/bin/bash" /opt/homebrew/bin/bash /usr/local/bin/bash; do
+      if [[ -x "$candidate" && "$candidate" != "${BASH:-}" ]]; then
+        exec "$candidate" "$0" "$@"
+      fi
+    done
+    echo "tools/e2e/run_exchange_e2e.sh requires bash >= 4." >&2
+    echo "macOS /bin/bash 3.2 is known to crash on this script; install a newer bash or run it from Linux." >&2
+    exit 1
+  fi
+fi
+
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
+ROOT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/../.." && pwd)"
 if [[ -z "${DOCKER_SOCK:-}" ]]; then
   if [[ -S "${HOME}/.docker/run/docker.sock" ]]; then
     DOCKER_SOCK="unix://${HOME}/.docker/run/docker.sock"
@@ -31,17 +48,122 @@ PACKAGE=0
 BUILD=0
 KEEP_RUNNING=0
 RESET=0
+LIGHT_PROFILE=0
 EVENTUAL_TIMEOUT=240
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-5}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-20}"
+E2E_HTTP_HOST="${E2E_HTTP_HOST:-}"
+HOST_MM_BOT_PID=""
+HOST_MM_BOT_CMD=""
 
 curl() {
   command curl --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" "$@"
 }
 
+detect_e2e_http_host() {
+  if [[ -n "$E2E_HTTP_HOST" ]]; then
+    printf '%s\n' "$E2E_HTTP_HOST"
+    return 0
+  fi
+
+  if [[ -f /.dockerenv ]]; then
+    local resolved_host=""
+    if command -v getent >/dev/null 2>&1; then
+      resolved_host="$(getent ahostsv4 host.docker.internal 2>/dev/null | awk 'NR == 1 { print $1; exit }')"
+      if [[ -z "$resolved_host" ]]; then
+        resolved_host="$(getent hosts host.docker.internal 2>/dev/null | awk 'NR == 1 { print $1; exit }')"
+      fi
+    fi
+
+    if [[ -n "$resolved_host" ]]; then
+      printf '%s\n' "$resolved_host"
+    else
+      printf '%s\n' "host.docker.internal"
+    fi
+    return 0
+  fi
+
+  printf '%s\n' "127.0.0.1"
+}
+
+E2E_HTTP_HOST="$(detect_e2e_http_host)"
+
+portable_mktemp() {
+  if [[ -x /usr/bin/mktemp ]]; then
+    /usr/bin/mktemp "$@"
+    return $?
+  fi
+  if [[ -x /bin/mktemp ]]; then
+    /bin/mktemp "$@"
+    return $?
+  fi
+  if command -v mktemp >/dev/null 2>&1; then
+    command mktemp "$@"
+    return $?
+  fi
+  return 127
+}
+
+find_host_mm_bot_pid() {
+  ps -eo pid=,comm=,args= | awk -v target="$ROOT_DIR/tools/mm_bot.py" '
+    index($0, target) > 0 &&
+    $2 !~ /^(awk|ps|bash|sh|zsh)$/ &&
+    $0 ~ /(Python|python)/ { print $1; exit }
+  '
+}
+
+stop_host_mm_bot_if_running() {
+  local pid
+  pid="$(find_host_mm_bot_pid || true)"
+  if [[ -z "$pid" ]]; then
+    return 0
+  fi
+
+  HOST_MM_BOT_PID="$pid"
+  HOST_MM_BOT_CMD="$(ps -p "$pid" -o args= | sed 's/^[[:space:]]*//')"
+  if [[ -z "$HOST_MM_BOT_CMD" ]]; then
+    echo "Failed to capture host mm_bot command for pid $pid." >&2
+    exit 1
+  fi
+
+  echo "Stopping host mm_bot to keep the Docker E2E flow hermetic: pid=$pid" >&2
+  kill "$pid"
+  for _ in $(seq 1 20); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  echo "Host mm_bot did not stop cleanly; terminating pid $pid." >&2
+  kill -9 "$pid" 2>/dev/null || true
+}
+
+restore_host_mm_bot_if_needed() {
+  if [[ -z "$HOST_MM_BOT_PID" || -z "$HOST_MM_BOT_CMD" ]]; then
+    return 0
+  fi
+
+  if kill -0 "$HOST_MM_BOT_PID" 2>/dev/null; then
+    return 0
+  fi
+
+  if find_host_mm_bot_pid >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "Restarting host mm_bot after E2E run." >&2
+  nohup sh -c "cd '$ROOT_DIR' && exec $HOST_MM_BOT_CMD" >/tmp/zkcex-mm-bot.log 2>&1 &
+}
+
 usage() {
   cat <<EOF
-Usage: tools/e2e/run_exchange_e2e.sh [--package] [--build] [--reset] [--keep-running] [--help]
+Usage: tools/e2e/run_exchange_e2e.sh [--package] [--build] [--light-profile] [--reset] [--keep-running] [--help]
+
+Environment:
+  E2E_HTTP_HOST  Override the host used for published HTTP ports.
+                 Defaults to host.docker.internal when running inside Docker,
+                 otherwise 127.0.0.1.
 
 Runs a real Docker-backed exchange E2E flow:
   1. Wait for wallet, accountant, matching-engine, matching-gateway, and market.
@@ -137,22 +259,121 @@ Runs a real Docker-backed exchange E2E flow:
 Options:
   --package       Run Maven package for Docker-backed app jars before building.
   --build         Run docker compose build before starting services.
+  --light-profile Run a reduced core E2E path for constrained local environments.
   --reset         Remove the E2E compose stack and volumes before starting.
   --keep-running  Leave app containers running after a successful flow.
   --help          Show this help text.
+
+Environment:
+  OPEX_E2E_ALLOW_AMD64_EMULATION=1
+                  Bypass the arm64 compatibility guard if a local override pins
+                  Kafka/Zookeeper to amd64 images. Emulated full-stack runs are
+                  known to OOM/crash on Apple Silicon, so the default is to fail
+                  fast when such a pin is detected.
+  OPEX_E2E_MIN_DOCKER_MEMORY_MB=<mb>
+                  Override the Docker memory preflight threshold.
+                  Defaults to 4096 for --light-profile and 6144 for the full profile.
+  OPEX_E2E_SKIP_RESOURCE_CHECK=1
+                  Skip Docker memory preflight. Intended only for debugging the
+                  preflight itself; low-memory full E2E runs usually fail later
+                  through Kafka/service crash loops.
 EOF
+}
+
+ensure_local_e2e_platform_compatibility() {
+  local docker_arch=""
+  docker_arch="$(docker -H "$DOCKER_SOCK" info --format '{{.Architecture}}' 2>/dev/null || true)"
+
+  case "$docker_arch" in
+    arm64|aarch64)
+      if [[ "${OPEX_E2E_ALLOW_AMD64_EMULATION:-0}" == "1" ]]; then
+        return 0
+      fi
+
+      if grep -q 'platform: linux/amd64' "$ROOT_DIR/tools/e2e/docker-compose.e2e.yml"; then
+        if (( LIGHT_PROFILE == 1 )); then
+          cat >&2 <<EOF
+E2E preflight warning: Docker host architecture is '$docker_arch', while the local
+E2E overlay pins Kafka/Zookeeper to linux/amd64 images.
+
+Continuing because --light-profile is a constrained demo/MVP path. This remains
+emulated on Apple Silicon and is not production sign-off evidence.
+EOF
+          return 0
+        fi
+
+        cat >&2 <<EOF
+E2E preflight failed: Docker host architecture is '$docker_arch', but the local E2E
+overlay pins Kafka/Zookeeper to linux/amd64 images.
+
+On Apple Silicon this full-stack run is known to hit broker OOM/crash loops under
+emulation before the signed API flow finishes. Run the E2E in an amd64/Linux
+environment, or set OPEX_E2E_ALLOW_AMD64_EMULATION=1 to bypass this guard.
+EOF
+        exit 1
+      fi
+      ;;
+  esac
+}
+
+docker_memory_mb() {
+  local mem_bytes=""
+  mem_bytes="$(docker -H "$DOCKER_SOCK" info --format '{{.MemTotal}}' 2>/dev/null || true)"
+  if [[ "$mem_bytes" =~ ^[0-9]+$ && "$mem_bytes" -gt 0 ]]; then
+    printf '%s\n' "$(( mem_bytes / 1024 / 1024 ))"
+  fi
+}
+
+ensure_docker_resource_budget() {
+  if [[ "${OPEX_E2E_SKIP_RESOURCE_CHECK:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  local default_min_mb=6144
+  if (( LIGHT_PROFILE == 1 )); then
+    default_min_mb=4096
+  fi
+
+  local min_mb="${OPEX_E2E_MIN_DOCKER_MEMORY_MB:-$default_min_mb}"
+  if ! [[ "$min_mb" =~ ^[0-9]+$ ]] || (( min_mb <= 0 )); then
+    echo "OPEX_E2E_MIN_DOCKER_MEMORY_MB must be a positive integer, got '$min_mb'." >&2
+    exit 2
+  fi
+
+  local actual_mb=""
+  actual_mb="$(docker_memory_mb || true)"
+  if [[ -z "$actual_mb" ]]; then
+    echo "E2E preflight warning: could not determine Docker memory limit; continuing." >&2
+    return 0
+  fi
+
+  if (( actual_mb < min_mb )); then
+    cat >&2 <<EOF
+E2E preflight failed: Docker reports ${actual_mb} MiB memory, but this profile
+requires at least ${min_mb} MiB.
+
+Increase Docker Desktop/daemon memory, use --light-profile on constrained local
+machines, or set OPEX_E2E_MIN_DOCKER_MEMORY_MB to a lower value only when you are
+intentionally debugging an under-provisioned run.
+EOF
+    exit 1
+  fi
 }
 
 for arg in "$@"; do
   case "$arg" in
     --package) PACKAGE=1 ;;
     --build) BUILD=1 ;;
+    --light-profile) LIGHT_PROFILE=1 ;;
     --keep-running) KEEP_RUNNING=1 ;;
     --reset) RESET=1 ;;
     --help|-h) usage; exit 0 ;;
     *) echo "Unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+
+ensure_local_e2e_platform_compatibility
+ensure_docker_resource_budget
 
 write_defaults() {
   if [[ ! -f "$ROOT_DIR/.env.e2e" ]]; then
@@ -185,8 +406,10 @@ ENV
     fi
   fi
 
-  if [[ ! -f "$ROOT_DIR/preferences.yml" ]]; then
-    cp "$ROOT_DIR/preferences-dev.yml" "$ROOT_DIR/preferences.yml"
+  if (( LIGHT_PROFILE == 1 )); then
+    cp "$ROOT_DIR/preferences-e2e-light.yml" "$ROOT_DIR/preferences.yml"
+  else
+    cp "$ROOT_DIR/preferences-e2e.yml" "$ROOT_DIR/preferences.yml"
   fi
 }
 
@@ -247,7 +470,7 @@ curl_json() {
   local body="${3:-}"
   local header_user="${4:-}"
   local response_file
-  response_file="$(mktemp)"
+  response_file="$(portable_mktemp)"
 
   local args=(-sS -X "$method" -H "Content-Type: application/json" -w "%{http_code}" -o "$response_file")
   if [[ -n "$header_user" ]]; then
@@ -265,11 +488,31 @@ curl_json() {
   rm -f "$response_file"
 }
 
+current_time_ms() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+    return 0
+  fi
+
+  if command -v python >/dev/null 2>&1; then
+    python - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+    return 0
+  fi
+
+  printf '%s000\n' "$(/bin/date +%s 2>/dev/null || /usr/bin/date +%s)"
+}
+
 wait_http() {
   local name="$1"
   local url="$2"
   local deadline=$((SECONDS + 900))
-  until curl -fsS "$url" >/dev/null; do
+  until curl --max-time 3 -fsS "$url" >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for $name at $url" >&2
       "${COMPOSE[@]}" ps >&2 || true
@@ -281,13 +524,73 @@ wait_http() {
   echo "ready: $name"
 }
 
+wait_container_stable() {
+  local service="$1"
+  local label="$2"
+  local stable_seconds="${3:-20}"
+  local deadline=$((SECONDS + 900))
+  local previous=""
+  local stable_since=""
+
+  while true; do
+    local state
+    state="$(docker -H "$DOCKER_SOCK" inspect -f '{{.RestartCount}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.Status}}' "core-${service}-1" 2>/dev/null || true)"
+    if [[ -n "$state" && "$state" == "$previous" ]]; then
+      if [[ -z "$stable_since" ]]; then
+        stable_since="$SECONDS"
+      elif (( SECONDS - stable_since >= stable_seconds )); then
+        echo "ready: $label"
+        return 0
+      fi
+    else
+      previous="$state"
+      stable_since=""
+    fi
+
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for $label" >&2
+      docker -H "$DOCKER_SOCK" inspect -f '{{.Name}} restart={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} status={{.State.Status}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' "core-${service}-1" >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+wait_accountant_config_ready() {
+  local deadline=$((SECONDS + 900))
+  until curl --max-time 3 -fsS "http://${E2E_HTTP_HOST}:8089/config/all" >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for accountant config endpoint" >&2
+      "${COMPOSE[@]}" ps accountant >&2 || true
+      "${COMPOSE[@]}" logs --tail=160 accountant >&2 || true
+      exit 1
+    fi
+    sleep 3
+  done
+  echo "ready: accountant config"
+}
+
+wait_market_query_ready() {
+  local deadline=$((SECONDS + 900))
+  until \
+    curl --max-time 3 -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/prices" >/dev/null &&
+    curl --max-time 3 -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/active-users?interval=TwentyFourHours" >/dev/null; do
+    if (( SECONDS > deadline )); then
+      echo "Timed out waiting for market query endpoints" >&2
+      "${COMPOSE[@]}" ps market >&2 || true
+      "${COMPOSE[@]}" logs --tail=160 market >&2 || true
+      exit 1
+    fi
+    sleep 3
+  done
+  echo "ready: market queries"
+}
+
 wait_log() {
   local service="$1"
   local label="$2"
   local pattern="$3"
-  local logs
-  logs="$("${COMPOSE[@]}" logs "$service" 2>/dev/null || true)"
-  if grep -q "$pattern" <<<"$logs"; then
+  if grep -q -- "$pattern" < <("${COMPOSE[@]}" logs "$service" 2>/dev/null || true); then
     echo "ready: $label"
   else
     wait_log_since "$service" "$label" "$pattern" "$(log_since_now)" 180
@@ -305,8 +608,7 @@ wait_log_since() {
   local since="$4"
   local timeout="${5:-180}"
   local deadline=$((SECONDS + timeout))
-  local logs
-  until logs="$("${COMPOSE[@]}" logs --since="$since" "$service" 2>/dev/null)" && grep -q "$pattern" <<<"$logs"; do
+  until grep -q -- "$pattern" < <("${COMPOSE[@]}" logs --since="$since" "$service" 2>/dev/null || true); do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for $label in $service logs" >&2
       "${COMPOSE[@]}" logs --tail=200 "$service" >&2 || true
@@ -379,6 +681,10 @@ wait_zookeeper_broker_id_released() {
   echo "ready: zookeeper broker id $broker_id released"
 }
 
+stop_e2e_app_containers() {
+  "${COMPOSE_FULL_STACK[@]}" stop matching-gateway matching-engine matching-engine-duo accountant wallet market api bc-gateway auth eventlog || true
+}
+
 wait_kafka_topic_ready() {
   local topic="$1"
   local deadline=$((SECONDS + 180))
@@ -423,6 +729,11 @@ ensure_exchange_topics_ready() {
   ensure_kafka_topic_ready "orders_BTC_USDT"
   ensure_kafka_topic_ready "events_BTC_USDT"
   ensure_kafka_topic_ready "trades_BTC_USDT"
+  if (( LIGHT_PROFILE == 1 )); then
+    ensure_kafka_topic_ready "richOrder"
+    ensure_kafka_topic_ready "richTrade"
+    return 0
+  fi
   ensure_kafka_topic_ready "orders_SOL_USDT"
   ensure_kafka_topic_ready "events_SOL_USDT"
   ensure_kafka_topic_ready "trades_SOL_USDT"
@@ -451,7 +762,9 @@ wait_kafka_broker_ready() {
 
 restart_market_and_verify_public_state() {
   "${COMPOSE[@]}" restart market
-  wait_http "market" "http://127.0.0.1:8096/actuator/health"
+  wait_http "market" "http://${E2E_HTTP_HOST}:8096/actuator/health"
+  wait_market_query_ready
+  wait_consumer_group_stable "market" "market consumer group"
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   wait_recent_trades_distribution "ETH_USDT" /tmp/opex-e2e-recent-trades-after-market-restart.json
@@ -461,14 +774,14 @@ restart_matching_engine_and_wait() {
   local since
   since="$(log_since_now)"
   "${COMPOSE[@]}" restart matching-engine
-  wait_http "matching-engine" "http://127.0.0.1:8092/actuator/health"
+  wait_http "matching-engine" "http://${E2E_HTTP_HOST}:8092/actuator/health"
   wait_log_since "matching-engine" "matching-engine ETH_USDT order consumer after restart" "orders_ETH_USDT-0" "$since" 180
   sleep 5
 }
 
 restart_wallet_and_wait() {
   "${COMPOSE[@]}" restart wallet
-  wait_http "wallet" "http://127.0.0.1:8091/actuator/health"
+  wait_http "wallet" "http://${E2E_HTTP_HOST}:8091/actuator/health"
   sleep 5
 }
 
@@ -476,14 +789,15 @@ restart_accountant_and_wait() {
   local since
   since="$(log_since_now)"
   "${COMPOSE[@]}" restart accountant
-  wait_http "accountant" "http://127.0.0.1:8089/actuator/health"
+  wait_http "accountant" "http://${E2E_HTTP_HOST}:8089/actuator/health"
+  wait_accountant_config_ready
   wait_log_since "accountant" "accountant ETH_USDT order consumer after restart" "orders_ETH_USDT-0" "$since" 180
   sleep 5
 }
 
 restart_matching_gateway_and_wait() {
   "${COMPOSE[@]}" restart matching-gateway
-  wait_http "matching-gateway" "http://127.0.0.1:8093/actuator/health"
+  wait_http "matching-gateway" "http://${E2E_HTTP_HOST}:8093/actuator/health"
   sleep 5
 }
 
@@ -491,12 +805,14 @@ restart_core_services_and_wait() {
   local since
   since="$(log_since_now)"
   "${COMPOSE[@]}" restart matching-gateway matching-engine accountant wallet market eventlog
-  wait_http "wallet" "http://127.0.0.1:8091/actuator/health"
-  wait_http "accountant" "http://127.0.0.1:8089/actuator/health"
-  wait_http "eventlog" "http://127.0.0.1:8090/actuator/health"
-  wait_http "matching-engine" "http://127.0.0.1:8092/actuator/health"
-  wait_http "matching-gateway" "http://127.0.0.1:8093/actuator/health"
-  wait_http "market" "http://127.0.0.1:8096/actuator/health"
+  wait_http "wallet" "http://${E2E_HTTP_HOST}:8091/actuator/health"
+  wait_http "accountant" "http://${E2E_HTTP_HOST}:8089/actuator/health"
+  wait_accountant_config_ready
+  wait_http "eventlog" "http://${E2E_HTTP_HOST}:8090/actuator/health"
+  wait_http "matching-engine" "http://${E2E_HTTP_HOST}:8092/actuator/health"
+  wait_http "matching-gateway" "http://${E2E_HTTP_HOST}:8093/actuator/health"
+  wait_http "market" "http://${E2E_HTTP_HOST}:8096/actuator/health"
+  wait_market_query_ready
   wait_exchange_consumer_groups_stable_since "$since" "core restart"
   sleep 8
 }
@@ -524,7 +840,7 @@ restart_kafka_with_gateway_rejection_check() {
   "${COMPOSE[@]}" stop kafka-1
   wait_zookeeper_broker_id_released "1001"
   wait_log_since "matching-gateway" "matching-gateway Kafka health down" "Kafka is not healthy" "$since" 60
-  expect_http_status "order while Kafka unavailable" "503" "$(curl_json POST "http://127.0.0.1:8093/order" "$order_body" "$owner")" >/tmp/opex-e2e-kafka-down-order.json
+  expect_http_status "order while Kafka unavailable" "503" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$order_body" "$owner")" >/tmp/opex-e2e-kafka-down-order.json
   assert_wallet_balance "Kafka-down owner balance unchanged" "$owner" "$unchanged_asset" "$unchanged_balance"
   wait_no_user_open_orders "$owner" "ETH_USDT"
   assert_no_user_orders "$owner" "ETH_USDT"
@@ -555,9 +871,12 @@ restart_postgres_datastores_and_wait() {
   wait_postgres "postgres-wallet"
   wait_postgres "postgres-accountant"
   wait_postgres "postgres-market"
-  wait_http "wallet" "http://127.0.0.1:8091/actuator/health"
-  wait_http "accountant" "http://127.0.0.1:8089/actuator/health"
-  wait_http "market" "http://127.0.0.1:8096/actuator/health"
+  wait_http "wallet" "http://${E2E_HTTP_HOST}:8091/actuator/health"
+  wait_http "accountant" "http://${E2E_HTTP_HOST}:8089/actuator/health"
+  wait_accountant_config_ready
+  wait_http "market" "http://${E2E_HTTP_HOST}:8096/actuator/health"
+  wait_market_query_ready
+  wait_consumer_group_stable "market" "market consumer group"
   sleep 15
 }
 
@@ -624,6 +943,29 @@ expect_http_status() {
     exit 1
   fi
   printf '%s\n' "$body"
+}
+
+expect_http_status_retry() {
+  local label="$1"
+  local expected_status="$2"
+  local command="$3"
+  local deadline=$((SECONDS + 60))
+  local output status body
+  while true; do
+    output="$(eval "$command")"
+    status="$(printf '%s\n' "$output" | head -n1)"
+    body="$(printf '%s\n' "$output" | tail -n +2)"
+    if [[ "$status" == "$expected_status" ]]; then
+      printf '%s\n' "$body"
+      return 0
+    fi
+    if (( SECONDS > deadline )); then
+      echo "$label expected HTTP $expected_status but got HTTP $status" >&2
+      echo "$body" >&2
+      return 1
+    fi
+    sleep 2
+  done
 }
 
 assert_opex_error() {
@@ -900,7 +1242,7 @@ wait_active_users_api_matches_orders() {
   local deadline=$((SECONDS + 120))
   local expected body actual
   until expected="$(psql_query "postgres-market" "select count(distinct uuid) from orders where create_date >= now() - interval '24 hours';")" &&
-    body="$(curl -fsS "http://127.0.0.1:8094/v1/landing/exchangeInfo?interval=24h")" &&
+    body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v1/landing/exchangeInfo?interval=24h")" &&
     actual="$(jq -r '.activeUsers' <<<"$body")" &&
     [[ "$actual" == "$expected" ]]; do
     if (( SECONDS > deadline )); then
@@ -924,12 +1266,12 @@ wait_market_count_apis_match_database() {
     expected_eth_orders="$(psql_query "postgres-market" "select count(*) from orders where symbol = 'ETH_USDT' and create_date >= now() - interval '24 hours';")" &&
     expected_trades="$(psql_query "postgres-market" "select count(*) from trades where create_date >= now() - interval '24 hours';")" &&
     expected_eth_trades="$(psql_query "postgres-market" "select count(*) from trades where symbol = 'ETH_USDT' and create_date >= now() - interval '24 hours';")" &&
-    active_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/active-users?interval=TwentyFourHours")" &&
-    orders_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/orders-count?interval=TwentyFourHours")" &&
-    eth_orders_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/orders-count?interval=TwentyFourHours&symbol=ETH_USDT")" &&
-    trades_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/trades-count?interval=TwentyFourHours")" &&
-    eth_trades_body="$(curl -fsS "http://127.0.0.1:8096/v1/market/trades-count?interval=TwentyFourHours&symbol=ETH_USDT")" &&
-    landing_body="$(curl -fsS "http://127.0.0.1:8094/v1/landing/exchangeInfo?interval=24h")" &&
+    active_body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/active-users?interval=TwentyFourHours")" &&
+    orders_body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/orders-count?interval=TwentyFourHours")" &&
+    eth_orders_body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/orders-count?interval=TwentyFourHours&symbol=ETH_USDT")" &&
+    trades_body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/trades-count?interval=TwentyFourHours")" &&
+    eth_trades_body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/trades-count?interval=TwentyFourHours&symbol=ETH_USDT")" &&
+    landing_body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v1/landing/exchangeInfo?interval=24h")" &&
     actual_active="$(jq -r '.value' <<<"$active_body")" &&
     actual_orders="$(jq -r '.value' <<<"$orders_body")" &&
     actual_eth_orders="$(jq -r '.value' <<<"$eth_orders_body")" &&
@@ -995,7 +1337,7 @@ try_wallet_balance() {
   local symbol="$2"
   local expected_balance="$3"
   local output status body actual_balance
-  output="$(curl_json GET "http://127.0.0.1:8091/v1/owner/${owner}/wallets/${symbol}")"
+  output="$(curl_json GET "http://${E2E_HTTP_HOST}:8091/v1/owner/${owner}/wallets/${symbol}")"
   status="$(printf '%s\n' "$output" | head -n1)"
   body="$(printf '%s\n' "$output" | tail -n +2)"
   if [[ ! "$status" =~ ^2 ]]; then
@@ -1017,7 +1359,7 @@ assert_wallet_balance() {
   local symbol="$3"
   local expected_balance="$4"
   local body actual_balance
-  body="$(expect_2xx "$label" "$(curl_json GET "http://127.0.0.1:8091/v1/owner/${owner}/wallets/${symbol}")")"
+  body="$(expect_2xx "$label" "$(curl_json GET "http://${E2E_HTTP_HOST}:8091/v1/owner/${owner}/wallets/${symbol}")")"
   actual_balance="$(printf '%s\n' "$body" | json_number balance)"
   assert_number_eq "$label balance" "$actual_balance" "$expected_balance"
 }
@@ -1029,7 +1371,7 @@ wait_withdraw_status() {
   local output_file="$4"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(expect_2xx "$label" "$(curl_json GET "http://127.0.0.1:8091/admin/withdraw/${withdraw_id}")")" &&
+  until body="$(expect_2xx "$label" "$(curl_json GET "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_id}")")" &&
     printf '%s\n' "$body" | jq -e --arg status "$expected_status" '.status == $status' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for withdraw $withdraw_id status=$expected_status" >&2
@@ -1050,7 +1392,7 @@ wait_user_open_order() {
   local output_file="$5"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/user/${owner}/orders/${symbol}/open?limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/orders/${symbol}/open?limit=20")" &&
     printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" '
       [.[] | select(.price == $price and .quantity == $quantity and (.status == "NEW" or .status == "PARTIALLY_FILLED"))] | length == 1
     ' >/dev/null; do
@@ -1069,7 +1411,7 @@ wait_no_user_open_orders() {
   local symbol="$2"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/user/${owner}/orders/${symbol}/open?limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/orders/${symbol}/open?limit=20")" &&
     printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for no open orders owner=$owner symbol=$symbol" >&2
@@ -1085,7 +1427,7 @@ assert_no_user_orders() {
   local owner="$1"
   local symbol="$2"
   local body
-  body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://127.0.0.1:8096/v1/user/${owner}/orders")"
+  body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/orders")"
   if ! printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; then
     echo "Expected no market orders for owner=$owner symbol=$symbol" >&2
     echo "$body" >&2
@@ -1099,7 +1441,7 @@ assert_no_user_order_by_price() {
   local price="$3"
   local quantity="$4"
   local body
-  body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://127.0.0.1:8096/v1/user/${owner}/orders")"
+  body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/orders")"
   if ! printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" '
     [.[] | select(.price == $price and .quantity == $quantity)] | length == 0
   ' >/dev/null; then
@@ -1117,7 +1459,7 @@ wait_user_order_status_by_price() {
   local expected_status="$5"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://127.0.0.1:8096/v1/user/${owner}/orders")" &&
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/orders")" &&
     printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" --arg expected_status "$expected_status" '
       [.[] | select(.price == $price and .quantity == $quantity and .status == $expected_status)] | length >= 1
     ' >/dev/null; do
@@ -1142,7 +1484,7 @@ wait_user_order_projection_by_price() {
   local output_file="$8"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://127.0.0.1:8096/v1/user/${owner}/orders")" &&
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "{\"symbol\":\"${symbol}\",\"startTime\":null,\"endTime\":null,\"limit\":20}" "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/orders")" &&
     printf '%s\n' "$body" | jq -e \
       --argjson price "$price" \
       --argjson quantity "$quantity" \
@@ -1180,7 +1522,7 @@ wait_order_book_level() {
   local quantity="$4"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/${symbol}/order-book?direction=${direction}&limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/${symbol}/order-book?direction=${direction}&limit=20")" &&
     printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" '
       [.[] | select(.price == $price and .quantity == $quantity)] | length >= 1
     ' >/dev/null; do
@@ -1199,7 +1541,7 @@ wait_order_book_empty() {
   local direction="$2"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/${symbol}/order-book?direction=${direction}&limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/${symbol}/order-book?direction=${direction}&limit=20")" &&
     printf '%s\n' "$body" | jq -e 'length == 0' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for empty order book symbol=$symbol direction=$direction" >&2
@@ -1217,7 +1559,7 @@ wait_order_book_empty_at_price() {
   local price="$3"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/${symbol}/order-book?direction=${direction}&limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/${symbol}/order-book?direction=${direction}&limit=20")" &&
     printf '%s\n' "$body" | jq -e --argjson price "$price" '
       [.[] | select(.price == $price)] | length == 0
     ' >/dev/null; do
@@ -1282,7 +1624,7 @@ wait_best_prices() {
   local ask_price="$3"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/best-prices?symbols=${symbol}")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/best-prices?symbols=${symbol}")" &&
     printf '%s\n' "$body" | jq -e --arg symbol "$symbol" --argjson bid_price "$bid_price" --argjson ask_price "$ask_price" '
       [.[] | select(.symbol == $symbol and .bidPrice == $bid_price and .askPrice == $ask_price)] | length == 1
     ' >/dev/null; do
@@ -1301,7 +1643,7 @@ wait_recent_trades_distribution() {
   local output_file="$2"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/${symbol}/recent-trades?limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/${symbol}/recent-trades?limit=20")" &&
     printf '%s\n' "$body" | jq -e '
       length == 23 and
       ([.[] | select(.price == 90) | .quantity] | add == 0.1) and
@@ -1343,7 +1685,7 @@ wait_recent_trade_level() {
   local output_file="$4"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/market/${symbol}/recent-trades?limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/market/${symbol}/recent-trades?limit=20")" &&
     printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" '
       [.[] | select(.price == $price and .quantity == $quantity)] | length >= 1
     ' >/dev/null; do
@@ -1364,7 +1706,7 @@ wait_binance_exchange_info_symbol() {
   local quote="$3"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8094/v3/exchangeInfo?symbol=${symbol}")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/exchangeInfo?symbol=${symbol}")" &&
     printf '%s\n' "$body" | jq -e --arg symbol "$symbol" --arg base "$base" --arg quote "$quote" '
       [.symbols[] | select(.symbol == $symbol and .status == "TRADING" and .baseAsset == $base and .quoteAsset == $quote)] | length == 1
     ' >/dev/null; do
@@ -1391,7 +1733,7 @@ wait_binance_depth_level() {
     ASK) field="asks" ;;
     *) echo "Invalid Binance depth side: $side" >&2; exit 2 ;;
   esac
-  until body="$(curl -fsS "http://127.0.0.1:8094/v3/depth?symbol=${symbol}&limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/depth?symbol=${symbol}&limit=20")" &&
     printf '%s\n' "$body" | jq -e --arg field "$field" --argjson price "$price" --argjson quantity "$quantity" '
       [.[$field][] | select(.[0] == $price and .[1] == $quantity)] | length >= 1
     ' >/dev/null; do
@@ -1414,7 +1756,7 @@ wait_binance_recent_trade_level() {
   local output_file="$5"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8094/v3/trades?symbol=${symbol}&limit=20")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/trades?symbol=${symbol}&limit=20")" &&
     printf '%s\n' "$body" | jq -e --argjson price "$price" --argjson quantity "$quantity" --argjson quote_quantity "$quote_quantity" '
       [.[] | select(.price == $price and .qty == $quantity and .quoteQty == $quote_quantity)] | length >= 1
     ' >/dev/null; do
@@ -1435,7 +1777,7 @@ wait_binance_price_ticker() {
   local output_file="$3"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8094/v3/ticker/price?symbol=${symbol}")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/ticker/price?symbol=${symbol}")" &&
     printf '%s\n' "$body" | jq -e --arg symbol "$symbol" --argjson price "$price" '
       length == 1 and .[0].symbol == $symbol and (.[0].price | tonumber) == $price
     ' >/dev/null; do
@@ -1457,7 +1799,7 @@ wait_binance_24h_ticker() {
   local output_file="$4"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8094/v3/ticker/24h?symbol=${symbol}")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/ticker/24h?symbol=${symbol}")" &&
     printf '%s\n' "$body" | jq -e --arg symbol "$symbol" --argjson price "$price" --argjson quantity "$quantity" '
       length == 1 and
       .[0].symbol == $symbol and
@@ -1506,7 +1848,7 @@ wait_binance_klines_1m_candle() {
   local output_file="${11}"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8094/v3/klines?symbol=${symbol}&interval=1m&limit=1")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/klines?symbol=${symbol}&interval=1m&limit=1")" &&
     printf '%s\n' "$body" | jq -e \
       --argjson open "$open" \
       --argjson high "$high" \
@@ -1580,7 +1922,7 @@ wait_binance_latest_kline_matches_market_projection() {
   ")" &&
     [[ -n "$expected" ]] &&
     IFS=',' read -r open high low close volume quote_volume trades taker_buy_base_volume taker_buy_quote_volume close_time_ms <<< "$expected" &&
-    body="$(curl -fsS "http://127.0.0.1:8094/v3/klines?symbol=${symbol}&interval=1m&limit=1")" &&
+    body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/klines?symbol=${symbol}&interval=1m&limit=1")" &&
     printf '%s\n' "$body" | jq -e \
       --argjson open "$open" \
       --argjson high "$high" \
@@ -1606,7 +1948,7 @@ wait_binance_latest_kline_matches_market_projection() {
       .[0][0] > 0 and
       .[0][6] > 0
     ' >/dev/null &&
-    end_time_body="$(curl -fsS "http://127.0.0.1:8094/v3/klines?symbol=${symbol}&interval=1m&endTime=${close_time_ms}&limit=1")" &&
+    end_time_body="$(curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/klines?symbol=${symbol}&interval=1m&endTime=${close_time_ms}&limit=1")" &&
     printf '%s\n' "$end_time_body" | jq -e \
       --argjson open "$open" \
       --argjson high "$high" \
@@ -1650,12 +1992,12 @@ binance_private_get() {
   local path="$2"
   local query="${3:-}"
   local timestamp
-  timestamp=$(( $(date +%s) * 1000 ))
+  timestamp="$(current_time_ms)"
 
   if [[ -n "$query" ]]; then
-    curl -fsS -H "X-Opex-User: $owner" "http://127.0.0.1:8094${path}?${query}&timestamp=${timestamp}&recvWindow=60000"
+    curl -fsS -H "X-Opex-User: $owner" "http://${E2E_HTTP_HOST}:8094${path}?${query}&timestamp=${timestamp}&recvWindow=60000"
   else
-    curl -fsS -H "X-Opex-User: $owner" "http://127.0.0.1:8094${path}?timestamp=${timestamp}&recvWindow=60000"
+    curl -fsS -H "X-Opex-User: $owner" "http://${E2E_HTTP_HOST}:8094${path}?timestamp=${timestamp}&recvWindow=60000"
   fi
 }
 
@@ -1664,7 +2006,7 @@ binance_private_get_status() {
   local path="$2"
   local query="${3:-}"
   local timestamp
-  timestamp=$(( $(date +%s) * 1000 ))
+  timestamp="$(current_time_ms)"
 
   if [[ -n "$query" ]]; then
     query="${query}&timestamp=${timestamp}&recvWindow=60000"
@@ -1673,13 +2015,16 @@ binance_private_get_status() {
   fi
 
   local response_file
-  response_file="$(mktemp)"
+  response_file="$(portable_mktemp)"
   local status
   status="$(curl -sS -X GET \
     -H "X-Opex-User: $owner" \
     -w "%{http_code}" \
     -o "$response_file" \
-    "http://127.0.0.1:8094${path}?${query}")"
+    "http://${E2E_HTTP_HOST}:8094${path}?${query}" || true)"
+  if [[ -z "$status" ]]; then
+    status="000"
+  fi
   printf '%s\n' "$status"
   cat "$response_file"
   rm -f "$response_file"
@@ -1689,19 +2034,22 @@ binance_private_get_raw_status() {
   local owner="$1"
   local path="$2"
   local query="${3:-}"
-  local url="http://127.0.0.1:8094${path}"
+  local url="http://${E2E_HTTP_HOST}:8094${path}"
   if [[ -n "$query" ]]; then
     url="${url}?${query}"
   fi
 
   local response_file
-  response_file="$(mktemp)"
+  response_file="$(portable_mktemp)"
   local status
   status="$(curl -sS -X GET \
     -H "X-Opex-User: $owner" \
     -w "%{http_code}" \
     -o "$response_file" \
-    "$url")"
+    "$url" || true)"
+  if [[ -z "$status" ]]; then
+    status="000"
+  fi
   printf '%s\n' "$status"
   cat "$response_file"
   rm -f "$response_file"
@@ -1712,7 +2060,7 @@ binance_private_post() {
   local path="$2"
   local form="${3:-}"
   local timestamp
-  timestamp=$(( $(date +%s) * 1000 ))
+  timestamp="$(current_time_ms)"
 
   if [[ -n "$form" ]]; then
     form="${form}&timestamp=${timestamp}&recvWindow=60000"
@@ -1721,7 +2069,7 @@ binance_private_post() {
   fi
 
   local response_file
-  response_file="$(mktemp)"
+  response_file="$(portable_mktemp)"
   local status
   status="$(curl -sS -X POST \
     -H "X-Opex-User: $owner" \
@@ -1729,7 +2077,7 @@ binance_private_post() {
     -w "%{http_code}" \
     -o "$response_file" \
     -d "$form" \
-    "http://127.0.0.1:8094${path}")"
+    "http://${E2E_HTTP_HOST}:8094${path}")"
   printf '%s\n' "$status"
   cat "$response_file"
   rm -f "$response_file"
@@ -1740,13 +2088,13 @@ binance_private_post_json() {
   local path="$2"
   local body="${3:-{}}"
   local timestamp
-  timestamp=$(( $(date +%s) * 1000 ))
+  timestamp="$(current_time_ms)"
 
   local signed_body
   signed_body="$(jq -c --argjson timestamp "$timestamp" '. + {timestamp: $timestamp, recvWindow: 60000}' <<<"$body")"
 
   local response_file
-  response_file="$(mktemp)"
+  response_file="$(portable_mktemp)"
   local status
   status="$(curl -sS -X POST \
     -H "X-Opex-User: $owner" \
@@ -1754,7 +2102,7 @@ binance_private_post_json() {
     -w "%{http_code}" \
     -o "$response_file" \
     -d "$signed_body" \
-    "http://127.0.0.1:8094${path}")"
+    "http://${E2E_HTTP_HOST}:8094${path}")"
   printf '%s\n' "$status"
   cat "$response_file"
   rm -f "$response_file"
@@ -1765,7 +2113,7 @@ binance_private_delete() {
   local path="$2"
   local form="${3:-}"
   local timestamp
-  timestamp=$(( $(date +%s) * 1000 ))
+  timestamp="$(current_time_ms)"
 
   if [[ -n "$form" ]]; then
     form="${form}&timestamp=${timestamp}&recvWindow=60000"
@@ -1774,7 +2122,7 @@ binance_private_delete() {
   fi
 
   local response_file
-  response_file="$(mktemp)"
+  response_file="$(portable_mktemp)"
   local status
   status="$(curl -sS -X DELETE \
     -H "X-Opex-User: $owner" \
@@ -1782,7 +2130,7 @@ binance_private_delete() {
     -w "%{http_code}" \
     -o "$response_file" \
     -d "$form" \
-    "http://127.0.0.1:8094${path}")"
+    "http://${E2E_HTTP_HOST}:8094${path}")"
   printf '%s\n' "$status"
   cat "$response_file"
   rm -f "$response_file"
@@ -1804,7 +2152,7 @@ deposit_via_bc_gateway() {
   assigned_body="$(curl -fsS -X POST \
     -H "Content-Type: application/json" \
     -d "{\"uuid\":\"${owner}\",\"currency\":\"${currency}\",\"chain\":\"test-ethereum\"}" \
-    "http://127.0.0.1:8095/v1/address/assign")"
+    "http://${E2E_HTTP_HOST}:8095/v1/address/assign")"
   local assigned_address
   assigned_address="$(jq -r --arg fallback "$address" '.addresses[0].address // $fallback' <<<"$assigned_body")"
 
@@ -1823,16 +2171,16 @@ deposit_via_bc_gateway() {
       chain: "test-ethereum",
       tokenAddress: $tokenAddress
     }]')"
-  expect_2xx "bc-gateway wallet-sync deposit" "$(curl_json PUT "http://127.0.0.1:8095/wallet-sync/test-ethereum" "$transfer_body")" >/dev/null
+  expect_2xx "bc-gateway wallet-sync deposit" "$(curl_json PUT "http://${E2E_HTTP_HOST}:8095/wallet-sync/test-ethereum" "$transfer_body")" >/dev/null
   assert_wallet_balance "bc-gateway ${currency} deposit" "$owner" "$currency" "$amount"
 }
 
 upload_reserved_eth_address() {
   local address="$1"
   local csv_file
-  csv_file="$(mktemp)"
+  csv_file="$(portable_mktemp)"
   printf '%s,,ethereum\n' "$address" > "$csv_file"
-  curl -fsS -X PUT -F "file=@${csv_file}" "http://127.0.0.1:8095/v1/address" >/dev/null
+  curl -fsS -X PUT -F "file=@${csv_file}" "http://${E2E_HTTP_HOST}:8095/v1/address" >/dev/null
   rm -f "$csv_file"
 }
 
@@ -2811,7 +3159,7 @@ wait_order_status() {
   local expected_status="$3"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/user/${owner}/order/${ouid}")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/order/${ouid}")" &&
     printf '%s\n' "$body" | jq -e --arg expected_status "$expected_status" '.status == $expected_status' >/dev/null; do
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for order $ouid status=$expected_status" >&2
@@ -2831,7 +3179,7 @@ wait_order_projection() {
   local expected_accumulative_quote_qty="$5"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body
-  until body="$(curl -fsS "http://127.0.0.1:8096/v1/user/${owner}/order/${ouid}")" &&
+  until body="$(curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/order/${ouid}")" &&
     printf '%s\n' "$body" | jq -e \
       --arg expected_status "$expected_status" \
       --argjson expected_executed_quantity "$expected_executed_quantity" \
@@ -2863,7 +3211,7 @@ wait_order_projection_by_order_id() {
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local body request
   request="$(jq -nc --arg symbol "$symbol" --argjson orderId "$order_id" '{symbol:$symbol, orderId:$orderId, origClientOrderId:null}')"
-  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$request" "http://127.0.0.1:8096/v1/user/${owner}/order/query")" &&
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$request" "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/order/query")" &&
     printf '%s\n' "$body" | jq -e \
       --arg expected_status "$expected_status" \
       --argjson expected_executed_quantity "$expected_executed_quantity" \
@@ -2887,15 +3235,19 @@ wait_order_projection_by_order_id() {
 
 wait_vault_e2e_secret() {
   local deadline=$((SECONDS + 900))
-  until "${COMPOSE[@]}" exec -T vault sh -c 'VAULT_TOKEN="$(cat /vault/file/tokens.txt 2>/dev/null)" vault kv get secret/opex-wallet >/dev/null 2>&1'; do
+  until "${COMPOSE[@]}" exec -T vault sh -c '
+    export VAULT_TOKEN="$(cat /vault/file/tokens.txt 2>/dev/null)"
+    vault kv get secret/opex-wallet >/dev/null 2>&1 &&
+    vault write -format=json auth/app-id/login/opex-api user_id=admin >/dev/null 2>&1
+  '; do
     if (( SECONDS > deadline )); then
-      echo "Timed out waiting for vault e2e secrets" >&2
+      echo "Timed out waiting for vault e2e secrets and app-id login" >&2
       "${COMPOSE[@]}" logs --tail=200 vault >&2 || true
       exit 1
     fi
     sleep 2
   done
-  echo "ready: vault e2e secrets loaded"
+  echo "ready: vault e2e secrets and app-id login"
 }
 
 wait_user_trade_projection() {
@@ -2914,7 +3266,7 @@ wait_user_trade_projection() {
   local body
   local trade_query
   trade_query="{\"symbol\":\"${symbol}\",\"fromTrade\":null,\"startTime\":null,\"endTime\":null,\"limit\":20}"
-  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://127.0.0.1:8096/v1/user/${owner}/trades")" &&
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/trades")" &&
     printf '%s\n' "$body" | jq -e \
       --argjson price "$price" \
       --argjson quantity "$quantity" \
@@ -2971,7 +3323,7 @@ wait_user_trade_aggregate() {
   local body
   local trade_query
   trade_query="{\"symbol\":\"${symbol}\",\"fromTrade\":null,\"startTime\":null,\"endTime\":null,\"limit\":20}"
-  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://127.0.0.1:8096/v1/user/${owner}/trades")" &&
+  until body="$(curl -fsS -X POST -H "Content-Type: application/json" -d "$trade_query" "http://${E2E_HTTP_HOST}:8096/v1/user/${owner}/trades")" &&
     printf '%s\n' "$body" | jq -e \
       --argjson price "$price" \
       --argjson expected_count "$expected_count" \
@@ -3077,9 +3429,9 @@ wait_accountant_market_order_definitions_match() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local accountant_file market_file diff_file
-  accountant_file="$(mktemp)"
-  market_file="$(mktemp)"
-  diff_file="$(mktemp)"
+  accountant_file="$(portable_mktemp)"
+  market_file="$(portable_mktemp)"
+  diff_file="$(portable_mktemp)"
 
   while true; do
     psql_query "postgres-accountant" "
@@ -3159,9 +3511,9 @@ wait_accountant_order_actions_match_eventlog_lifecycle() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local expected_file actual_file diff_file
-  expected_file="$(mktemp)"
-  actual_file="$(mktemp)"
-  diff_file="$(mktemp)"
+  expected_file="$(portable_mktemp)"
+  actual_file="$(portable_mktemp)"
+  diff_file="$(portable_mktemp)"
 
   while true; do
     psql_query "postgres-eventlog" "
@@ -3409,9 +3761,9 @@ wait_accountant_market_order_projections_match() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local accountant_file market_file diff_file
-  accountant_file="$(mktemp)"
-  market_file="$(mktemp)"
-  diff_file="$(mktemp)"
+  accountant_file="$(portable_mktemp)"
+  market_file="$(portable_mktemp)"
+  diff_file="$(portable_mktemp)"
 
   while true; do
     psql_query "postgres-accountant" "
@@ -3496,9 +3848,9 @@ wait_accountant_trade_transfers_match_market_executions() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local accountant_file market_file diff_file
-  accountant_file="$(mktemp)"
-  market_file="$(mktemp)"
-  diff_file="$(mktemp)"
+  accountant_file="$(portable_mktemp)"
+  market_file="$(portable_mktemp)"
+  diff_file="$(portable_mktemp)"
 
   while true; do
     psql_query "postgres-market" "
@@ -3581,9 +3933,9 @@ wait_accountant_trade_fees_match_market_commissions() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local accountant_file market_file diff_file
-  accountant_file="$(mktemp)"
-  market_file="$(mktemp)"
-  diff_file="$(mktemp)"
+  accountant_file="$(portable_mktemp)"
+  market_file="$(portable_mktemp)"
+  diff_file="$(portable_mktemp)"
 
   while true; do
     psql_query "postgres-market" "
@@ -3641,9 +3993,9 @@ wait_wallet_fee_transactions_match_accountant_actions() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local accountant_file wallet_file diff_file
-  accountant_file="$(mktemp)"
-  wallet_file="$(mktemp)"
-  diff_file="$(mktemp)"
+  accountant_file="$(portable_mktemp)"
+  wallet_file="$(portable_mktemp)"
+  diff_file="$(portable_mktemp)"
 
   while true; do
     psql_query "postgres-accountant" "
@@ -3702,9 +4054,9 @@ wait_wallet_transactions_match_accountant_actions() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local accountant_file wallet_file diff_file
-  accountant_file="$(mktemp)"
-  wallet_file="$(mktemp)"
-  diff_file="$(mktemp)"
+  accountant_file="$(portable_mktemp)"
+  wallet_file="$(portable_mktemp)"
+  diff_file="$(portable_mktemp)"
 
   while true; do
     psql_query "postgres-accountant" "
@@ -3912,9 +4264,9 @@ wait_eventlog_trades_match_market_projection() {
   local label="$1"
   local deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   local eventlog_file market_file diff_file
-  eventlog_file="$(mktemp)"
-  market_file="$(mktemp)"
-  diff_file="$(mktemp)"
+  eventlog_file="$(portable_mktemp)"
+  market_file="$(portable_mktemp)"
+  diff_file="$(portable_mktemp)"
 
   while true; do
     psql_query "postgres-market" "
@@ -3971,6 +4323,8 @@ main() {
   cd "$ROOT_DIR"
   configure_java
   require_command jq
+  trap restore_host_mm_bot_if_needed EXIT
+  stop_host_mm_bot_if_running
 
   if (( PACKAGE == 1 )); then
     package_apps
@@ -3993,45 +4347,79 @@ main() {
   "${COMPOSE[@]}" up -d vault
   wait_vault_e2e_secret
 
-  "${COMPOSE[@]}" up -d
+  "${COMPOSE[@]}" up -d \
+    consul \
+    postgres-wallet \
+    postgres-accountant \
+    postgres-market \
+    postgres-eventlog \
+    postgres-auth \
+    postgres-api \
+    postgres-opex \
+    redis \
+    redis-duo \
+    redis-cache \
+    wallet
 
-  wait_http "wallet" "http://127.0.0.1:8091/actuator/health"
-  wait_http "accountant" "http://127.0.0.1:8089/actuator/health"
-  wait_http "matching-engine" "http://127.0.0.1:8092/actuator/health"
-  wait_http "matching-gateway" "http://127.0.0.1:8093/actuator/health"
-  wait_http "market" "http://127.0.0.1:8096/actuator/health"
+  wait_http "wallet" "http://${E2E_HTTP_HOST}:8091/actuator/health"
+
+  "${COMPOSE[@]}" up -d \
+    eventlog \
+    matching-engine \
+    market \
+    accountant \
+    matching-gateway
+  if (( LIGHT_PROFILE == 0 )); then
+    "${COMPOSE[@]}" up -d matching-engine-duo
+  fi
+
+  wait_http "accountant" "http://${E2E_HTTP_HOST}:8089/actuator/health"
+  wait_accountant_config_ready
+  wait_http "matching-engine" "http://${E2E_HTTP_HOST}:8092/actuator/health"
+  wait_http "matching-gateway" "http://${E2E_HTTP_HOST}:8093/actuator/health"
+  wait_http "market" "http://${E2E_HTTP_HOST}:8096/actuator/health"
+  wait_market_query_ready
   wait_log "accountant" "accountant ETH_USDT order consumer" "orders_ETH_USDT-0"
   wait_log "accountant" "accountant ETH_USDT event consumer" "events_ETH_USDT-0"
   wait_log "accountant" "accountant ETH_USDT trade consumer" "trades_ETH_USDT-0"
   wait_log "accountant" "accountant BTC_USDT order consumer" "orders_BTC_USDT-0"
   wait_log "accountant" "accountant BTC_USDT event consumer" "events_BTC_USDT-0"
   wait_log "accountant" "accountant BTC_USDT trade consumer" "trades_BTC_USDT-0"
-  wait_log "accountant" "accountant SOL_USDT order consumer" "orders_SOL_USDT-0"
-  wait_log "accountant" "accountant SOL_USDT event consumer" "events_SOL_USDT-0"
-  wait_log "accountant" "accountant SOL_USDT trade consumer" "trades_SOL_USDT-0"
-  wait_log "accountant" "accountant DOGE_USDT order consumer" "orders_DOGE_USDT-0"
-  wait_log "accountant" "accountant DOGE_USDT event consumer" "events_DOGE_USDT-0"
-  wait_log "accountant" "accountant DOGE_USDT trade consumer" "trades_DOGE_USDT-0"
-  wait_log "accountant" "accountant TON_USDT order consumer" "orders_TON_USDT-0"
-  wait_log "accountant" "accountant TON_USDT event consumer" "events_TON_USDT-0"
-  wait_log "accountant" "accountant TON_USDT trade consumer" "trades_TON_USDT-0"
+  if (( LIGHT_PROFILE == 0 )); then
+    wait_log "accountant" "accountant SOL_USDT order consumer" "orders_SOL_USDT-0"
+    wait_log "accountant" "accountant SOL_USDT event consumer" "events_SOL_USDT-0"
+    wait_log "accountant" "accountant SOL_USDT trade consumer" "trades_SOL_USDT-0"
+    wait_log "accountant" "accountant DOGE_USDT order consumer" "orders_DOGE_USDT-0"
+    wait_log "accountant" "accountant DOGE_USDT event consumer" "events_DOGE_USDT-0"
+    wait_log "accountant" "accountant DOGE_USDT trade consumer" "trades_DOGE_USDT-0"
+    wait_log "accountant" "accountant TON_USDT order consumer" "orders_TON_USDT-0"
+    wait_log "accountant" "accountant TON_USDT event consumer" "events_TON_USDT-0"
+    wait_log "accountant" "accountant TON_USDT trade consumer" "trades_TON_USDT-0"
+  fi
   wait_consumer_group_stable "eventlog" "eventlog consumer group"
   wait_log "matching-engine" "matching-engine ETH_USDT order consumer" "orders_ETH_USDT-0"
   wait_log "matching-engine" "matching-engine BTC_USDT order consumer" "orders_BTC_USDT-0"
-  wait_log "matching-engine-duo" "matching-engine-duo SOL_USDT order consumer" "orders_SOL_USDT-0"
-  wait_log "matching-engine-duo" "matching-engine-duo DOGE_USDT order consumer" "orders_DOGE_USDT-0"
-  wait_log "matching-engine-duo" "matching-engine-duo TON_USDT order consumer" "orders_TON_USDT-0"
+  if (( LIGHT_PROFILE == 0 )); then
+    wait_log "matching-engine-duo" "matching-engine-duo SOL_USDT order consumer" "orders_SOL_USDT-0"
+    wait_log "matching-engine-duo" "matching-engine-duo DOGE_USDT order consumer" "orders_DOGE_USDT-0"
+    wait_log "matching-engine-duo" "matching-engine-duo TON_USDT order consumer" "orders_TON_USDT-0"
+  fi
   wait_log "market" "market richTrade consumer" "richTrade-0"
   wait_log "market" "market richOrder consumer" "richOrder-0"
+  wait_consumer_group_stable "accountant" "accountant consumer group"
+  wait_consumer_group_stable "market" "market consumer group"
+  wait_container_stable "wallet" "wallet stability"
+  wait_container_stable "accountant" "accountant stability"
+  wait_container_stable "market" "market stability"
   sleep 10
 
   "${COMPOSE[@]}" up -d postgres-bc-gateway bc-gateway
-  wait_http "bc-gateway" "http://127.0.0.1:8095/actuator/health"
+  wait_http "bc-gateway" "http://${E2E_HTTP_HOST}:8095/actuator/health"
 
   "${COMPOSE[@]}" up -d --no-deps api
-  wait_http "api" "http://127.0.0.1:8094/actuator/health"
+  wait_http "api" "http://${E2E_HTTP_HOST}:8094/actuator/health"
   wait_binance_exchange_info_symbol "ETHUSDT" "ETH" "USDT"
-  curl -fsS "http://127.0.0.1:8094/v3/exchangeInfo?symbol=ETHUSDT" >/tmp/opex-e2e-binance-exchange-info-ethusdt.json
+  curl -fsS "http://${E2E_HTTP_HOST}:8094/v3/exchangeInfo?symbol=ETHUSDT" >/tmp/opex-e2e-binance-exchange-info-ethusdt.json
   jq -e '
     (.timezone | type == "string") and (.timezone | length > 0) and
     (.serverTime | type == "number") and .serverTime > 0 and
@@ -4054,7 +4442,7 @@ main() {
   local api_address="0xe2e${api_address_owner//[^[:alnum:]]/}"
   api_address="${api_address:0:42}"
   upload_reserved_eth_address "$api_address"
-  expect_2xx "Binance API deposit address assignment" "$(binance_private_get_status "$api_address_owner" "/v1/capital/deposit/address" "coin=USDT&network=test-ethereum")" >/tmp/opex-e2e-binance-api-deposit-address.json
+  expect_2xx_retry "Binance API deposit address assignment" "binance_private_get_status '$api_address_owner' '/v1/capital/deposit/address' 'coin=USDT&network=test-ethereum'" >/tmp/opex-e2e-binance-api-deposit-address.json
   jq -e \
     --arg address "$api_address" '
       .address == $address and
@@ -4063,7 +4451,7 @@ main() {
       .tag == "" and
       .url == ""
     ' /tmp/opex-e2e-binance-api-deposit-address.json >/dev/null
-  expect_2xx "Binance API deposit address idempotent lookup" "$(binance_private_get_status "$api_address_owner" "/v1/capital/deposit/address" "coin=USDT&network=test-ethereum")" >/tmp/opex-e2e-binance-api-deposit-address-repeat.json
+  expect_2xx_retry "Binance API deposit address idempotent lookup" "binance_private_get_status '$api_address_owner' '/v1/capital/deposit/address' 'coin=USDT&network=test-ethereum'" >/tmp/opex-e2e-binance-api-deposit-address-repeat.json
   jq -e \
     --arg address "$api_address" '
       .address == $address and
@@ -4092,20 +4480,20 @@ main() {
   assert_opex_error "Binance API withdraw history stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-withdraw-history-signed-stale-timestamp.json)"
   assert_opex_error "Binance API user asset stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-user-asset-signed-stale-timestamp.json)"
   assert_opex_error "Binance API estimated value stale timestamp error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-estimated-value-signed-stale-timestamp.json)"
-  expect_2xx "Binance API trade fee ETHUSDT" "$(binance_private_get_status "$api_signed_owner" "/v1/asset/tradeFee" "symbol=ETHUSDT")" >/tmp/opex-e2e-binance-api-trade-fee-ethusdt.json
+  expect_2xx_retry "Binance API trade fee ETHUSDT" "binance_private_get_status '$api_signed_owner' '/v1/asset/tradeFee' 'symbol=ETHUSDT'" >/tmp/opex-e2e-binance-api-trade-fee-ethusdt.json
   jq -e '
     length == 1 and
     .[0].symbol == "ETHUSDT" and
     .[0].makerCommission == 0.01 and
     .[0].takerCommission == 0.01
   ' /tmp/opex-e2e-binance-api-trade-fee-ethusdt.json >/dev/null
-  expect_2xx "Binance API trade fee all symbols" "$(binance_private_get_status "$api_signed_owner" "/v1/asset/tradeFee" "")" >/tmp/opex-e2e-binance-api-trade-fee-all.json
+  expect_2xx_retry "Binance API trade fee all symbols" "binance_private_get_status '$api_signed_owner' '/v1/asset/tradeFee' ''" >/tmp/opex-e2e-binance-api-trade-fee-all.json
   jq -e '
     ([.[] | select(.symbol == "ETHUSDT" and .makerCommission == 0.01 and .takerCommission == 0.01)] | length == 1) and
     ([.[] | select(.symbol == "BTCUSDT" and .makerCommission == 0.01 and .takerCommission == 0.01)] | length == 1)
   ' /tmp/opex-e2e-binance-api-trade-fee-all.json >/dev/null
-  expect_2xx "Binance API signed owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_USDT/${api_signed_owner}_MAIN?description=e2e-api-signed&transferRef=${api_signed_owner}-usdt")" >/dev/null
-  expect_2xx "Binance API account commissions" "$(binance_private_get_status "$api_signed_owner" "/v3/account" "")" >/tmp/opex-e2e-binance-api-account-commissions.json
+  expect_2xx "Binance API signed owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_USDT/${api_signed_owner}_MAIN?description=e2e-api-signed&transferRef=${api_signed_owner}-usdt")" >/dev/null
+  expect_2xx_retry "Binance API account commissions" "binance_private_get_status '$api_signed_owner' '/v3/account' ''" >/tmp/opex-e2e-binance-api-account-commissions.json
   jq -e '
     .makerCommission == 100 and
     .takerCommission == 100 and
@@ -4119,20 +4507,28 @@ main() {
     (.permissions | index("SPOT") != null)
   ' /tmp/opex-e2e-binance-api-account-commissions.json >/dev/null
 
+  if (( LIGHT_PROFILE == 1 )); then
+    echo "ready: light profile signed API core checks"
+    if (( KEEP_RUNNING == 0 )); then
+      stop_e2e_app_containers
+    fi
+    return 0
+  fi
+
   local seller="e2e-seller-$(date +%s)"
   local buyer="e2e-buyer-$(date +%s)"
   local ref="e2e-$(date +%s)"
 
-  expect_2xx "seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/2_test-ethereum_ETH/${seller}_MAIN?description=e2e&transferRef=${ref}-eth")" >/dev/null
-  expect_2xx "buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1000_test-ethereum_USDT/${buyer}_MAIN?description=e2e&transferRef=${ref}-usdt")" >/dev/null
+  expect_2xx "seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/2_test-ethereum_ETH/${seller}_MAIN?description=e2e&transferRef=${ref}-eth")" >/dev/null
+  expect_2xx "buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1000_test-ethereum_USDT/${buyer}_MAIN?description=e2e&transferRef=${ref}-usdt")" >/dev/null
 
-  expect_2xx "seller wallet read" "$(curl_json GET "http://127.0.0.1:8091/v1/owner/${seller}/wallets/ETH")" >/tmp/opex-e2e-seller-wallet.json
-  expect_2xx "buyer wallet read" "$(curl_json GET "http://127.0.0.1:8091/v1/owner/${buyer}/wallets/USDT")" >/tmp/opex-e2e-buyer-wallet.json
+  expect_2xx "seller wallet read" "$(curl_json GET "http://${E2E_HTTP_HOST}:8091/v1/owner/${seller}/wallets/ETH")" >/tmp/opex-e2e-seller-wallet.json
+  expect_2xx "buyer wallet read" "$(curl_json GET "http://${E2E_HTTP_HOST}:8091/v1/owner/${buyer}/wallets/USDT")" >/tmp/opex-e2e-buyer-wallet.json
 
   local ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "seller ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$ask' '$seller'" >/tmp/opex-e2e-ask.json
-  expect_2xx_retry "buyer bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$bid' '$buyer'" >/tmp/opex-e2e-bid.json
+  expect_2xx_retry "seller ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$ask' '$seller'" >/tmp/opex-e2e-ask.json
+  expect_2xx_retry "buyer bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$bid' '$buyer'" >/tmp/opex-e2e-bid.json
 
   wait_user_trade_projection "$seller" "ETH_USDT" "100" "1" "100" "1" "USDT" false true false /tmp/opex-e2e-seller-trades.json
   wait_user_trade_projection "$buyer" "ETH_USDT" "100" "1" "100" "0.01" "ETH" true false false /tmp/opex-e2e-buyer-trades.json
@@ -4206,8 +4602,8 @@ main() {
   local api_order_seller="e2e-api-order-seller-$(date +%s)"
   local api_order_buyer="e2e-api-order-buyer-$(date +%s)"
   local api_order_ref="e2e-api-order-$(date +%s)"
-  expect_2xx "Binance API seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_order_seller}_MAIN?description=e2e-api-order&transferRef=${api_order_ref}-eth")" >/dev/null
-  expect_2xx "Binance API buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_order_buyer}_MAIN?description=e2e-api-order&transferRef=${api_order_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_order_seller}_MAIN?description=e2e-api-order&transferRef=${api_order_ref}-eth")" >/dev/null
+  expect_2xx "Binance API buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${api_order_buyer}_MAIN?description=e2e-api-order&transferRef=${api_order_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API seller limit ask" "binance_private_post '$api_order_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=101'" >/tmp/opex-e2e-binance-api-ask.json
   wait_user_open_order "$api_order_seller" "ETH_USDT" "101" "0.2" /tmp/opex-e2e-binance-api-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "101" "0.2"
@@ -4273,8 +4669,8 @@ main() {
   local api_self_trade_ref="e2e-api-stp-$(date +%s)"
   local api_self_trade_ask_client_id="e2e-api-stp-ask-$(date +%s)"
   local api_self_trade_bid_client_id="e2e-api-stp-bid-$(date +%s)"
-  expect_2xx "Binance API self-trade owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_self_trade_owner}_MAIN?description=e2e-api-self-trade&transferRef=${api_self_trade_ref}-eth")" >/dev/null
-  expect_2xx "Binance API self-trade owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_self_trade_owner}_MAIN?description=e2e-api-self-trade&transferRef=${api_self_trade_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API self-trade owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_self_trade_owner}_MAIN?description=e2e-api-self-trade&transferRef=${api_self_trade_ref}-eth")" >/dev/null
+  expect_2xx "Binance API self-trade owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${api_self_trade_owner}_MAIN?description=e2e-api-self-trade&transferRef=${api_self_trade_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API self-trade resting ask" "binance_private_post '$api_self_trade_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.4&price=104&newClientOrderId=${api_self_trade_ask_client_id}'" >/tmp/opex-e2e-binance-api-self-trade-ask.json
   wait_user_open_order "$api_self_trade_owner" "ETH_USDT" "104" "0.4" /tmp/opex-e2e-binance-api-self-trade-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "104" "0.4"
@@ -4344,8 +4740,8 @@ main() {
   local api_stp_ask_bid_client_id="e2e-api-stp-ask-bid-$(date +%s)"
   local api_stp_ask_ask_client_id="e2e-api-stp-ask-ask-$(date +%s)"
   wait_order_book_empty "ETH_USDT" "BID"
-  expect_2xx "Binance API stp-ask owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_stp_ask_owner}_MAIN?description=e2e-api-stp-ask&transferRef=${api_stp_ask_ref}-eth")" >/dev/null
-  expect_2xx "Binance API stp-ask owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_stp_ask_owner}_MAIN?description=e2e-api-stp-ask&transferRef=${api_stp_ask_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API stp-ask owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_stp_ask_owner}_MAIN?description=e2e-api-stp-ask&transferRef=${api_stp_ask_ref}-eth")" >/dev/null
+  expect_2xx "Binance API stp-ask owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${api_stp_ask_owner}_MAIN?description=e2e-api-stp-ask&transferRef=${api_stp_ask_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API stp-ask resting bid" "binance_private_post '$api_stp_ask_owner' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=0.5&price=80&newClientOrderId=${api_stp_ask_bid_client_id}'" >/tmp/opex-e2e-binance-api-stp-ask-bid.json
   wait_user_open_order "$api_stp_ask_owner" "ETH_USDT" "80" "0.5" /tmp/opex-e2e-binance-api-stp-ask-open-orders.json
   wait_order_book_level "ETH_USDT" "BID" "80" "0.5"
@@ -4415,8 +4811,8 @@ main() {
   local api_stp_market_bid_client_id="e2e-api-stp-market-bid-$(date +%s)"
   local api_stp_market_ask_client_id="e2e-api-stp-market-ask-$(date +%s)"
   wait_order_book_empty "ETH_USDT" "BID"
-  expect_2xx "Binance API stp-market owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_stp_market_owner}_MAIN?description=e2e-api-stp-market&transferRef=${api_stp_market_ref}-eth")" >/dev/null
-  expect_2xx "Binance API stp-market owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_stp_market_owner}_MAIN?description=e2e-api-stp-market&transferRef=${api_stp_market_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API stp-market owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_stp_market_owner}_MAIN?description=e2e-api-stp-market&transferRef=${api_stp_market_ref}-eth")" >/dev/null
+  expect_2xx "Binance API stp-market owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${api_stp_market_owner}_MAIN?description=e2e-api-stp-market&transferRef=${api_stp_market_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API stp-market resting bid" "binance_private_post '$api_stp_market_owner' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=0.5&price=80&newClientOrderId=${api_stp_market_bid_client_id}'" >/tmp/opex-e2e-binance-api-stp-market-bid.json
   wait_user_open_order "$api_stp_market_owner" "ETH_USDT" "80" "0.5" /tmp/opex-e2e-binance-api-stp-market-open-orders.json
   wait_order_book_level "ETH_USDT" "BID" "80" "0.5"
@@ -4485,8 +4881,8 @@ main() {
   local api_stp_market_buy_ask_client_id="e2e-api-stp-market-buy-ask-$(date +%s)"
   local api_stp_market_buy_bid_client_id="e2e-api-stp-market-buy-bid-$(date +%s)"
   wait_order_book_empty "ETH_USDT" "ASK"
-  expect_2xx "Binance API stp-market-buy owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_stp_market_buy_owner}_MAIN?description=e2e-api-stp-market-buy&transferRef=${api_stp_market_buy_ref}-eth")" >/dev/null
-  expect_2xx "Binance API stp-market-buy owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_stp_market_buy_owner}_MAIN?description=e2e-api-stp-market-buy&transferRef=${api_stp_market_buy_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API stp-market-buy owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_stp_market_buy_owner}_MAIN?description=e2e-api-stp-market-buy&transferRef=${api_stp_market_buy_ref}-eth")" >/dev/null
+  expect_2xx "Binance API stp-market-buy owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${api_stp_market_buy_owner}_MAIN?description=e2e-api-stp-market-buy&transferRef=${api_stp_market_buy_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API stp-market-buy resting ask" "binance_private_post '$api_stp_market_buy_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.4&price=105&newClientOrderId=${api_stp_market_buy_ask_client_id}'" >/tmp/opex-e2e-binance-api-stp-market-buy-ask.json
   wait_user_open_order "$api_stp_market_buy_owner" "ETH_USDT" "105" "0.4" /tmp/opex-e2e-binance-api-stp-market-buy-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "105" "0.4"
@@ -4554,8 +4950,8 @@ main() {
   local api_underfunded_ref="e2e-api-underfunded-$(date +%s)"
   local api_underfunded_ask_client_id="e2e-api-underfunded-ask-$(date +%s)"
   local api_underfunded_bid_client_id="e2e-api-underfunded-bid-$(date +%s)"
-  expect_2xx "Binance API underfunded owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.5_test-ethereum_ETH/${api_underfunded_owner}_MAIN?description=e2e-api-underfunded&transferRef=${api_underfunded_ref}-eth")" >/dev/null
-  expect_2xx "Binance API underfunded owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/50_test-ethereum_USDT/${api_underfunded_owner}_MAIN?description=e2e-api-underfunded&transferRef=${api_underfunded_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API underfunded owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/0.5_test-ethereum_ETH/${api_underfunded_owner}_MAIN?description=e2e-api-underfunded&transferRef=${api_underfunded_ref}-eth")" >/dev/null
+  expect_2xx "Binance API underfunded owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/50_test-ethereum_USDT/${api_underfunded_owner}_MAIN?description=e2e-api-underfunded&transferRef=${api_underfunded_ref}-usdt")" >/dev/null
   wait_binance_account_balance "$api_underfunded_owner" "ETH" "0.5" "0" /tmp/opex-e2e-binance-api-underfunded-initial-eth-account.json
   wait_binance_account_balance "$api_underfunded_owner" "USDT" "50" "0" /tmp/opex-e2e-binance-api-underfunded-initial-usdt-account.json
   expect_http_status "Binance API underfunded limit ask rejected" "400" "$(binance_private_post "$api_underfunded_owner" "/v3/order" "symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=1&price=105&newClientOrderId=${api_underfunded_ask_client_id}")" >/tmp/opex-e2e-binance-api-underfunded-ask.json
@@ -4579,7 +4975,7 @@ main() {
   local api_market_no_liq_seller="e2e-api-market-no-liq-s-$(date +%s)"
   local api_market_no_liq_ref="e2e-api-mkt-no-liq-$(date +%s)"
   local api_market_no_liq_client_id="e2e-mkt-no-liq-s-$(date +%s)"
-  expect_2xx "Binance API market no-liquidity seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_market_no_liq_seller}_MAIN?description=e2e-api-market-no-liq&transferRef=${api_market_no_liq_ref}-eth")" >/dev/null
+  expect_2xx "Binance API market no-liquidity seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_market_no_liq_seller}_MAIN?description=e2e-api-market-no-liq&transferRef=${api_market_no_liq_ref}-eth")" >/dev/null
   wait_order_book_empty "ETH_USDT" "ASK"
   wait_order_book_empty "ETH_USDT" "BID"
   expect_2xx_retry "Binance API market seller ask no liquidity" "binance_private_post '$api_market_no_liq_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=MARKET&quantity=0.2&newClientOrderId=${api_market_no_liq_client_id}'" >/tmp/opex-e2e-binance-api-market-no-liq-ask.json
@@ -4614,8 +5010,8 @@ main() {
   local api_market_buyer="e2e-api-market-b-$(date +%s)"
   local api_market_ref="e2e-api-mkt-$(date +%s)"
   local api_market_seller_client_id="e2e-mkt-s-$(date +%s)"
-  expect_2xx "Binance API market seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_market_seller}_MAIN?description=e2e-api-market&transferRef=${api_market_ref}-eth")" >/dev/null
-  expect_2xx "Binance API market buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${api_market_buyer}_MAIN?description=e2e-api-market&transferRef=${api_market_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API market seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_market_seller}_MAIN?description=e2e-api-market&transferRef=${api_market_ref}-eth")" >/dev/null
+  expect_2xx "Binance API market buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/40_test-ethereum_USDT/${api_market_buyer}_MAIN?description=e2e-api-market&transferRef=${api_market_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API market maker bid" "binance_private_post '$api_market_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=0.3&price=102'" >/tmp/opex-e2e-binance-api-market-bid.json
   wait_user_open_order "$api_market_buyer" "ETH_USDT" "102" "0.3" /tmp/opex-e2e-binance-api-market-open-orders.json
   local api_market_bid_order_id
@@ -4672,8 +5068,8 @@ main() {
   local api_market_buy_ref="e2e-api-mkt-buy-$(date +%s)"
   local api_market_buy_client_id="e2e-mkt-b-$(date +%s)"
   local api_market_buy_no_liq_client_id="e2e-mkt-b-no-liq-$(date +%s)"
-  expect_2xx "Binance API market-buy seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_market_buy_seller}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-eth")" >/dev/null
-  expect_2xx "Binance API market-buy buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${api_market_buy_buyer}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API market-buy seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_market_buy_seller}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-eth")" >/dev/null
+  expect_2xx "Binance API market-buy buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/40_test-ethereum_USDT/${api_market_buy_buyer}_MAIN?description=e2e-api-market-buy&transferRef=${api_market_buy_ref}-usdt")" >/dev/null
   expect_http_status "Binance API market-buy without price cap rejected" "400" "$(binance_private_post "$api_market_buy_buyer" "/v3/order" "symbol=ETHUSDT&side=BUY&type=MARKET&quantity=0.2&newClientOrderId=${api_market_buy_client_id}-no-cap")" >/tmp/opex-e2e-binance-api-market-buy-no-cap-reject.json
   assert_opex_error "Binance API market-buy without price cap error" "InvalidRequestParam" 1020 "$(cat /tmp/opex-e2e-binance-api-market-buy-no-cap-reject.json)"
   wait_no_user_open_orders "$api_market_buy_buyer" "ETH_USDT"
@@ -4758,7 +5154,7 @@ main() {
 
   local api_ioc_limit_owner="e2e-api-ioc-limit-$(date +%s)"
   local api_ioc_limit_ref="e2e-api-ioc-limit-$(date +%s)"
-  expect_2xx "Binance API IOC limit owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_ioc_limit_owner}_MAIN?description=e2e-api-ioc-limit&transferRef=${api_ioc_limit_ref}-eth")" >/dev/null
+  expect_2xx "Binance API IOC limit owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_ioc_limit_owner}_MAIN?description=e2e-api-ioc-limit&transferRef=${api_ioc_limit_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API IOC limit ask without liquidity" "binance_private_post '$api_ioc_limit_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=IOC&quantity=0.2&price=171'" >/tmp/opex-e2e-binance-api-ioc-limit-ask.json
   wait_no_user_open_orders "$api_ioc_limit_owner" "ETH_USDT"
   wait_order_book_empty "ETH_USDT" "ASK"
@@ -4768,8 +5164,8 @@ main() {
   local api_ioc_partial_seller="e2e-api-ioc-partial-s-$(date +%s)"
   local api_ioc_partial_buyer="e2e-api-ioc-partial-b-$(date +%s)"
   local api_ioc_partial_ref="e2e-api-ioc-partial-$(date +%s)"
-  expect_2xx "Binance API IOC partial seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_ioc_partial_seller}_MAIN?description=e2e-api-ioc-partial&transferRef=${api_ioc_partial_ref}-eth")" >/dev/null
-  expect_2xx "Binance API IOC partial buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_ioc_partial_buyer}_MAIN?description=e2e-api-ioc-partial&transferRef=${api_ioc_partial_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API IOC partial seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_ioc_partial_seller}_MAIN?description=e2e-api-ioc-partial&transferRef=${api_ioc_partial_ref}-eth")" >/dev/null
+  expect_2xx "Binance API IOC partial buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${api_ioc_partial_buyer}_MAIN?description=e2e-api-ioc-partial&transferRef=${api_ioc_partial_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API IOC partial maker ask" "binance_private_post '$api_ioc_partial_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=172'" >/tmp/opex-e2e-binance-api-ioc-partial-ask.json
   wait_user_open_order "$api_ioc_partial_seller" "ETH_USDT" "172" "0.2" /tmp/opex-e2e-binance-api-ioc-partial-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "172" "0.2"
@@ -4810,8 +5206,8 @@ main() {
   local api_ioc_partial_sell_seller="e2e-api-iocps-s-$(date +%s)"
   local api_ioc_partial_sell_buyer="e2e-api-iocps-b-$(date +%s)"
   local api_ioc_partial_sell_ref="e2e-api-iocps-$(date +%s)"
-  expect_2xx "Binance API IOC partial-sell seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_ioc_partial_sell_seller}_MAIN?description=e2e-api-ioc-partial-sell&transferRef=${api_ioc_partial_sell_ref}-eth")" >/dev/null
-  expect_2xx "Binance API IOC partial-sell buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${api_ioc_partial_sell_buyer}_MAIN?description=e2e-api-ioc-partial-sell&transferRef=${api_ioc_partial_sell_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API IOC partial-sell seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_ioc_partial_sell_seller}_MAIN?description=e2e-api-ioc-partial-sell&transferRef=${api_ioc_partial_sell_ref}-eth")" >/dev/null
+  expect_2xx "Binance API IOC partial-sell buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${api_ioc_partial_sell_buyer}_MAIN?description=e2e-api-ioc-partial-sell&transferRef=${api_ioc_partial_sell_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API IOC partial-sell maker bid" "binance_private_post '$api_ioc_partial_sell_buyer' '/v3/order' 'symbol=ETHUSDT&side=BUY&type=LIMIT&timeInForce=GTC&quantity=0.2&price=173'" >/tmp/opex-e2e-binance-api-ioc-partial-sell-bid.json
   wait_user_open_order "$api_ioc_partial_sell_buyer" "ETH_USDT" "173" "0.2" /tmp/opex-e2e-binance-api-ioc-partial-sell-open-orders.json
   wait_order_book_level "ETH_USDT" "BID" "173" "0.2"
@@ -4851,7 +5247,7 @@ main() {
 
   local api_cancel_owner="e2e-api-cancel-$(date +%s)"
   local api_cancel_ref="e2e-api-cancel-$(date +%s)"
-  expect_2xx "Binance API cancel ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_cancel_owner}_MAIN?description=e2e-api-cancel&transferRef=${api_cancel_ref}-eth")" >/dev/null
+  expect_2xx "Binance API cancel ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_cancel_owner}_MAIN?description=e2e-api-cancel&transferRef=${api_cancel_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API cancel owner limit ask" "binance_private_post '$api_cancel_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.3&price=160'" >/tmp/opex-e2e-binance-api-cancel-ask.json
   wait_user_open_order "$api_cancel_owner" "ETH_USDT" "160" "0.3" /tmp/opex-e2e-binance-api-cancel-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "160" "0.3"
@@ -4887,8 +5283,8 @@ main() {
   local api_partial_cancel_seller="e2e-api-pfc-s-$(date +%s)"
   local api_partial_cancel_buyer="e2e-api-pfc-b-$(date +%s)"
   local api_partial_cancel_ref="e2e-api-pfc-$(date +%s)"
-  expect_2xx "Binance API partial-cancel seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_partial_cancel_seller}_MAIN?description=e2e-api-partial-cancel&transferRef=${api_partial_cancel_ref}-eth")" >/dev/null
-  expect_2xx "Binance API partial-cancel buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${api_partial_cancel_buyer}_MAIN?description=e2e-api-partial-cancel&transferRef=${api_partial_cancel_ref}-usdt")" >/dev/null
+  expect_2xx "Binance API partial-cancel seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_partial_cancel_seller}_MAIN?description=e2e-api-partial-cancel&transferRef=${api_partial_cancel_ref}-eth")" >/dev/null
+  expect_2xx "Binance API partial-cancel buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/40_test-ethereum_USDT/${api_partial_cancel_buyer}_MAIN?description=e2e-api-partial-cancel&transferRef=${api_partial_cancel_ref}-usdt")" >/dev/null
   expect_2xx_retry "Binance API partial-cancel seller limit ask" "binance_private_post '$api_partial_cancel_seller' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.5&price=169'" >/tmp/opex-e2e-binance-api-partial-cancel-ask.json
   wait_user_open_order "$api_partial_cancel_seller" "ETH_USDT" "169" "0.5" /tmp/opex-e2e-binance-api-partial-cancel-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "169" "0.5"
@@ -4920,7 +5316,7 @@ main() {
   local api_client_cancel_ref="e2e-api-client-cancel-$(date +%s)"
   local api_client_cancel_id="e2e-client-cancel-$(date +%s)"
   local api_client_cancel_new_id="e2e-cancel-reply-$(date +%s)"
-  expect_2xx "Binance API client cancel ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_client_cancel_owner}_MAIN?description=e2e-api-client-cancel&transferRef=${api_client_cancel_ref}-eth")" >/dev/null
+  expect_2xx "Binance API client cancel ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_client_cancel_owner}_MAIN?description=e2e-api-client-cancel&transferRef=${api_client_cancel_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API client-id cancel owner limit ask" "binance_private_post '$api_client_cancel_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=161&newClientOrderId=${api_client_cancel_id}'" >/tmp/opex-e2e-binance-api-client-cancel-ask.json
   jq -e \
     --arg clientOrderId "$api_client_cancel_id" '
@@ -4959,7 +5355,7 @@ main() {
 
   local api_generated_client_owner="e2e-api-generated-client-$(date +%s)"
   local api_generated_client_ref="e2e-api-generated-client-$(date +%s)"
-  expect_2xx "Binance API generated client owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_generated_client_owner}_MAIN?description=e2e-api-generated-client&transferRef=${api_generated_client_ref}-eth")" >/dev/null
+  expect_2xx "Binance API generated client owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_generated_client_owner}_MAIN?description=e2e-api-generated-client&transferRef=${api_generated_client_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API generated client-id limit ask" "binance_private_post '$api_generated_client_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=167'" >/tmp/opex-e2e-binance-api-generated-client-ask.json
   local api_generated_client_id
   api_generated_client_id="$(jq -r '.clientOrderId // empty' /tmp/opex-e2e-binance-api-generated-client-ask.json)"
@@ -5003,7 +5399,7 @@ main() {
   local api_ack_owner="e2e-api-ack-$(date +%s)"
   local api_ack_ref="e2e-api-ack-$(date +%s)"
   local api_ack_client_id="e2e-ack-$(date +%s)"
-  expect_2xx "Binance API ACK owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_ack_owner}_MAIN?description=e2e-api-ack&transferRef=${api_ack_ref}-eth")" >/dev/null
+  expect_2xx "Binance API ACK owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_ack_owner}_MAIN?description=e2e-api-ack&transferRef=${api_ack_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API ACK response limit ask" "binance_private_post '$api_ack_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=170&newClientOrderId=${api_ack_client_id}&newOrderRespType=ACK'" >/tmp/opex-e2e-binance-api-ack-ask.json
   jq -e \
     --arg clientOrderId "$api_ack_client_id" '
@@ -5034,7 +5430,7 @@ main() {
   local api_result_owner="e2e-api-result-$(date +%s)"
   local api_result_ref="e2e-api-result-$(date +%s)"
   local api_result_client_id="e2e-result-$(date +%s)"
-  expect_2xx "Binance API RESULT owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_result_owner}_MAIN?description=e2e-api-result&transferRef=${api_result_ref}-eth")" >/dev/null
+  expect_2xx "Binance API RESULT owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_result_owner}_MAIN?description=e2e-api-result&transferRef=${api_result_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API RESULT response limit ask" "binance_private_post '$api_result_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=168&newClientOrderId=${api_result_client_id}&newOrderRespType=RESULT'" >/tmp/opex-e2e-binance-api-result-ask.json
   jq -e \
     --arg clientOrderId "$api_result_client_id" '
@@ -5068,7 +5464,7 @@ main() {
   local api_full_owner="e2e-api-full-$(date +%s)"
   local api_full_ref="e2e-api-full-$(date +%s)"
   local api_full_client_id="e2e-full-$(date +%s)"
-  expect_2xx "Binance API FULL owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_full_owner}_MAIN?description=e2e-api-full&transferRef=${api_full_ref}-eth")" >/dev/null
+  expect_2xx "Binance API FULL owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_full_owner}_MAIN?description=e2e-api-full&transferRef=${api_full_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API FULL response limit ask" "binance_private_post '$api_full_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=169&newClientOrderId=${api_full_client_id}&newOrderRespType=FULL'" >/tmp/opex-e2e-binance-api-full-ask.json
   jq -e \
     --arg clientOrderId "$api_full_client_id" '
@@ -5104,8 +5500,8 @@ main() {
   local api_scoped_client_owner_two="e2e-api-scoped-client-2-$(date +%s)"
   local api_scoped_client_ref="e2e-api-scoped-client-$(date +%s)"
   local api_scoped_client_id="e2e-shared-client-$(date +%s)"
-  expect_2xx "Binance API scoped client owner one ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_scoped_client_owner_one}_MAIN?description=e2e-api-scoped-client&transferRef=${api_scoped_client_ref}-eth-1")" >/dev/null
-  expect_2xx "Binance API scoped client owner two ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_scoped_client_owner_two}_MAIN?description=e2e-api-scoped-client&transferRef=${api_scoped_client_ref}-eth-2")" >/dev/null
+  expect_2xx "Binance API scoped client owner one ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_scoped_client_owner_one}_MAIN?description=e2e-api-scoped-client&transferRef=${api_scoped_client_ref}-eth-1")" >/dev/null
+  expect_2xx "Binance API scoped client owner two ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_scoped_client_owner_two}_MAIN?description=e2e-api-scoped-client&transferRef=${api_scoped_client_ref}-eth-2")" >/dev/null
   expect_2xx_retry "Binance API scoped client owner one limit ask" "binance_private_post '$api_scoped_client_owner_one' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=162&newClientOrderId=${api_scoped_client_id}'" >/tmp/opex-e2e-binance-api-scoped-client-ask-1.json
   expect_2xx_retry "Binance API scoped client owner two limit ask" "binance_private_post '$api_scoped_client_owner_two' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.3&price=163&newClientOrderId=${api_scoped_client_id}'" >/tmp/opex-e2e-binance-api-scoped-client-ask-2.json
   wait_user_open_order "$api_scoped_client_owner_one" "ETH_USDT" "162" "0.2" /tmp/opex-e2e-binance-api-scoped-client-open-orders-1.json
@@ -5136,7 +5532,7 @@ main() {
   local api_duplicate_client_owner="e2e-api-duplicate-client-$(date +%s)"
   local api_duplicate_client_ref="e2e-api-duplicate-client-$(date +%s)"
   local api_duplicate_client_id="e2e-duplicate-client-$(date +%s)"
-  expect_2xx "Binance API duplicate client owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_duplicate_client_owner}_MAIN?description=e2e-api-duplicate-client&transferRef=${api_duplicate_client_ref}-eth")" >/dev/null
+  expect_2xx "Binance API duplicate client owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_duplicate_client_owner}_MAIN?description=e2e-api-duplicate-client&transferRef=${api_duplicate_client_ref}-eth")" >/dev/null
   expect_2xx_retry "Binance API duplicate client first ask" "binance_private_post '$api_duplicate_client_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=164&newClientOrderId=${api_duplicate_client_id}'" >/tmp/opex-e2e-binance-api-duplicate-client-first-ask.json
   wait_user_open_order "$api_duplicate_client_owner" "ETH_USDT" "164" "0.2" /tmp/opex-e2e-binance-api-duplicate-client-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "164" "0.2"
@@ -5168,8 +5564,8 @@ main() {
   local api_all_symbol_ref="e2e-api-all-symbol-$(date +%s)"
   local api_all_symbol_eth_client_id="e2e-all-symbol-eth-$(date +%s)"
   local api_all_symbol_btc_client_id="e2e-all-symbol-btc-$(date +%s)"
-  expect_2xx "Binance API all-symbol ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${api_all_symbol_owner}_MAIN?description=e2e-api-all-symbol&transferRef=${api_all_symbol_ref}-eth")" >/dev/null
-  expect_2xx "Binance API all-symbol BTC deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.002_test-bitcoin_BTC/${api_all_symbol_owner}_MAIN?description=e2e-api-all-symbol&transferRef=${api_all_symbol_ref}-btc")" >/dev/null
+  expect_2xx "Binance API all-symbol ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${api_all_symbol_owner}_MAIN?description=e2e-api-all-symbol&transferRef=${api_all_symbol_ref}-eth")" >/dev/null
+  expect_2xx "Binance API all-symbol BTC deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/0.002_test-bitcoin_BTC/${api_all_symbol_owner}_MAIN?description=e2e-api-all-symbol&transferRef=${api_all_symbol_ref}-btc")" >/dev/null
   expect_2xx_retry "Binance API all-symbol ETH ask" "binance_private_post '$api_all_symbol_owner' '/v3/order' 'symbol=ETHUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.2&price=168&newClientOrderId=${api_all_symbol_eth_client_id}'" >/tmp/opex-e2e-binance-api-all-symbol-eth-ask.json
   expect_2xx_retry "Binance API all-symbol BTC ask" "binance_private_post '$api_all_symbol_owner' '/v3/order' 'symbol=BTCUSDT&side=SELL&type=LIMIT&timeInForce=GTC&quantity=0.001&price=23000&newClientOrderId=${api_all_symbol_btc_client_id}'" >/tmp/opex-e2e-binance-api-all-symbol-btc-ask.json
   wait_order_book_level "ETH_USDT" "ASK" "168" "0.2"
@@ -5203,12 +5599,12 @@ main() {
   local engine_restart_seller="e2e-engine-restart-seller-$(date +%s)"
   local engine_restart_buyer="e2e-engine-restart-buyer-$(date +%s)"
   local engine_restart_ref="e2e-engine-restart-$(date +%s)"
-  expect_2xx "engine-restart seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${engine_restart_seller}_MAIN?description=e2e-engine-restart&transferRef=${engine_restart_ref}-eth")" >/dev/null
-  expect_2xx "engine-restart buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${engine_restart_buyer}_MAIN?description=e2e-engine-restart&transferRef=${engine_restart_ref}-usdt")" >/dev/null
+  expect_2xx "engine-restart seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${engine_restart_seller}_MAIN?description=e2e-engine-restart&transferRef=${engine_restart_ref}-eth")" >/dev/null
+  expect_2xx "engine-restart buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${engine_restart_buyer}_MAIN?description=e2e-engine-restart&transferRef=${engine_restart_ref}-usdt")" >/dev/null
 
   local engine_restart_ask='{"uuid":null,"pair":"ETH_USDT","price":111,"quantity":0.5,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local engine_restart_bid='{"uuid":null,"pair":"ETH_USDT","price":111,"quantity":0.5,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "engine-restart resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$engine_restart_ask' '$engine_restart_seller'" >/tmp/opex-e2e-engine-restart-ask.json
+  expect_2xx_retry "engine-restart resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$engine_restart_ask' '$engine_restart_seller'" >/tmp/opex-e2e-engine-restart-ask.json
   wait_user_open_order "$engine_restart_seller" "ETH_USDT" "111" "0.5" /tmp/opex-e2e-engine-restart-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "111" "0.5"
   wait_matching_snapshot_order "engine-restart snapshot before restart" "$engine_restart_seller" "ETH_USDT" "ASK"
@@ -5227,7 +5623,7 @@ main() {
   wait_matching_snapshot_order "engine-restart snapshot after restart" "$engine_restart_seller" "ETH_USDT" "ASK"
   wait_user_open_order "$engine_restart_seller" "ETH_USDT" "111" "0.5" /tmp/opex-e2e-engine-restart-open-orders-after-restart.json
   wait_order_book_level "ETH_USDT" "ASK" "111" "0.5"
-  expect_2xx_retry "engine-restart crossing bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$engine_restart_bid' '$engine_restart_buyer'" >/tmp/opex-e2e-engine-restart-bid.json
+  expect_2xx_retry "engine-restart crossing bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$engine_restart_bid' '$engine_restart_buyer'" >/tmp/opex-e2e-engine-restart-bid.json
   wait_no_user_open_orders "$engine_restart_seller" "ETH_USDT"
   wait_matching_snapshot_no_order "engine-restart snapshot after fill" "$engine_restart_seller" "ETH_USDT" "ASK"
   wait_user_trade_projection "$engine_restart_seller" "ETH_USDT" "111" "0.5" "55.5" "0.555" "USDT" false true false /tmp/opex-e2e-engine-restart-seller-trades.json
@@ -5254,12 +5650,12 @@ main() {
   local wallet_restart_seller="e2e-wallet-restart-seller-$(date +%s)"
   local wallet_restart_buyer="e2e-wallet-restart-buyer-$(date +%s)"
   local wallet_restart_ref="e2e-wallet-restart-$(date +%s)"
-  expect_2xx "wallet-restart seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${wallet_restart_seller}_MAIN?description=e2e-wallet-restart&transferRef=${wallet_restart_ref}-eth")" >/dev/null
-  expect_2xx "wallet-restart buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${wallet_restart_buyer}_MAIN?description=e2e-wallet-restart&transferRef=${wallet_restart_ref}-usdt")" >/dev/null
+  expect_2xx "wallet-restart seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${wallet_restart_seller}_MAIN?description=e2e-wallet-restart&transferRef=${wallet_restart_ref}-eth")" >/dev/null
+  expect_2xx "wallet-restart buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${wallet_restart_buyer}_MAIN?description=e2e-wallet-restart&transferRef=${wallet_restart_ref}-usdt")" >/dev/null
 
   local wallet_restart_ask='{"uuid":null,"pair":"ETH_USDT","price":112,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local wallet_restart_bid='{"uuid":null,"pair":"ETH_USDT","price":112,"quantity":0.4,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "wallet-restart resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$wallet_restart_ask' '$wallet_restart_seller'" >/tmp/opex-e2e-wallet-restart-ask.json
+  expect_2xx_retry "wallet-restart resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$wallet_restart_ask' '$wallet_restart_seller'" >/tmp/opex-e2e-wallet-restart-ask.json
   wait_user_open_order "$wallet_restart_seller" "ETH_USDT" "112" "0.4" /tmp/opex-e2e-wallet-restart-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "112" "0.4"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5275,7 +5671,7 @@ main() {
 
   restart_wallet_and_wait
   assert_wallet_balance "wallet-restart seller reservation after wallet restart" "$wallet_restart_seller" "ETH" "0.6"
-  expect_2xx_retry "wallet-restart crossing bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$wallet_restart_bid' '$wallet_restart_buyer'" >/tmp/opex-e2e-wallet-restart-bid.json
+  expect_2xx_retry "wallet-restart crossing bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$wallet_restart_bid' '$wallet_restart_buyer'" >/tmp/opex-e2e-wallet-restart-bid.json
   wait_no_user_open_orders "$wallet_restart_seller" "ETH_USDT"
   wait_user_trade_projection "$wallet_restart_seller" "ETH_USDT" "112" "0.4" "44.8" "0.448" "USDT" false true false /tmp/opex-e2e-wallet-restart-seller-trades.json
   wait_user_trade_projection "$wallet_restart_buyer" "ETH_USDT" "112" "0.4" "44.8" "0.004" "ETH" true false false /tmp/opex-e2e-wallet-restart-buyer-trades.json
@@ -5301,12 +5697,12 @@ main() {
   local accountant_restart_seller="e2e-acct-rs-s-$(date +%s)"
   local accountant_restart_buyer="e2e-acct-rs-b-$(date +%s)"
   local accountant_restart_ref="e2e-acct-rs-$(date +%s)"
-  expect_2xx "accountant-restart seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${accountant_restart_seller}_MAIN?description=e2e-accountant-restart&transferRef=${accountant_restart_ref}-eth")" >/dev/null
-  expect_2xx "accountant-restart buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${accountant_restart_buyer}_MAIN?description=e2e-accountant-restart&transferRef=${accountant_restart_ref}-usdt")" >/dev/null
+  expect_2xx "accountant-restart seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${accountant_restart_seller}_MAIN?description=e2e-accountant-restart&transferRef=${accountant_restart_ref}-eth")" >/dev/null
+  expect_2xx "accountant-restart buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${accountant_restart_buyer}_MAIN?description=e2e-accountant-restart&transferRef=${accountant_restart_ref}-usdt")" >/dev/null
 
   local accountant_restart_ask='{"uuid":null,"pair":"ETH_USDT","price":113,"quantity":0.3,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local accountant_restart_bid='{"uuid":null,"pair":"ETH_USDT","price":113,"quantity":0.3,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "accountant-restart resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$accountant_restart_ask' '$accountant_restart_seller'" >/tmp/opex-e2e-accountant-restart-ask.json
+  expect_2xx_retry "accountant-restart resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$accountant_restart_ask' '$accountant_restart_seller'" >/tmp/opex-e2e-accountant-restart-ask.json
   wait_user_open_order "$accountant_restart_seller" "ETH_USDT" "113" "0.3" /tmp/opex-e2e-accountant-restart-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "113" "0.3"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5321,7 +5717,7 @@ main() {
   done
 
   restart_accountant_and_wait
-  expect_2xx_retry "accountant-restart crossing bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$accountant_restart_bid' '$accountant_restart_buyer'" >/tmp/opex-e2e-accountant-restart-bid.json
+  expect_2xx_retry "accountant-restart crossing bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$accountant_restart_bid' '$accountant_restart_buyer'" >/tmp/opex-e2e-accountant-restart-bid.json
   wait_no_user_open_orders "$accountant_restart_seller" "ETH_USDT"
   wait_user_trade_projection "$accountant_restart_seller" "ETH_USDT" "113" "0.3" "33.9" "0.339" "USDT" false true false /tmp/opex-e2e-accountant-restart-seller-trades.json
   wait_user_trade_projection "$accountant_restart_buyer" "ETH_USDT" "113" "0.3" "33.9" "0.003" "ETH" true false false /tmp/opex-e2e-accountant-restart-buyer-trades.json
@@ -5347,16 +5743,16 @@ main() {
   local gateway_restart_seller="e2e-gw-rs-s-$(date +%s)"
   local gateway_restart_buyer="e2e-gw-rs-b-$(date +%s)"
   local gateway_restart_ref="e2e-gw-rs-$(date +%s)"
-  expect_2xx "gateway-restart seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${gateway_restart_seller}_MAIN?description=e2e-gateway-restart&transferRef=${gateway_restart_ref}-eth")" >/dev/null
-  expect_2xx "gateway-restart buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${gateway_restart_buyer}_MAIN?description=e2e-gateway-restart&transferRef=${gateway_restart_ref}-usdt")" >/dev/null
+  expect_2xx "gateway-restart seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${gateway_restart_seller}_MAIN?description=e2e-gateway-restart&transferRef=${gateway_restart_ref}-eth")" >/dev/null
+  expect_2xx "gateway-restart buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${gateway_restart_buyer}_MAIN?description=e2e-gateway-restart&transferRef=${gateway_restart_ref}-usdt")" >/dev/null
 
   restart_matching_gateway_and_wait
   local gateway_restart_ask='{"uuid":null,"pair":"ETH_USDT","price":114,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local gateway_restart_bid='{"uuid":null,"pair":"ETH_USDT","price":114,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "gateway-restart ask order after restart" "curl_json POST 'http://127.0.0.1:8093/order' '$gateway_restart_ask' '$gateway_restart_seller'" >/tmp/opex-e2e-gateway-restart-ask.json
+  expect_2xx_retry "gateway-restart ask order after restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$gateway_restart_ask' '$gateway_restart_seller'" >/tmp/opex-e2e-gateway-restart-ask.json
   wait_user_open_order "$gateway_restart_seller" "ETH_USDT" "114" "0.2" /tmp/opex-e2e-gateway-restart-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "114" "0.2"
-  expect_2xx_retry "gateway-restart bid order after restart" "curl_json POST 'http://127.0.0.1:8093/order' '$gateway_restart_bid' '$gateway_restart_buyer'" >/tmp/opex-e2e-gateway-restart-bid.json
+  expect_2xx_retry "gateway-restart bid order after restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$gateway_restart_bid' '$gateway_restart_buyer'" >/tmp/opex-e2e-gateway-restart-bid.json
   wait_no_user_open_orders "$gateway_restart_seller" "ETH_USDT"
   wait_user_trade_projection "$gateway_restart_seller" "ETH_USDT" "114" "0.2" "22.8" "0.228" "USDT" false true false /tmp/opex-e2e-gateway-restart-seller-trades.json
   wait_user_trade_projection "$gateway_restart_buyer" "ETH_USDT" "114" "0.2" "22.8" "0.002" "ETH" true false false /tmp/opex-e2e-gateway-restart-buyer-trades.json
@@ -5383,15 +5779,15 @@ main() {
   local core_restart_buyer="e2e-core-rs-b-$(date +%s)"
   local core_restart_ref="e2e-core-rs-$(date +%s)"
   restart_core_services_and_wait
-  expect_2xx_retry "core-restart seller ETH deposit after restart" "curl_json POST 'http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${core_restart_seller}_MAIN?description=e2e-core-restart&transferRef=${core_restart_ref}-eth'" >/dev/null
-  expect_2xx_retry "core-restart buyer USDT deposit after restart" "curl_json POST 'http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${core_restart_buyer}_MAIN?description=e2e-core-restart&transferRef=${core_restart_ref}-usdt'" >/dev/null
+  expect_2xx_retry "core-restart seller ETH deposit after restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${core_restart_seller}_MAIN?description=e2e-core-restart&transferRef=${core_restart_ref}-eth'" >/dev/null
+  expect_2xx_retry "core-restart buyer USDT deposit after restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${core_restart_buyer}_MAIN?description=e2e-core-restart&transferRef=${core_restart_ref}-usdt'" >/dev/null
 
   local core_restart_ask='{"uuid":null,"pair":"ETH_USDT","price":115,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local core_restart_bid='{"uuid":null,"pair":"ETH_USDT","price":115,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "core-restart ask order after core restart" "curl_json POST 'http://127.0.0.1:8093/order' '$core_restart_ask' '$core_restart_seller'" >/tmp/opex-e2e-core-restart-ask.json
+  expect_2xx_retry "core-restart ask order after core restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$core_restart_ask' '$core_restart_seller'" >/tmp/opex-e2e-core-restart-ask.json
   wait_user_open_order "$core_restart_seller" "ETH_USDT" "115" "0.2" /tmp/opex-e2e-core-restart-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "115" "0.2"
-  expect_2xx_retry "core-restart bid order after core restart" "curl_json POST 'http://127.0.0.1:8093/order' '$core_restart_bid' '$core_restart_buyer'" >/tmp/opex-e2e-core-restart-bid.json
+  expect_2xx_retry "core-restart bid order after core restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$core_restart_bid' '$core_restart_buyer'" >/tmp/opex-e2e-core-restart-bid.json
   wait_no_user_open_orders "$core_restart_seller" "ETH_USDT"
   wait_user_trade_projection "$core_restart_seller" "ETH_USDT" "115" "0.2" "23" "0.23" "USDT" false true false /tmp/opex-e2e-core-restart-seller-trades.json
   wait_user_trade_projection "$core_restart_buyer" "ETH_USDT" "115" "0.2" "23" "0.002" "ETH" true false false /tmp/opex-e2e-core-restart-buyer-trades.json
@@ -5417,17 +5813,17 @@ main() {
   local kafka_restart_seller="e2e-kafka-rs-s-$(date +%s)"
   local kafka_restart_buyer="e2e-kafka-rs-b-$(date +%s)"
   local kafka_restart_ref="e2e-kafka-rs-$(date +%s)"
-  expect_2xx_retry "kafka-restart seller ETH deposit before restart" "curl_json POST 'http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${kafka_restart_seller}_MAIN?description=e2e-kafka-restart&transferRef=${kafka_restart_ref}-eth'" >/dev/null
-  expect_2xx_retry "kafka-restart buyer USDT deposit before restart" "curl_json POST 'http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${kafka_restart_buyer}_MAIN?description=e2e-kafka-restart&transferRef=${kafka_restart_ref}-usdt'" >/dev/null
+  expect_2xx_retry "kafka-restart seller ETH deposit before restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${kafka_restart_seller}_MAIN?description=e2e-kafka-restart&transferRef=${kafka_restart_ref}-eth'" >/dev/null
+  expect_2xx_retry "kafka-restart buyer USDT deposit before restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${kafka_restart_buyer}_MAIN?description=e2e-kafka-restart&transferRef=${kafka_restart_ref}-usdt'" >/dev/null
 
   local kafka_down_ask='{"uuid":null,"pair":"ETH_USDT","price":116,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   restart_kafka_with_gateway_rejection_check "$kafka_down_ask" "$kafka_restart_seller" "ETH" "1"
   local kafka_restart_ask='{"uuid":null,"pair":"ETH_USDT","price":116,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local kafka_restart_bid='{"uuid":null,"pair":"ETH_USDT","price":116,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "kafka-restart ask order after broker restart" "curl_json POST 'http://127.0.0.1:8093/order' '$kafka_restart_ask' '$kafka_restart_seller'" >/tmp/opex-e2e-kafka-restart-ask.json
+  expect_2xx_retry "kafka-restart ask order after broker restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$kafka_restart_ask' '$kafka_restart_seller'" >/tmp/opex-e2e-kafka-restart-ask.json
   wait_user_open_order "$kafka_restart_seller" "ETH_USDT" "116" "0.2" /tmp/opex-e2e-kafka-restart-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "116" "0.2"
-  expect_2xx_retry "kafka-restart bid order after broker restart" "curl_json POST 'http://127.0.0.1:8093/order' '$kafka_restart_bid' '$kafka_restart_buyer'" >/tmp/opex-e2e-kafka-restart-bid.json
+  expect_2xx_retry "kafka-restart bid order after broker restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$kafka_restart_bid' '$kafka_restart_buyer'" >/tmp/opex-e2e-kafka-restart-bid.json
   wait_no_user_open_orders "$kafka_restart_seller" "ETH_USDT"
   wait_user_trade_projection "$kafka_restart_seller" "ETH_USDT" "116" "0.2" "23.2" "0.232" "USDT" false true false /tmp/opex-e2e-kafka-restart-seller-trades.json
   wait_user_trade_projection "$kafka_restart_buyer" "ETH_USDT" "116" "0.2" "23.2" "0.002" "ETH" true false false /tmp/opex-e2e-kafka-restart-buyer-trades.json
@@ -5454,15 +5850,15 @@ main() {
   local postgres_restart_buyer="e2e-pg-rs-b-$(date +%s)"
   local postgres_restart_ref="e2e-pg-rs-$(date +%s)"
   restart_postgres_datastores_and_wait
-  expect_2xx_retry "postgres-restart seller ETH deposit after datastore restart" "curl_json POST 'http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${postgres_restart_seller}_MAIN?description=e2e-postgres-restart&transferRef=${postgres_restart_ref}-eth'" >/dev/null
-  expect_2xx_retry "postgres-restart buyer USDT deposit after datastore restart" "curl_json POST 'http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${postgres_restart_buyer}_MAIN?description=e2e-postgres-restart&transferRef=${postgres_restart_ref}-usdt'" >/dev/null
+  expect_2xx_retry "postgres-restart seller ETH deposit after datastore restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${postgres_restart_seller}_MAIN?description=e2e-postgres-restart&transferRef=${postgres_restart_ref}-eth'" >/dev/null
+  expect_2xx_retry "postgres-restart buyer USDT deposit after datastore restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${postgres_restart_buyer}_MAIN?description=e2e-postgres-restart&transferRef=${postgres_restart_ref}-usdt'" >/dev/null
 
   local postgres_restart_ask='{"uuid":null,"pair":"ETH_USDT","price":117,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local postgres_restart_bid='{"uuid":null,"pair":"ETH_USDT","price":117,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "postgres-restart ask order after datastore restart" "curl_json POST 'http://127.0.0.1:8093/order' '$postgres_restart_ask' '$postgres_restart_seller'" >/tmp/opex-e2e-postgres-restart-ask.json
+  expect_2xx_retry "postgres-restart ask order after datastore restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$postgres_restart_ask' '$postgres_restart_seller'" >/tmp/opex-e2e-postgres-restart-ask.json
   wait_user_open_order "$postgres_restart_seller" "ETH_USDT" "117" "0.2" /tmp/opex-e2e-postgres-restart-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "117" "0.2"
-  expect_2xx_retry "postgres-restart bid order after datastore restart" "curl_json POST 'http://127.0.0.1:8093/order' '$postgres_restart_bid' '$postgres_restart_buyer'" >/tmp/opex-e2e-postgres-restart-bid.json
+  expect_2xx_retry "postgres-restart bid order after datastore restart" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$postgres_restart_bid' '$postgres_restart_buyer'" >/tmp/opex-e2e-postgres-restart-bid.json
   wait_no_user_open_orders "$postgres_restart_seller" "ETH_USDT"
   wait_user_trade_projection "$postgres_restart_seller" "ETH_USDT" "117" "0.2" "23.4" "0.234" "USDT" false true false /tmp/opex-e2e-postgres-restart-seller-trades.json
   wait_user_trade_projection "$postgres_restart_buyer" "ETH_USDT" "117" "0.2" "23.4" "0.002" "ETH" true false false /tmp/opex-e2e-postgres-restart-buyer-trades.json
@@ -5487,10 +5883,10 @@ main() {
 
   local cancel_owner="e2e-cancel-$(date +%s)"
   local cancel_ref="e2e-cancel-$(date +%s)"
-  expect_2xx "cancel scenario ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${cancel_owner}_MAIN?description=e2e-cancel&transferRef=${cancel_ref}-eth")" >/dev/null
+  expect_2xx "cancel scenario ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${cancel_owner}_MAIN?description=e2e-cancel&transferRef=${cancel_ref}-eth")" >/dev/null
 
   local unmatched_ask='{"uuid":null,"pair":"ETH_USDT","price":150,"quantity":0.25,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "unmatched ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$unmatched_ask' '$cancel_owner'" >/tmp/opex-e2e-unmatched-ask.json
+  expect_2xx_retry "unmatched ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$unmatched_ask' '$cancel_owner'" >/tmp/opex-e2e-unmatched-ask.json
 
   wait_user_open_order "$cancel_owner" "ETH_USDT" "150" "0.25" /tmp/opex-e2e-cancel-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "150" "0.25"
@@ -5517,7 +5913,7 @@ main() {
 
   local cancel_query_request cancel_query_missing_lookup cancel_query_zero_id
   cancel_query_request="$(jq -nc --argjson orderId "$cancel_order_id" '{symbol:"ETH_USDT", orderId:$orderId, origClientOrderId:null}')"
-  expect_2xx_retry "market owner query order by orderId" "curl_json POST 'http://127.0.0.1:8096/v1/user/${cancel_owner}/order/query' '$cancel_query_request'" >/tmp/opex-e2e-cancel-query-order.json
+  expect_2xx_retry "market owner query order by orderId" "curl_json POST 'http://${E2E_HTTP_HOST}:8096/v1/user/${cancel_owner}/order/query' '$cancel_query_request'" >/tmp/opex-e2e-cancel-query-order.json
   jq -e --arg ouid "$cancel_ouid" --argjson orderId "$cancel_order_id" '
     .ouid == $ouid and
     .orderId == $orderId and
@@ -5531,12 +5927,12 @@ main() {
 
   cancel_query_missing_lookup='{"symbol":"ETH_USDT","orderId":null,"origClientOrderId":null}'
   cancel_query_zero_id='{"symbol":"ETH_USDT","orderId":0,"origClientOrderId":null}'
-  expect_http_status "market order query missing lookup" "400" "$(curl_json POST "http://127.0.0.1:8096/v1/user/${cancel_owner}/order/query" "$cancel_query_missing_lookup")" >/tmp/opex-e2e-cancel-query-missing-lookup.json
-  expect_http_status "market order query zero order id" "400" "$(curl_json POST "http://127.0.0.1:8096/v1/user/${cancel_owner}/order/query" "$cancel_query_zero_id")" >/tmp/opex-e2e-cancel-query-zero-id.json
-  expect_http_status "market order query wrong owner forbidden" "403" "$(curl_json POST "http://127.0.0.1:8096/v1/user/${cancel_owner}-intruder/order/query" "$cancel_query_request")" >/tmp/opex-e2e-cancel-query-forbidden.json
+  expect_http_status "market order query missing lookup" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8096/v1/user/${cancel_owner}/order/query" "$cancel_query_missing_lookup")" >/tmp/opex-e2e-cancel-query-missing-lookup.json
+  expect_http_status "market order query zero order id" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8096/v1/user/${cancel_owner}/order/query" "$cancel_query_zero_id")" >/tmp/opex-e2e-cancel-query-zero-id.json
+  expect_http_status "market order query wrong owner forbidden" "403" "$(curl_json POST "http://${E2E_HTTP_HOST}:8096/v1/user/${cancel_owner}-intruder/order/query" "$cancel_query_request")" >/tmp/opex-e2e-cancel-query-forbidden.json
 
   cancel_request="$(jq -nc --arg ouid "$cancel_ouid" --arg uuid "$cancel_owner" --argjson orderId "$cancel_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel unmatched ask order" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$cancel_request' '$cancel_owner'" >/tmp/opex-e2e-cancel-order.json
+  expect_2xx_retry "cancel unmatched ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$cancel_request' '$cancel_owner'" >/tmp/opex-e2e-cancel-order.json
 
   wait_no_user_open_orders "$cancel_owner" "ETH_USDT"
   wait_order_projection "$cancel_owner" "$cancel_ouid" "CANCELED" "0" "0"
@@ -5554,12 +5950,12 @@ main() {
   local partial_seller="e2e-partial-seller-$(date +%s)"
   local partial_buyer="e2e-partial-buyer-$(date +%s)"
   local partial_ref="e2e-partial-$(date +%s)"
-  expect_2xx "partial seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/2_test-ethereum_ETH/${partial_seller}_MAIN?description=e2e-partial&transferRef=${partial_ref}-eth")" >/dev/null
-  expect_2xx "partial buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/50_test-ethereum_USDT/${partial_buyer}_MAIN?description=e2e-partial&transferRef=${partial_ref}-usdt")" >/dev/null
+  expect_2xx "partial seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/2_test-ethereum_ETH/${partial_seller}_MAIN?description=e2e-partial&transferRef=${partial_ref}-eth")" >/dev/null
+  expect_2xx "partial buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/50_test-ethereum_USDT/${partial_buyer}_MAIN?description=e2e-partial&transferRef=${partial_ref}-usdt")" >/dev/null
 
   local partial_ask='{"uuid":null,"pair":"ETH_USDT","price":120,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local partial_bid='{"uuid":null,"pair":"ETH_USDT","price":120,"quantity":0.4,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "partial ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$partial_ask' '$partial_seller'" >/tmp/opex-e2e-partial-ask.json
+  expect_2xx_retry "partial ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$partial_ask' '$partial_seller'" >/tmp/opex-e2e-partial-ask.json
   wait_user_open_order "$partial_seller" "ETH_USDT" "120" "1" /tmp/opex-e2e-partial-open-orders.json
   local partial_ask_ouid partial_ask_order_id partial_cancel_request
   partial_ask_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-partial-open-orders.json)"
@@ -5570,7 +5966,7 @@ main() {
     exit 1
   fi
 
-  expect_2xx_retry "partial bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$partial_bid' '$partial_buyer'" >/tmp/opex-e2e-partial-bid.json
+  expect_2xx_retry "partial bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$partial_bid' '$partial_buyer'" >/tmp/opex-e2e-partial-bid.json
   wait_order_projection "$partial_seller" "$partial_ask_ouid" "PARTIALLY_FILLED" "0.4" "48"
   wait_order_book_level "ETH_USDT" "ASK" "120" "0.6"
   wait_user_trade_projection "$partial_seller" "ETH_USDT" "120" "0.4" "48" "0.48" "USDT" false true false /tmp/opex-e2e-partial-seller-trades.json
@@ -5593,7 +5989,7 @@ main() {
   done
 
   partial_cancel_request="$(jq -nc --arg ouid "$partial_ask_ouid" --arg uuid "$partial_seller" --argjson orderId "$partial_ask_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel partial ask remainder" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$partial_cancel_request' '$partial_seller'" >/tmp/opex-e2e-partial-cancel-order.json
+  expect_2xx_retry "cancel partial ask remainder" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$partial_cancel_request' '$partial_seller'" >/tmp/opex-e2e-partial-cancel-order.json
   wait_no_user_open_orders "$partial_seller" "ETH_USDT"
   wait_order_projection "$partial_seller" "$partial_ask_ouid" "CANCELED" "0.4" "48"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5609,9 +6005,9 @@ main() {
 
   local ioc_owner="e2e-ioc-$(date +%s)"
   local ioc_ref="e2e-ioc-$(date +%s)"
-  expect_2xx "ioc owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${ioc_owner}_MAIN?description=e2e-ioc&transferRef=${ioc_ref}-eth")" >/dev/null
+  expect_2xx "ioc owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${ioc_owner}_MAIN?description=e2e-ioc&transferRef=${ioc_ref}-eth")" >/dev/null
   local ioc_ask='{"uuid":null,"pair":"ETH_USDT","price":999,"quantity":0.5,"direction":"ASK","matchConstraint":"IOC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "ioc ask no liquidity" "curl_json POST 'http://127.0.0.1:8093/order' '$ioc_ask' '$ioc_owner'" >/tmp/opex-e2e-ioc-ask.json
+  expect_2xx_retry "ioc ask no liquidity" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$ioc_ask' '$ioc_owner'" >/tmp/opex-e2e-ioc-ask.json
   wait_no_user_open_orders "$ioc_owner" "ETH_USDT"
   wait_user_order_status_by_price "$ioc_owner" "ETH_USDT" "999" "0.5" "CANCELED"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5628,12 +6024,12 @@ main() {
   local market_seller="e2e-market-seller-$(date +%s)"
   local market_buyer="e2e-market-buyer-$(date +%s)"
   local market_ref="e2e-market-$(date +%s)"
-  expect_2xx "market seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${market_seller}_MAIN?description=e2e-market&transferRef=${market_ref}-eth")" >/dev/null
-  expect_2xx "market buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/40_test-ethereum_USDT/${market_buyer}_MAIN?description=e2e-market&transferRef=${market_ref}-usdt")" >/dev/null
+  expect_2xx "market seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${market_seller}_MAIN?description=e2e-market&transferRef=${market_ref}-eth")" >/dev/null
+  expect_2xx "market buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/40_test-ethereum_USDT/${market_buyer}_MAIN?description=e2e-market&transferRef=${market_ref}-usdt")" >/dev/null
 
   local market_bid='{"uuid":null,"pair":"ETH_USDT","price":130,"quantity":0.3,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local market_ask='{"uuid":null,"pair":"ETH_USDT","price":0,"quantity":0.2,"direction":"ASK","matchConstraint":"IOC","orderType":"MARKET_ORDER","userLevel":"*"}'
-  expect_2xx_retry "market maker bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid' '$market_buyer'" >/tmp/opex-e2e-market-bid.json
+  expect_2xx_retry "market maker bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$market_bid' '$market_buyer'" >/tmp/opex-e2e-market-bid.json
   wait_user_open_order "$market_buyer" "ETH_USDT" "130" "0.3" /tmp/opex-e2e-market-maker-open-orders.json
   local market_bid_ouid market_bid_order_id market_cancel_request
   market_bid_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-market-maker-open-orders.json)"
@@ -5644,7 +6040,7 @@ main() {
     exit 1
   fi
 
-  expect_2xx_retry "market taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_ask' '$market_seller'" >/tmp/opex-e2e-market-ask.json
+  expect_2xx_retry "market taker ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$market_ask' '$market_seller'" >/tmp/opex-e2e-market-ask.json
   wait_user_order_status_by_price "$market_seller" "ETH_USDT" "0" "0.2" "FILLED"
   wait_order_projection "$market_buyer" "$market_bid_ouid" "PARTIALLY_FILLED" "0.2" "26"
   wait_order_book_level "ETH_USDT" "BID" "130" "0.1"
@@ -5668,7 +6064,7 @@ main() {
   done
 
   market_cancel_request="$(jq -nc --arg ouid "$market_bid_ouid" --arg uuid "$market_buyer" --argjson orderId "$market_bid_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel market maker bid remainder" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$market_cancel_request' '$market_buyer'" >/tmp/opex-e2e-market-cancel-order.json
+  expect_2xx_retry "cancel market maker bid remainder" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$market_cancel_request' '$market_buyer'" >/tmp/opex-e2e-market-cancel-order.json
   wait_no_user_open_orders "$market_buyer" "ETH_USDT"
   wait_order_projection "$market_buyer" "$market_bid_ouid" "CANCELED" "0.2" "26"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5686,16 +6082,16 @@ main() {
   local sweep_high_buyer="e2e-sweep-high-$(date +%s)"
   local sweep_low_buyer="e2e-sweep-low-$(date +%s)"
   local sweep_ref="e2e-sweep-$(date +%s)"
-  expect_2xx "sweep seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${sweep_seller}_MAIN?description=e2e-sweep&transferRef=${sweep_ref}-eth")" >/dev/null
-  expect_2xx "sweep high buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${sweep_high_buyer}_MAIN?description=e2e-sweep&transferRef=${sweep_ref}-high-usdt")" >/dev/null
-  expect_2xx "sweep low buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/50_test-ethereum_USDT/${sweep_low_buyer}_MAIN?description=e2e-sweep&transferRef=${sweep_ref}-low-usdt")" >/dev/null
+  expect_2xx "sweep seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${sweep_seller}_MAIN?description=e2e-sweep&transferRef=${sweep_ref}-eth")" >/dev/null
+  expect_2xx "sweep high buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/20_test-ethereum_USDT/${sweep_high_buyer}_MAIN?description=e2e-sweep&transferRef=${sweep_ref}-high-usdt")" >/dev/null
+  expect_2xx "sweep low buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/50_test-ethereum_USDT/${sweep_low_buyer}_MAIN?description=e2e-sweep&transferRef=${sweep_ref}-low-usdt")" >/dev/null
 
   local sweep_high_bid='{"uuid":null,"pair":"ETH_USDT","price":150,"quantity":0.1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local sweep_low_bid='{"uuid":null,"pair":"ETH_USDT","price":140,"quantity":0.3,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local sweep_market_ask='{"uuid":null,"pair":"ETH_USDT","price":0,"quantity":0.3,"direction":"ASK","matchConstraint":"IOC","orderType":"MARKET_ORDER","userLevel":"*"}'
-  expect_2xx_retry "sweep high bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$sweep_high_bid' '$sweep_high_buyer'" >/tmp/opex-e2e-sweep-high-bid.json
+  expect_2xx_retry "sweep high bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$sweep_high_bid' '$sweep_high_buyer'" >/tmp/opex-e2e-sweep-high-bid.json
   wait_user_open_order "$sweep_high_buyer" "ETH_USDT" "150" "0.1" /tmp/opex-e2e-sweep-high-open-orders.json
-  expect_2xx_retry "sweep low bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$sweep_low_bid' '$sweep_low_buyer'" >/tmp/opex-e2e-sweep-low-bid.json
+  expect_2xx_retry "sweep low bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$sweep_low_bid' '$sweep_low_buyer'" >/tmp/opex-e2e-sweep-low-bid.json
   wait_user_open_order "$sweep_low_buyer" "ETH_USDT" "140" "0.3" /tmp/opex-e2e-sweep-low-open-orders.json
 
   local sweep_low_ouid sweep_low_order_id sweep_low_cancel_request
@@ -5707,7 +6103,7 @@ main() {
     exit 1
   fi
 
-  expect_2xx_retry "sweep market taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$sweep_market_ask' '$sweep_seller'" >/tmp/opex-e2e-sweep-market-ask.json
+  expect_2xx_retry "sweep market taker ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$sweep_market_ask' '$sweep_seller'" >/tmp/opex-e2e-sweep-market-ask.json
   wait_user_order_status_by_price "$sweep_seller" "ETH_USDT" "0" "0.3" "FILLED"
   wait_no_user_open_orders "$sweep_high_buyer" "ETH_USDT"
   wait_order_projection "$sweep_low_buyer" "$sweep_low_ouid" "PARTIALLY_FILLED" "0.2" "28"
@@ -5738,7 +6134,7 @@ main() {
   done
 
   sweep_low_cancel_request="$(jq -nc --arg ouid "$sweep_low_ouid" --arg uuid "$sweep_low_buyer" --argjson orderId "$sweep_low_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel sweep low bid remainder" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$sweep_low_cancel_request' '$sweep_low_buyer'" >/tmp/opex-e2e-sweep-low-cancel.json
+  expect_2xx_retry "cancel sweep low bid remainder" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$sweep_low_cancel_request' '$sweep_low_buyer'" >/tmp/opex-e2e-sweep-low-cancel.json
   wait_no_user_open_orders "$sweep_low_buyer" "ETH_USDT"
   wait_order_projection "$sweep_low_buyer" "$sweep_low_ouid" "CANCELED" "0.2" "28"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5756,16 +6152,16 @@ main() {
   local bid_sweep_low_seller="e2e-bid-sweep-low-$(date +%s)"
   local bid_sweep_high_seller="e2e-bid-sweep-high-$(date +%s)"
   local bid_sweep_ref="e2e-bid-sweep-$(date +%s)"
-  expect_2xx "bid-sweep buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/80_test-ethereum_USDT/${bid_sweep_buyer}_MAIN?description=e2e-bid-sweep&transferRef=${bid_sweep_ref}-usdt")" >/dev/null
-  expect_2xx "bid-sweep low seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${bid_sweep_low_seller}_MAIN?description=e2e-bid-sweep&transferRef=${bid_sweep_ref}-low-eth")" >/dev/null
-  expect_2xx "bid-sweep high seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${bid_sweep_high_seller}_MAIN?description=e2e-bid-sweep&transferRef=${bid_sweep_ref}-high-eth")" >/dev/null
+  expect_2xx "bid-sweep buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/80_test-ethereum_USDT/${bid_sweep_buyer}_MAIN?description=e2e-bid-sweep&transferRef=${bid_sweep_ref}-usdt")" >/dev/null
+  expect_2xx "bid-sweep low seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${bid_sweep_low_seller}_MAIN?description=e2e-bid-sweep&transferRef=${bid_sweep_ref}-low-eth")" >/dev/null
+  expect_2xx "bid-sweep high seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${bid_sweep_high_seller}_MAIN?description=e2e-bid-sweep&transferRef=${bid_sweep_ref}-high-eth")" >/dev/null
 
   local bid_sweep_low_ask='{"uuid":null,"pair":"ETH_USDT","price":90,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local bid_sweep_high_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.3,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local bid_sweep_market_bid='{"uuid":null,"pair":"ETH_USDT","price":200,"quantity":0.3,"direction":"BID","matchConstraint":"IOC","orderType":"MARKET_ORDER","userLevel":"*"}'
-  expect_2xx_retry "bid-sweep low ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$bid_sweep_low_ask' '$bid_sweep_low_seller'" >/tmp/opex-e2e-bid-sweep-low-ask.json
+  expect_2xx_retry "bid-sweep low ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$bid_sweep_low_ask' '$bid_sweep_low_seller'" >/tmp/opex-e2e-bid-sweep-low-ask.json
   wait_user_open_order "$bid_sweep_low_seller" "ETH_USDT" "90" "0.1" /tmp/opex-e2e-bid-sweep-low-open-orders.json
-  expect_2xx_retry "bid-sweep high ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$bid_sweep_high_ask' '$bid_sweep_high_seller'" >/tmp/opex-e2e-bid-sweep-high-ask.json
+  expect_2xx_retry "bid-sweep high ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$bid_sweep_high_ask' '$bid_sweep_high_seller'" >/tmp/opex-e2e-bid-sweep-high-ask.json
   wait_user_open_order "$bid_sweep_high_seller" "ETH_USDT" "100" "0.3" /tmp/opex-e2e-bid-sweep-high-open-orders.json
 
   local bid_sweep_high_ouid bid_sweep_high_order_id bid_sweep_high_cancel_request
@@ -5777,7 +6173,7 @@ main() {
     exit 1
   fi
 
-  expect_2xx_retry "bid-sweep market taker bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$bid_sweep_market_bid' '$bid_sweep_buyer'" >/tmp/opex-e2e-bid-sweep-market-bid.json
+  expect_2xx_retry "bid-sweep market taker bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$bid_sweep_market_bid' '$bid_sweep_buyer'" >/tmp/opex-e2e-bid-sweep-market-bid.json
   wait_user_order_status_by_price "$bid_sweep_buyer" "ETH_USDT" "200" "0.3" "FILLED"
   wait_no_user_open_orders "$bid_sweep_low_seller" "ETH_USDT"
   wait_order_projection "$bid_sweep_high_seller" "$bid_sweep_high_ouid" "PARTIALLY_FILLED" "0.2" "20"
@@ -5808,7 +6204,7 @@ main() {
   done
 
   bid_sweep_high_cancel_request="$(jq -nc --arg ouid "$bid_sweep_high_ouid" --arg uuid "$bid_sweep_high_seller" --argjson orderId "$bid_sweep_high_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel bid-sweep high ask remainder" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$bid_sweep_high_cancel_request' '$bid_sweep_high_seller'" >/tmp/opex-e2e-bid-sweep-high-cancel.json
+  expect_2xx_retry "cancel bid-sweep high ask remainder" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$bid_sweep_high_cancel_request' '$bid_sweep_high_seller'" >/tmp/opex-e2e-bid-sweep-high-cancel.json
   wait_no_user_open_orders "$bid_sweep_high_seller" "ETH_USDT"
   wait_order_projection "$bid_sweep_high_seller" "$bid_sweep_high_ouid" "CANCELED" "0.2" "20"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5826,14 +6222,14 @@ main() {
   local priority_low_buyer="e2e-priority-low-$(date +%s)"
   local priority_high_buyer="e2e-priority-high-$(date +%s)"
   local priority_ref="e2e-priority-$(date +%s)"
-  expect_2xx "priority seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${priority_seller}_MAIN?description=e2e-priority&transferRef=${priority_ref}-eth")" >/dev/null
-  expect_2xx "priority low buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${priority_low_buyer}_MAIN?description=e2e-priority&transferRef=${priority_ref}-low-usdt")" >/dev/null
-  expect_2xx "priority high buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${priority_high_buyer}_MAIN?description=e2e-priority&transferRef=${priority_ref}-high-usdt")" >/dev/null
+  expect_2xx "priority seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${priority_seller}_MAIN?description=e2e-priority&transferRef=${priority_ref}-eth")" >/dev/null
+  expect_2xx "priority low buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${priority_low_buyer}_MAIN?description=e2e-priority&transferRef=${priority_ref}-low-usdt")" >/dev/null
+  expect_2xx "priority high buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${priority_high_buyer}_MAIN?description=e2e-priority&transferRef=${priority_ref}-high-usdt")" >/dev/null
 
   local low_bid='{"uuid":null,"pair":"ETH_USDT","price":110,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local high_bid='{"uuid":null,"pair":"ETH_USDT","price":140,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local priority_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "priority low bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$low_bid' '$priority_low_buyer'" >/tmp/opex-e2e-priority-low-bid.json
+  expect_2xx_retry "priority low bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$low_bid' '$priority_low_buyer'" >/tmp/opex-e2e-priority-low-bid.json
   wait_user_open_order "$priority_low_buyer" "ETH_USDT" "110" "0.2" /tmp/opex-e2e-priority-low-open-orders.json
   local priority_low_ouid priority_low_order_id priority_low_cancel_request
   priority_low_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-priority-low-open-orders.json)"
@@ -5844,9 +6240,9 @@ main() {
     exit 1
   fi
 
-  expect_2xx_retry "priority high bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$high_bid' '$priority_high_buyer'" >/tmp/opex-e2e-priority-high-bid.json
+  expect_2xx_retry "priority high bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$high_bid' '$priority_high_buyer'" >/tmp/opex-e2e-priority-high-bid.json
   wait_user_open_order "$priority_high_buyer" "ETH_USDT" "140" "0.2" /tmp/opex-e2e-priority-high-open-orders.json
-  expect_2xx_retry "priority taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$priority_ask' '$priority_seller'" >/tmp/opex-e2e-priority-ask.json
+  expect_2xx_retry "priority taker ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$priority_ask' '$priority_seller'" >/tmp/opex-e2e-priority-ask.json
   wait_user_trade_projection "$priority_seller" "ETH_USDT" "140" "0.2" "28" "0.28" "USDT" false false true /tmp/opex-e2e-priority-seller-trades.json
   wait_user_trade_projection "$priority_high_buyer" "ETH_USDT" "140" "0.2" "28" "0.002" "ETH" true true true /tmp/opex-e2e-priority-high-buyer-trades.json
   wait_no_user_open_orders "$priority_high_buyer" "ETH_USDT"
@@ -5872,7 +6268,7 @@ main() {
   done
 
   priority_low_cancel_request="$(jq -nc --arg ouid "$priority_low_ouid" --arg uuid "$priority_low_buyer" --argjson orderId "$priority_low_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel priority low bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$priority_low_cancel_request' '$priority_low_buyer'" >/tmp/opex-e2e-priority-low-cancel.json
+  expect_2xx_retry "cancel priority low bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$priority_low_cancel_request' '$priority_low_buyer'" >/tmp/opex-e2e-priority-low-cancel.json
   wait_no_user_open_orders "$priority_low_buyer" "ETH_USDT"
   wait_order_projection "$priority_low_buyer" "$priority_low_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5890,16 +6286,16 @@ main() {
   local fifo_first_buyer="e2e-fifo-first-$(date +%s)"
   local fifo_second_buyer="e2e-fifo-second-$(date +%s)"
   local fifo_ref="e2e-fifo-$(date +%s)"
-  expect_2xx "fifo seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${fifo_seller}_MAIN?description=e2e-fifo&transferRef=${fifo_ref}-eth")" >/dev/null
-  expect_2xx "fifo first buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${fifo_first_buyer}_MAIN?description=e2e-fifo&transferRef=${fifo_ref}-first-usdt")" >/dev/null
-  expect_2xx "fifo second buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${fifo_second_buyer}_MAIN?description=e2e-fifo&transferRef=${fifo_ref}-second-usdt")" >/dev/null
+  expect_2xx "fifo seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${fifo_seller}_MAIN?description=e2e-fifo&transferRef=${fifo_ref}-eth")" >/dev/null
+  expect_2xx "fifo first buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${fifo_first_buyer}_MAIN?description=e2e-fifo&transferRef=${fifo_ref}-first-usdt")" >/dev/null
+  expect_2xx "fifo second buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${fifo_second_buyer}_MAIN?description=e2e-fifo&transferRef=${fifo_ref}-second-usdt")" >/dev/null
 
   local fifo_first_bid='{"uuid":null,"pair":"ETH_USDT","price":125,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local fifo_second_bid='{"uuid":null,"pair":"ETH_USDT","price":125,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local fifo_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "fifo first bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$fifo_first_bid' '$fifo_first_buyer'" >/tmp/opex-e2e-fifo-first-bid.json
+  expect_2xx_retry "fifo first bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$fifo_first_bid' '$fifo_first_buyer'" >/tmp/opex-e2e-fifo-first-bid.json
   wait_user_open_order "$fifo_first_buyer" "ETH_USDT" "125" "0.2" /tmp/opex-e2e-fifo-first-open-orders.json
-  expect_2xx_retry "fifo second bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$fifo_second_bid' '$fifo_second_buyer'" >/tmp/opex-e2e-fifo-second-bid.json
+  expect_2xx_retry "fifo second bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$fifo_second_bid' '$fifo_second_buyer'" >/tmp/opex-e2e-fifo-second-bid.json
   wait_user_open_order "$fifo_second_buyer" "ETH_USDT" "125" "0.2" /tmp/opex-e2e-fifo-second-open-orders.json
   wait_binance_depth_level "ETHUSDT" "BID" "125" "0.4" /tmp/opex-e2e-binance-depth-aggregated-fifo.json
   jq -e '
@@ -5921,7 +6317,7 @@ main() {
     exit 1
   fi
 
-  expect_2xx_retry "fifo taker ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$fifo_ask' '$fifo_seller'" >/tmp/opex-e2e-fifo-ask.json
+  expect_2xx_retry "fifo taker ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$fifo_ask' '$fifo_seller'" >/tmp/opex-e2e-fifo-ask.json
   wait_user_trade_projection "$fifo_seller" "ETH_USDT" "125" "0.2" "25" "0.25" "USDT" false false true /tmp/opex-e2e-fifo-seller-trades.json
   wait_user_trade_projection "$fifo_first_buyer" "ETH_USDT" "125" "0.2" "25" "0.002" "ETH" true true true /tmp/opex-e2e-fifo-first-buyer-trades.json
   wait_no_user_open_orders "$fifo_first_buyer" "ETH_USDT"
@@ -5947,7 +6343,7 @@ main() {
   done
 
   fifo_second_cancel_request="$(jq -nc --arg ouid "$fifo_second_ouid" --arg uuid "$fifo_second_buyer" --argjson orderId "$fifo_second_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel fifo second bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$fifo_second_cancel_request' '$fifo_second_buyer'" >/tmp/opex-e2e-fifo-second-cancel.json
+  expect_2xx_retry "cancel fifo second bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$fifo_second_cancel_request' '$fifo_second_buyer'" >/tmp/opex-e2e-fifo-second-cancel.json
   wait_no_user_open_orders "$fifo_second_buyer" "ETH_USDT"
   wait_order_projection "$fifo_second_buyer" "$fifo_second_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5963,11 +6359,11 @@ main() {
 
   local overreserve_owner="e2e-overreserve-$(date +%s)"
   local overreserve_ref="e2e-overreserve-$(date +%s)"
-  expect_2xx "overreserve owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${overreserve_owner}_MAIN?description=e2e-overreserve&transferRef=${overreserve_ref}-eth")" >/dev/null
+  expect_2xx "overreserve owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${overreserve_owner}_MAIN?description=e2e-overreserve&transferRef=${overreserve_ref}-eth")" >/dev/null
 
   local overreserve_first_ask='{"uuid":null,"pair":"ETH_USDT","price":160,"quantity":0.7,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local overreserve_second_ask='{"uuid":null,"pair":"ETH_USDT","price":161,"quantity":0.5,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "overreserve first ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$overreserve_first_ask' '$overreserve_owner'" >/tmp/opex-e2e-overreserve-first-ask.json
+  expect_2xx_retry "overreserve first ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$overreserve_first_ask' '$overreserve_owner'" >/tmp/opex-e2e-overreserve-first-ask.json
   wait_user_open_order "$overreserve_owner" "ETH_USDT" "160" "0.7" /tmp/opex-e2e-overreserve-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "160" "0.7"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -5981,7 +6377,7 @@ main() {
     sleep 2
   done
 
-  expect_http_status "overreserve second ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$overreserve_second_ask" "$overreserve_owner")" >/tmp/opex-e2e-overreserve-reject.json
+  expect_http_status_retry "overreserve second ask order" "400" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$overreserve_second_ask' '$overreserve_owner'" >/tmp/opex-e2e-overreserve-reject.json
   wait_user_open_order "$overreserve_owner" "ETH_USDT" "160" "0.7" /tmp/opex-e2e-overreserve-open-orders.json
   assert_no_user_order_by_price "$overreserve_owner" "ETH_USDT" "161" "0.5"
   assert_wallet_balance "overreserve owner rejected-order ETH unchanged" "$overreserve_owner" "ETH" "0.3"
@@ -5996,7 +6392,7 @@ main() {
   fi
 
   overreserve_cancel_request="$(jq -nc --arg ouid "$overreserve_ouid" --arg uuid "$overreserve_owner" --argjson orderId "$overreserve_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel overreserve first ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$overreserve_cancel_request' '$overreserve_owner'" >/tmp/opex-e2e-overreserve-cancel.json
+  expect_2xx_retry "cancel overreserve first ask" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$overreserve_cancel_request' '$overreserve_owner'" >/tmp/opex-e2e-overreserve-cancel.json
   wait_no_user_open_orders "$overreserve_owner" "ETH_USDT"
   wait_order_projection "$overreserve_owner" "$overreserve_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6012,11 +6408,11 @@ main() {
 
   local bid_overreserve_owner="e2e-bid-overreserve-$(date +%s)"
   local bid_overreserve_ref="e2e-bid-overreserve-$(date +%s)"
-  expect_2xx "bid-overreserve owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${bid_overreserve_owner}_MAIN?description=e2e-bid-overreserve&transferRef=${bid_overreserve_ref}-usdt")" >/dev/null
+  expect_2xx "bid-overreserve owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${bid_overreserve_owner}_MAIN?description=e2e-bid-overreserve&transferRef=${bid_overreserve_ref}-usdt")" >/dev/null
 
   local bid_overreserve_first_bid='{"uuid":null,"pair":"ETH_USDT","price":80,"quantity":0.8,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local bid_overreserve_second_bid='{"uuid":null,"pair":"ETH_USDT","price":80,"quantity":0.5,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "bid-overreserve first bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$bid_overreserve_first_bid' '$bid_overreserve_owner'" >/tmp/opex-e2e-bid-overreserve-first-bid.json
+  expect_2xx_retry "bid-overreserve first bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$bid_overreserve_first_bid' '$bid_overreserve_owner'" >/tmp/opex-e2e-bid-overreserve-first-bid.json
   wait_user_open_order "$bid_overreserve_owner" "ETH_USDT" "80" "0.8" /tmp/opex-e2e-bid-overreserve-open-orders.json
   wait_order_book_level "ETH_USDT" "BID" "80" "0.8"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6030,7 +6426,7 @@ main() {
     sleep 2
   done
 
-  expect_http_status "bid-overreserve second bid order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$bid_overreserve_second_bid" "$bid_overreserve_owner")" >/tmp/opex-e2e-bid-overreserve-reject.json
+  expect_http_status_retry "bid-overreserve second bid order" "400" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$bid_overreserve_second_bid' '$bid_overreserve_owner'" >/tmp/opex-e2e-bid-overreserve-reject.json
   wait_user_open_order "$bid_overreserve_owner" "ETH_USDT" "80" "0.8" /tmp/opex-e2e-bid-overreserve-open-orders.json
   assert_no_user_order_by_price "$bid_overreserve_owner" "ETH_USDT" "80" "0.5"
   assert_wallet_balance "bid-overreserve owner rejected-order USDT unchanged" "$bid_overreserve_owner" "USDT" "36"
@@ -6045,7 +6441,7 @@ main() {
   fi
 
   bid_overreserve_cancel_request="$(jq -nc --arg ouid "$bid_overreserve_ouid" --arg uuid "$bid_overreserve_owner" --argjson orderId "$bid_overreserve_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel bid-overreserve first bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$bid_overreserve_cancel_request' '$bid_overreserve_owner'" >/tmp/opex-e2e-bid-overreserve-cancel.json
+  expect_2xx_retry "cancel bid-overreserve first bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$bid_overreserve_cancel_request' '$bid_overreserve_owner'" >/tmp/opex-e2e-bid-overreserve-cancel.json
   wait_no_user_open_orders "$bid_overreserve_owner" "ETH_USDT"
   wait_order_projection "$bid_overreserve_owner" "$bid_overreserve_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6062,10 +6458,10 @@ main() {
   local cancel_auth_owner="e2e-cancel-auth-owner-$(date +%s)"
   local cancel_auth_intruder="e2e-cancel-auth-intruder-$(date +%s)"
   local cancel_auth_ref="e2e-cancel-auth-$(date +%s)"
-  expect_2xx "cancel-auth owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${cancel_auth_owner}_MAIN?description=e2e-cancel-auth&transferRef=${cancel_auth_ref}-eth")" >/dev/null
+  expect_2xx "cancel-auth owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${cancel_auth_owner}_MAIN?description=e2e-cancel-auth&transferRef=${cancel_auth_ref}-eth")" >/dev/null
 
   local cancel_auth_ask='{"uuid":null,"pair":"ETH_USDT","price":170,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "cancel-auth owner ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$cancel_auth_ask' '$cancel_auth_owner'" >/tmp/opex-e2e-cancel-auth-ask.json
+  expect_2xx_retry "cancel-auth owner ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$cancel_auth_ask' '$cancel_auth_owner'" >/tmp/opex-e2e-cancel-auth-ask.json
   wait_user_open_order "$cancel_auth_owner" "ETH_USDT" "170" "0.4" /tmp/opex-e2e-cancel-auth-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "170" "0.4"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6089,14 +6485,14 @@ main() {
   fi
 
   cancel_auth_intruder_request="$(jq -nc --arg ouid "$cancel_auth_ouid" --arg uuid "$cancel_auth_intruder" --argjson orderId "$cancel_auth_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "intruder cancel owner order submit" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$cancel_auth_intruder_request' '$cancel_auth_intruder'" >/tmp/opex-e2e-cancel-auth-intruder-submit.json
+  expect_2xx_retry "intruder cancel owner order submit" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$cancel_auth_intruder_request' '$cancel_auth_intruder'" >/tmp/opex-e2e-cancel-auth-intruder-submit.json
   sleep 5
   wait_user_open_order "$cancel_auth_owner" "ETH_USDT" "170" "0.4" /tmp/opex-e2e-cancel-auth-open-orders.json
   assert_wallet_balance "cancel-auth owner ETH still reserved" "$cancel_auth_owner" "ETH" "0.6"
 
   local cancel_auth_intruder_edit_request
   cancel_auth_intruder_edit_request="$(jq -nc --arg ouid "$cancel_auth_ouid" --arg uuid "$cancel_auth_intruder" --argjson orderId "$cancel_auth_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:171, quantity:0.3}')"
-  expect_2xx_retry "intruder edit owner order submit" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$cancel_auth_intruder_edit_request' '$cancel_auth_intruder'" >/tmp/opex-e2e-cancel-auth-intruder-edit.json
+  expect_2xx_retry "intruder edit owner order submit" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/edit' '$cancel_auth_intruder_edit_request' '$cancel_auth_intruder'" >/tmp/opex-e2e-cancel-auth-intruder-edit.json
   sleep 5
   wait_user_open_order "$cancel_auth_owner" "ETH_USDT" "170" "0.4" /tmp/opex-e2e-cancel-auth-open-orders.json
   assert_no_user_order_by_price "$cancel_auth_owner" "ETH_USDT" "171" "0.3"
@@ -6116,7 +6512,7 @@ main() {
   "
 
   cancel_auth_owner_request="$(jq -nc --arg ouid "$cancel_auth_ouid" --arg uuid "$cancel_auth_owner" --argjson orderId "$cancel_auth_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "owner cancel after intruder reject" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$cancel_auth_owner_request' '$cancel_auth_owner'" >/tmp/opex-e2e-cancel-auth-owner-cancel.json
+  expect_2xx_retry "owner cancel after intruder reject" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$cancel_auth_owner_request' '$cancel_auth_owner'" >/tmp/opex-e2e-cancel-auth-owner-cancel.json
   wait_no_user_open_orders "$cancel_auth_owner" "ETH_USDT"
   wait_order_projection "$cancel_auth_owner" "$cancel_auth_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6130,17 +6526,17 @@ main() {
     sleep 2
   done
 
-  expect_2xx_retry "duplicate owner cancel after release" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$cancel_auth_owner_request' '$cancel_auth_owner'" >/tmp/opex-e2e-cancel-auth-duplicate-cancel.json
+  expect_2xx_retry "duplicate owner cancel after release" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$cancel_auth_owner_request' '$cancel_auth_owner'" >/tmp/opex-e2e-cancel-auth-duplicate-cancel.json
   sleep 5
   wait_no_user_open_orders "$cancel_auth_owner" "ETH_USDT"
   assert_wallet_balance "cancel-auth owner ETH unchanged after duplicate cancel" "$cancel_auth_owner" "ETH" "1"
 
   local malformed_cancel_owner="e2e-bad-cancel-$(date +%s)"
   local malformed_cancel_ref="e2e-bad-cancel-$(date +%s)"
-  expect_2xx "malformed-cancel owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${malformed_cancel_owner}_MAIN?description=e2e-bad-cancel&transferRef=${malformed_cancel_ref}-eth")" >/dev/null
+  expect_2xx "malformed-cancel owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${malformed_cancel_owner}_MAIN?description=e2e-bad-cancel&transferRef=${malformed_cancel_ref}-eth")" >/dev/null
 
   local malformed_cancel_ask='{"uuid":null,"pair":"ETH_USDT","price":171,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "malformed-cancel owner ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$malformed_cancel_ask' '$malformed_cancel_owner'" >/tmp/opex-e2e-bad-cancel-ask.json
+  expect_2xx_retry "malformed-cancel owner ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$malformed_cancel_ask' '$malformed_cancel_owner'" >/tmp/opex-e2e-bad-cancel-ask.json
   wait_user_open_order "$malformed_cancel_owner" "ETH_USDT" "171" "0.4" /tmp/opex-e2e-bad-cancel-open-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$malformed_cancel_owner" "ETH" "0.6"; do
@@ -6158,13 +6554,13 @@ main() {
   malformed_cancel_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-bad-cancel-open-orders.json)"
   malformed_cancel_bad_symbol="$(jq -nc --arg ouid "$malformed_cancel_ouid" --arg uuid "$malformed_cancel_owner" --argjson orderId "$malformed_cancel_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETHUSDT"}')"
   malformed_cancel_negative_id="$(jq -nc --arg ouid "$malformed_cancel_ouid" --arg uuid "$malformed_cancel_owner" '{ouid:$ouid, uuid:$uuid, orderId:-1, symbol:"ETH_USDT"}')"
-  expect_http_status "malformed cancel bad symbol" "400" "$(curl_json POST "http://127.0.0.1:8093/order/cancel" "$malformed_cancel_bad_symbol" "$malformed_cancel_owner")" >/tmp/opex-e2e-bad-cancel-symbol.json
-  expect_http_status "malformed cancel negative order id" "400" "$(curl_json POST "http://127.0.0.1:8093/order/cancel" "$malformed_cancel_negative_id" "$malformed_cancel_owner")" >/tmp/opex-e2e-bad-cancel-negative-id.json
+  expect_http_status "malformed cancel bad symbol" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order/cancel" "$malformed_cancel_bad_symbol" "$malformed_cancel_owner")" >/tmp/opex-e2e-bad-cancel-symbol.json
+  expect_http_status "malformed cancel negative order id" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order/cancel" "$malformed_cancel_negative_id" "$malformed_cancel_owner")" >/tmp/opex-e2e-bad-cancel-negative-id.json
   wait_user_open_order "$malformed_cancel_owner" "ETH_USDT" "171" "0.4" /tmp/opex-e2e-bad-cancel-open-orders.json
   assert_wallet_balance "malformed-cancel owner ETH still reserved after invalid cancels" "$malformed_cancel_owner" "ETH" "0.6"
 
   malformed_cancel_owner_request="$(jq -nc --arg ouid "$malformed_cancel_ouid" --arg uuid "$malformed_cancel_owner" --argjson orderId "$malformed_cancel_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "malformed-cancel owner cleanup cancel" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$malformed_cancel_owner_request' '$malformed_cancel_owner'" >/tmp/opex-e2e-bad-cancel-cleanup.json
+  expect_2xx_retry "malformed-cancel owner cleanup cancel" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$malformed_cancel_owner_request' '$malformed_cancel_owner'" >/tmp/opex-e2e-bad-cancel-cleanup.json
   wait_no_user_open_orders "$malformed_cancel_owner" "ETH_USDT"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$malformed_cancel_owner" "ETH" "1"; do
@@ -6179,10 +6575,10 @@ main() {
 
   local malformed_edit_owner="e2e-bad-edit-$(date +%s)"
   local malformed_edit_ref="e2e-bad-edit-$(date +%s)"
-  expect_2xx "malformed-edit owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${malformed_edit_owner}_MAIN?description=e2e-bad-edit&transferRef=${malformed_edit_ref}-eth")" >/dev/null
+  expect_2xx "malformed-edit owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${malformed_edit_owner}_MAIN?description=e2e-bad-edit&transferRef=${malformed_edit_ref}-eth")" >/dev/null
 
   local malformed_edit_ask='{"uuid":null,"pair":"ETH_USDT","price":172,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "malformed-edit owner ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$malformed_edit_ask' '$malformed_edit_owner'" >/tmp/opex-e2e-bad-edit-ask.json
+  expect_2xx_retry "malformed-edit owner ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$malformed_edit_ask' '$malformed_edit_owner'" >/tmp/opex-e2e-bad-edit-ask.json
   wait_user_open_order "$malformed_edit_owner" "ETH_USDT" "172" "0.4" /tmp/opex-e2e-bad-edit-open-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$malformed_edit_owner" "ETH" "0.6"; do
@@ -6202,16 +6598,16 @@ main() {
   malformed_edit_negative_id="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" '{ouid:$ouid, uuid:$uuid, orderId:-1, symbol:"ETH_USDT", price:173, quantity:0.3}')"
   malformed_edit_zero_price="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" --argjson orderId "$malformed_edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:0, quantity:0.3}')"
   malformed_edit_bad_precision="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" --argjson orderId "$malformed_edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:173.001, quantity:0.3}')"
-  expect_http_status "malformed edit bad symbol" "400" "$(curl_json POST "http://127.0.0.1:8093/order/edit" "$malformed_edit_bad_symbol" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-symbol.json
-  expect_http_status "malformed edit negative order id" "400" "$(curl_json POST "http://127.0.0.1:8093/order/edit" "$malformed_edit_negative_id" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-negative-id.json
-  expect_http_status "malformed edit zero price" "400" "$(curl_json POST "http://127.0.0.1:8093/order/edit" "$malformed_edit_zero_price" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-zero-price.json
-  expect_http_status "malformed edit price precision" "400" "$(curl_json POST "http://127.0.0.1:8093/order/edit" "$malformed_edit_bad_precision" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-price-precision.json
+  expect_http_status "malformed edit bad symbol" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order/edit" "$malformed_edit_bad_symbol" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-symbol.json
+  expect_http_status "malformed edit negative order id" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order/edit" "$malformed_edit_negative_id" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-negative-id.json
+  expect_http_status "malformed edit zero price" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order/edit" "$malformed_edit_zero_price" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-zero-price.json
+  expect_http_status "malformed edit price precision" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order/edit" "$malformed_edit_bad_precision" "$malformed_edit_owner")" >/tmp/opex-e2e-bad-edit-price-precision.json
   wait_user_open_order "$malformed_edit_owner" "ETH_USDT" "172" "0.4" /tmp/opex-e2e-bad-edit-open-orders.json
   assert_no_user_order_by_price "$malformed_edit_owner" "ETH_USDT" "173" "0.3"
   assert_wallet_balance "malformed-edit owner ETH still reserved after invalid edits" "$malformed_edit_owner" "ETH" "0.6"
 
   malformed_edit_owner_request="$(jq -nc --arg ouid "$malformed_edit_ouid" --arg uuid "$malformed_edit_owner" --argjson orderId "$malformed_edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "malformed-edit owner cleanup cancel" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$malformed_edit_owner_request' '$malformed_edit_owner'" >/tmp/opex-e2e-bad-edit-cleanup.json
+  expect_2xx_retry "malformed-edit owner cleanup cancel" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$malformed_edit_owner_request' '$malformed_edit_owner'" >/tmp/opex-e2e-bad-edit-cleanup.json
   wait_no_user_open_orders "$malformed_edit_owner" "ETH_USDT"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$malformed_edit_owner" "ETH" "1"; do
@@ -6226,21 +6622,21 @@ main() {
 
   local fok_owner="e2e-fok-$(date +%s)"
   local fok_ref="e2e-fok-$(date +%s)"
-  expect_2xx "fok owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${fok_owner}_MAIN?description=e2e-fok&transferRef=${fok_ref}-eth")" >/dev/null
+  expect_2xx "fok owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${fok_owner}_MAIN?description=e2e-fok&transferRef=${fok_ref}-eth")" >/dev/null
   local fok_ask='{"uuid":null,"pair":"ETH_USDT","price":777,"quantity":0.5,"direction":"ASK","matchConstraint":"FOK","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_http_status "unsupported fok ask" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$fok_ask" "$fok_owner")" >/tmp/opex-e2e-fok-ask.json
+  expect_http_status "unsupported fok ask" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$fok_ask" "$fok_owner")" >/tmp/opex-e2e-fok-ask.json
   wait_no_user_open_orders "$fok_owner" "ETH_USDT"
   assert_no_user_orders "$fok_owner" "ETH_USDT"
   assert_wallet_balance "fok owner ETH unchanged after gateway reject" "$fok_owner" "ETH" "1"
 
   local self_trade_owner="e2e-self-trade-$(date +%s)"
   local self_trade_ref="e2e-self-trade-$(date +%s)"
-  expect_2xx "self-trade owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${self_trade_owner}_MAIN?description=e2e-self-trade&transferRef=${self_trade_ref}-eth")" >/dev/null
-  expect_2xx "self-trade owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${self_trade_owner}_MAIN?description=e2e-self-trade&transferRef=${self_trade_ref}-usdt")" >/dev/null
+  expect_2xx "self-trade owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${self_trade_owner}_MAIN?description=e2e-self-trade&transferRef=${self_trade_ref}-eth")" >/dev/null
+  expect_2xx "self-trade owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${self_trade_owner}_MAIN?description=e2e-self-trade&transferRef=${self_trade_ref}-usdt")" >/dev/null
 
   local self_trade_ask='{"uuid":null,"pair":"ETH_USDT","price":118,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local self_trade_bid='{"uuid":null,"pair":"ETH_USDT","price":118,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "self-trade resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$self_trade_ask' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-ask.json
+  expect_2xx_retry "self-trade resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$self_trade_ask' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-ask.json
   wait_user_open_order "$self_trade_owner" "ETH_USDT" "118" "0.4" /tmp/opex-e2e-self-trade-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "118" "0.4"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6254,7 +6650,7 @@ main() {
     sleep 2
   done
 
-  expect_2xx_retry "self-trade crossing bid rejected async" "curl_json POST 'http://127.0.0.1:8093/order' '$self_trade_bid' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-bid.json
+  expect_2xx_retry "self-trade crossing bid rejected async" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$self_trade_bid' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-bid.json
   wait_query_eq "self-trade bid reject financial action" "postgres-accountant" "1" "
     select count(*)
     from fi_actions
@@ -6303,7 +6699,7 @@ main() {
   self_trade_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-self-trade-open-orders.json)"
   self_trade_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-self-trade-open-orders.json)"
   self_trade_cancel_request="$(jq -nc --arg ouid "$self_trade_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel self-trade resting ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$self_trade_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-cancel.json
+  expect_2xx_retry "cancel self-trade resting ask" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$self_trade_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-cancel.json
   wait_no_user_open_orders "$self_trade_owner" "ETH_USDT"
   wait_order_projection "$self_trade_owner" "$self_trade_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6319,8 +6715,8 @@ main() {
 
   local self_trade_edit_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local self_trade_edit_ask='{"uuid":null,"pair":"ETH_USDT","price":110,"quantity":0.3,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "self-trade edit resting bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$self_trade_edit_bid' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-bid.json
-  expect_2xx_retry "self-trade edit resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$self_trade_edit_ask' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-ask.json
+  expect_2xx_retry "self-trade edit resting bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$self_trade_edit_bid' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-bid.json
+  expect_2xx_retry "self-trade edit resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$self_trade_edit_ask' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-ask.json
   wait_user_open_order "$self_trade_owner" "ETH_USDT" "100" "0.2" /tmp/opex-e2e-self-trade-edit-bid-open-orders.json
   wait_user_open_order "$self_trade_owner" "ETH_USDT" "110" "0.3" /tmp/opex-e2e-self-trade-edit-ask-open-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6341,7 +6737,7 @@ main() {
   self_trade_edit_ask_ouid="$(jq -r '[.[] | select(.price == 110 and .quantity == 0.3)][0].ouid' /tmp/opex-e2e-self-trade-edit-ask-open-orders.json)"
   self_trade_edit_ask_order_id="$(jq -r '[.[] | select(.price == 110 and .quantity == 0.3)][0].orderId' /tmp/opex-e2e-self-trade-edit-ask-open-orders.json)"
   self_trade_edit_request="$(jq -nc --arg ouid "$self_trade_edit_ask_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_edit_ask_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:100, quantity:0.2}')"
-  expect_2xx_retry "self-trade edit crossing ask rejected async" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$self_trade_edit_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-response.json
+  expect_2xx_retry "self-trade edit crossing ask rejected async" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/edit' '$self_trade_edit_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-response.json
   wait_query_eq "self-trade edit reject eventlog audit" "postgres-eventlog" "SELF_TRADE_PREVENTION,EDIT_ORDER,ASK,1,0" "
     select event_json::jsonb ->> 'reason',
            event_json::jsonb ->> 'requestedOperation',
@@ -6372,8 +6768,8 @@ main() {
   local self_trade_edit_bid_cancel_request self_trade_edit_ask_cancel_request
   self_trade_edit_bid_cancel_request="$(jq -nc --arg ouid "$self_trade_edit_bid_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_edit_bid_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
   self_trade_edit_ask_cancel_request="$(jq -nc --arg ouid "$self_trade_edit_ask_ouid" --arg uuid "$self_trade_owner" --argjson orderId "$self_trade_edit_ask_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel self-trade edit resting bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$self_trade_edit_bid_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-bid-cancel.json
-  expect_2xx_retry "cancel self-trade edit resting ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$self_trade_edit_ask_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-ask-cancel.json
+  expect_2xx_retry "cancel self-trade edit resting bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$self_trade_edit_bid_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-bid-cancel.json
+  expect_2xx_retry "cancel self-trade edit resting ask" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$self_trade_edit_ask_cancel_request' '$self_trade_owner'" >/tmp/opex-e2e-self-trade-edit-ask-cancel.json
   wait_no_user_open_orders "$self_trade_owner" "ETH_USDT"
   wait_order_projection "$self_trade_owner" "$self_trade_edit_bid_ouid" "CANCELED" "0" "0"
   wait_order_projection "$self_trade_owner" "$self_trade_edit_ask_ouid" "CANCELED" "0" "0"
@@ -6393,21 +6789,21 @@ main() {
   local layered_self_trade_owner="e2e-layered-self-trade-$(date +%s)"
   local layered_external_seller="e2e-layered-stp-maker-$(date +%s)"
   local layered_self_trade_ref="e2e-layered-self-trade-$(date +%s)"
-  expect_2xx "layered-stp owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${layered_self_trade_owner}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-owner-eth")" >/dev/null
-  expect_2xx "layered-stp owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${layered_self_trade_owner}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-owner-usdt")" >/dev/null
-  expect_2xx "layered-stp external ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.1_test-ethereum_ETH/${layered_external_seller}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-external-eth")" >/dev/null
+  expect_2xx "layered-stp owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${layered_self_trade_owner}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-owner-eth")" >/dev/null
+  expect_2xx "layered-stp owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${layered_self_trade_owner}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-owner-usdt")" >/dev/null
+  expect_2xx "layered-stp external ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/0.1_test-ethereum_ETH/${layered_external_seller}_MAIN?description=e2e-layered-stp&transferRef=${layered_self_trade_ref}-external-eth")" >/dev/null
 
   local layered_external_ask='{"uuid":null,"pair":"ETH_USDT","price":119,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local layered_self_ask='{"uuid":null,"pair":"ETH_USDT","price":120,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local layered_self_bid='{"uuid":null,"pair":"ETH_USDT","price":120,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "layered-stp external resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$layered_external_ask' '$layered_external_seller'" >/tmp/opex-e2e-layered-stp-external-ask.json
-  expect_2xx_retry "layered-stp owner resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$layered_self_ask' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-owner-ask.json
+  expect_2xx_retry "layered-stp external resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$layered_external_ask' '$layered_external_seller'" >/tmp/opex-e2e-layered-stp-external-ask.json
+  expect_2xx_retry "layered-stp owner resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$layered_self_ask' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-owner-ask.json
   wait_user_open_order "$layered_external_seller" "ETH_USDT" "119" "0.1" /tmp/opex-e2e-layered-stp-external-open-orders.json
   wait_user_open_order "$layered_self_trade_owner" "ETH_USDT" "120" "0.4" /tmp/opex-e2e-layered-stp-owner-open-orders.json
   wait_order_book_level "ETH_USDT" "ASK" "119" "0.1"
   wait_order_book_level "ETH_USDT" "ASK" "120" "0.4"
 
-  expect_2xx_retry "layered-stp crossing bid rejected before partial fill" "curl_json POST 'http://127.0.0.1:8093/order' '$layered_self_bid' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-bid.json
+  expect_2xx_retry "layered-stp crossing bid rejected before partial fill" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$layered_self_bid' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-bid.json
   wait_query_eq "layered-stp bid reject financial action" "postgres-accountant" "1" "
     select count(*)
     from fi_actions
@@ -6464,7 +6860,7 @@ main() {
   layered_external_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-layered-stp-external-open-orders.json)"
   layered_external_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-layered-stp-external-open-orders.json)"
   layered_external_cancel_request="$(jq -nc --arg ouid "$layered_external_ouid" --arg uuid "$layered_external_seller" --argjson orderId "$layered_external_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel layered-stp external ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$layered_external_cancel_request' '$layered_external_seller'" >/tmp/opex-e2e-layered-stp-external-cancel.json
+  expect_2xx_retry "cancel layered-stp external ask" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$layered_external_cancel_request' '$layered_external_seller'" >/tmp/opex-e2e-layered-stp-external-cancel.json
   wait_no_user_open_orders "$layered_external_seller" "ETH_USDT"
   wait_order_projection "$layered_external_seller" "$layered_external_ouid" "CANCELED" "0" "0"
 
@@ -6472,7 +6868,7 @@ main() {
   layered_owner_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-layered-stp-owner-open-orders.json)"
   layered_owner_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-layered-stp-owner-open-orders.json)"
   layered_owner_cancel_request="$(jq -nc --arg ouid "$layered_owner_ouid" --arg uuid "$layered_self_trade_owner" --argjson orderId "$layered_owner_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel layered-stp owner ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$layered_owner_cancel_request' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-owner-cancel.json
+  expect_2xx_retry "cancel layered-stp owner ask" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$layered_owner_cancel_request' '$layered_self_trade_owner'" >/tmp/opex-e2e-layered-stp-owner-cancel.json
   wait_no_user_open_orders "$layered_self_trade_owner" "ETH_USDT"
   wait_order_projection "$layered_self_trade_owner" "$layered_owner_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6490,9 +6886,9 @@ main() {
 
   local edit_owner="e2e-edit-$(date +%s)"
   local edit_ref="e2e-edit-$(date +%s)"
-  expect_2xx "edit owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${edit_owner}_MAIN?description=e2e-edit&transferRef=${edit_ref}-eth")" >/dev/null
+  expect_2xx "edit owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${edit_owner}_MAIN?description=e2e-edit&transferRef=${edit_ref}-eth")" >/dev/null
   local edit_ask='{"uuid":null,"pair":"ETH_USDT","price":121,"quantity":0.4,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "edit owner resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$edit_ask' '$edit_owner'" >/tmp/opex-e2e-edit-ask.json
+  expect_2xx_retry "edit owner resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$edit_ask' '$edit_owner'" >/tmp/opex-e2e-edit-ask.json
   wait_user_open_order "$edit_owner" "ETH_USDT" "121" "0.4" /tmp/opex-e2e-edit-open-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$edit_owner" "ETH" "0.6"; do
@@ -6509,7 +6905,7 @@ main() {
   edit_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-edit-open-orders.json)"
   edit_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-edit-open-orders.json)"
   edit_request="$(jq -nc --arg ouid "$edit_ouid" --arg uuid "$edit_owner" --argjson orderId "$edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:122, quantity:0.3}')"
-  expect_2xx_retry "edit owner reduce resting ask" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$edit_request' '$edit_owner'" >/tmp/opex-e2e-edit-response.json
+  expect_2xx_retry "edit owner reduce resting ask" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/edit' '$edit_request' '$edit_owner'" >/tmp/opex-e2e-edit-response.json
   wait_user_open_order "$edit_owner" "ETH_USDT" "122" "0.3" /tmp/opex-e2e-edit-updated-open-orders.json
   assert_no_user_order_by_price "$edit_owner" "ETH_USDT" "121" "0.4"
   wait_order_book_level "ETH_USDT" "ASK" "122" "0.3"
@@ -6547,7 +6943,7 @@ main() {
   "
   local edit_cancel_request
   edit_cancel_request="$(jq -nc --arg ouid "$edit_ouid" --arg uuid "$edit_owner" --argjson orderId "$edit_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel edited ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$edit_cancel_request' '$edit_owner'" >/tmp/opex-e2e-edit-cancel.json
+  expect_2xx_retry "cancel edited ask" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$edit_cancel_request' '$edit_owner'" >/tmp/opex-e2e-edit-cancel.json
   wait_no_user_open_orders "$edit_owner" "ETH_USDT"
   wait_order_projection "$edit_owner" "$edit_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6563,9 +6959,9 @@ main() {
 
   local edit_bid_owner="e2e-edit-bid-$(date +%s)"
   local edit_bid_ref="e2e-edit-bid-$(date +%s)"
-  expect_2xx "edit bid owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-tether_USDT/${edit_bid_owner}_MAIN?description=e2e-edit-bid&transferRef=${edit_bid_ref}-usdt")" >/dev/null
+  expect_2xx "edit bid owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-tether_USDT/${edit_bid_owner}_MAIN?description=e2e-edit-bid&transferRef=${edit_bid_ref}-usdt")" >/dev/null
   local edit_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.5,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "edit bid owner resting bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$edit_bid' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid.json
+  expect_2xx_retry "edit bid owner resting bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$edit_bid' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid.json
   wait_user_open_order "$edit_bid_owner" "ETH_USDT" "100" "0.5" /tmp/opex-e2e-edit-bid-open-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
   until try_wallet_balance "$edit_bid_owner" "USDT" "50"; do
@@ -6582,7 +6978,7 @@ main() {
   edit_bid_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-edit-bid-open-orders.json)"
   edit_bid_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-edit-bid-open-orders.json)"
   edit_bid_request="$(jq -nc --arg ouid "$edit_bid_ouid" --arg uuid "$edit_bid_owner" --argjson orderId "$edit_bid_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:90, quantity:0.4}')"
-  expect_2xx_retry "edit owner reduce resting bid" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$edit_bid_request' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid-response.json
+  expect_2xx_retry "edit owner reduce resting bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/edit' '$edit_bid_request' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid-response.json
   wait_user_open_order "$edit_bid_owner" "ETH_USDT" "90" "0.4" /tmp/opex-e2e-edit-bid-updated-open-orders.json
   assert_no_user_order_by_price "$edit_bid_owner" "ETH_USDT" "100" "0.5"
   wait_order_book_level "ETH_USDT" "BID" "90" "0.4"
@@ -6620,7 +7016,7 @@ main() {
   "
   local edit_bid_cancel_request
   edit_bid_cancel_request="$(jq -nc --arg ouid "$edit_bid_ouid" --arg uuid "$edit_bid_owner" --argjson orderId "$edit_bid_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel edited bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$edit_bid_cancel_request' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid-cancel.json
+  expect_2xx_retry "cancel edited bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$edit_bid_cancel_request' '$edit_bid_owner'" >/tmp/opex-e2e-edit-bid-cancel.json
   wait_no_user_open_orders "$edit_bid_owner" "ETH_USDT"
   wait_order_projection "$edit_bid_owner" "$edit_bid_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6637,12 +7033,12 @@ main() {
   local edit_cross_seller="e2e-edit-cross-seller-$(date +%s)"
   local edit_cross_buyer="e2e-edit-cross-buyer-$(date +%s)"
   local edit_cross_ref="e2e-edit-cross-$(date +%s)"
-  expect_2xx "edit crossing seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${edit_cross_seller}_MAIN?description=e2e-edit-cross&transferRef=${edit_cross_ref}-eth")" >/dev/null
-  expect_2xx "edit crossing buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-tether_USDT/${edit_cross_buyer}_MAIN?description=e2e-edit-cross&transferRef=${edit_cross_ref}-usdt")" >/dev/null
+  expect_2xx "edit crossing seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${edit_cross_seller}_MAIN?description=e2e-edit-cross&transferRef=${edit_cross_ref}-eth")" >/dev/null
+  expect_2xx "edit crossing buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-tether_USDT/${edit_cross_buyer}_MAIN?description=e2e-edit-cross&transferRef=${edit_cross_ref}-usdt")" >/dev/null
   local edit_cross_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local edit_cross_ask='{"uuid":null,"pair":"ETH_USDT","price":110,"quantity":0.3,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "edit crossing buyer resting bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$edit_cross_bid' '$edit_cross_buyer'" >/tmp/opex-e2e-edit-cross-bid.json
-  expect_2xx_retry "edit crossing seller resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$edit_cross_ask' '$edit_cross_seller'" >/tmp/opex-e2e-edit-cross-ask.json
+  expect_2xx_retry "edit crossing buyer resting bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$edit_cross_bid' '$edit_cross_buyer'" >/tmp/opex-e2e-edit-cross-bid.json
+  expect_2xx_retry "edit crossing seller resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$edit_cross_ask' '$edit_cross_seller'" >/tmp/opex-e2e-edit-cross-ask.json
   wait_user_open_order "$edit_cross_buyer" "ETH_USDT" "100" "0.2" /tmp/opex-e2e-edit-cross-bid-open-orders.json
   wait_user_open_order "$edit_cross_seller" "ETH_USDT" "110" "0.3" /tmp/opex-e2e-edit-cross-ask-open-orders.json
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -6662,7 +7058,7 @@ main() {
   edit_cross_ask_order_id="$(jq -r '.[0].orderId' /tmp/opex-e2e-edit-cross-ask-open-orders.json)"
   edit_cross_bid_ouid="$(jq -r '.[0].ouid' /tmp/opex-e2e-edit-cross-bid-open-orders.json)"
   edit_cross_request="$(jq -nc --arg ouid "$edit_cross_ask_ouid" --arg uuid "$edit_cross_seller" --argjson orderId "$edit_cross_ask_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT", price:100, quantity:0.2}')"
-  expect_2xx_retry "edit crossing ask into resting bid" "curl_json POST 'http://127.0.0.1:8093/order/edit' '$edit_cross_request' '$edit_cross_seller'" >/tmp/opex-e2e-edit-cross-response.json
+  expect_2xx_retry "edit crossing ask into resting bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/edit' '$edit_cross_request' '$edit_cross_seller'" >/tmp/opex-e2e-edit-cross-response.json
   wait_no_user_open_orders "$edit_cross_seller" "ETH_USDT"
   wait_no_user_open_orders "$edit_cross_buyer" "ETH_USDT"
   wait_order_projection "$edit_cross_seller" "$edit_cross_ask_ouid" "FILLED" "0.2" "20"
@@ -6702,20 +7098,20 @@ main() {
 
   local reject_owner="e2e-reject-$(date +%s)"
   local underfunded_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_http_status "underfunded ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$underfunded_ask" "$reject_owner")" >/tmp/opex-e2e-reject-order.json
+  expect_http_status "underfunded ask order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$underfunded_ask" "$reject_owner")" >/tmp/opex-e2e-reject-order.json
   wait_no_user_open_orders "$reject_owner" "ETH_USDT"
   assert_no_user_orders "$reject_owner" "ETH_USDT"
 
   local bid_reject_owner="e2e-bid-reject-$(date +%s)"
   local underfunded_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_http_status "underfunded bid order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$underfunded_bid" "$bid_reject_owner")" >/tmp/opex-e2e-bid-reject-order.json
+  expect_http_status "underfunded bid order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$underfunded_bid" "$bid_reject_owner")" >/tmp/opex-e2e-bid-reject-order.json
   wait_no_user_open_orders "$bid_reject_owner" "ETH_USDT"
   assert_no_user_orders "$bid_reject_owner" "ETH_USDT"
 
   local invalid_owner="e2e-invalid-$(date +%s)"
   local invalid_ref="e2e-invalid-$(date +%s)"
-  expect_2xx "invalid owner ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${invalid_owner}_MAIN?description=e2e-invalid&transferRef=${invalid_ref}-eth")" >/dev/null
-  expect_2xx "invalid owner USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/100_test-ethereum_USDT/${invalid_owner}_MAIN?description=e2e-invalid&transferRef=${invalid_ref}-usdt")" >/dev/null
+  expect_2xx "invalid owner ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${invalid_owner}_MAIN?description=e2e-invalid&transferRef=${invalid_ref}-eth")" >/dev/null
+  expect_2xx "invalid owner USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/100_test-ethereum_USDT/${invalid_owner}_MAIN?description=e2e-invalid&transferRef=${invalid_ref}-usdt")" >/dev/null
 
   local zero_quantity_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local zero_price_ask='{"uuid":null,"pair":"ETH_USDT","price":0,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
@@ -6725,14 +7121,14 @@ main() {
   local malformed_pair_bid='{"uuid":null,"pair":"ETHUSDT","price":100,"quantity":1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local invalid_price_precision_ask='{"uuid":null,"pair":"ETH_USDT","price":100.001,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local invalid_quantity_precision_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.0000001,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_http_status "zero quantity ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$zero_quantity_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-zero-quantity.json
-  expect_http_status "zero price ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$zero_price_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-zero-price.json
-  expect_http_status "negative price bid order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$negative_price_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-negative-price.json
-  expect_http_status "zero price market bid order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$zero_price_market_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-zero-price-market-bid.json
-  expect_http_status "gtc market ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$gtc_market_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-gtc-market-ask.json
-  expect_http_status "malformed pair bid order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$malformed_pair_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-malformed-pair.json
-  expect_http_status "invalid price precision ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$invalid_price_precision_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-price-precision.json
-  expect_http_status "invalid quantity precision ask order" "400" "$(curl_json POST "http://127.0.0.1:8093/order" "$invalid_quantity_precision_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-quantity-precision.json
+  expect_http_status "zero quantity ask order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$zero_quantity_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-zero-quantity.json
+  expect_http_status "zero price ask order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$zero_price_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-zero-price.json
+  expect_http_status "negative price bid order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$negative_price_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-negative-price.json
+  expect_http_status "zero price market bid order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$zero_price_market_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-zero-price-market-bid.json
+  expect_http_status "gtc market ask order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$gtc_market_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-gtc-market-ask.json
+  expect_http_status "malformed pair bid order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$malformed_pair_bid" "$invalid_owner")" >/tmp/opex-e2e-invalid-malformed-pair.json
+  expect_http_status "invalid price precision ask order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$invalid_price_precision_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-price-precision.json
+  expect_http_status "invalid quantity precision ask order" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8093/order" "$invalid_quantity_precision_ask" "$invalid_owner")" >/tmp/opex-e2e-invalid-quantity-precision.json
   wait_no_user_open_orders "$invalid_owner" "ETH_USDT"
   assert_no_user_orders "$invalid_owner" "ETH_USDT"
   assert_wallet_balance "invalid owner ETH unchanged" "$invalid_owner" "ETH" "1"
@@ -6740,9 +7136,9 @@ main() {
 
   local duplicate_deposit_owner="e2e-dup-deposit-$(date +%s)"
   local duplicate_deposit_ref="e2e-dup-deposit-$(date +%s)"
-  expect_2xx "duplicate-deposit first USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/5_test-ethereum_USDT/${duplicate_deposit_owner}_MAIN?description=e2e-duplicate-deposit&transferRef=${duplicate_deposit_ref}")" >/dev/null
+  expect_2xx "duplicate-deposit first USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/5_test-ethereum_USDT/${duplicate_deposit_owner}_MAIN?description=e2e-duplicate-deposit&transferRef=${duplicate_deposit_ref}")" >/dev/null
   assert_wallet_balance "duplicate-deposit owner credited once" "$duplicate_deposit_owner" "USDT" "5"
-  expect_http_status "duplicate-deposit second USDT deposit" "400" "$(curl_json POST "http://127.0.0.1:8091/deposit/5_test-ethereum_USDT/${duplicate_deposit_owner}_MAIN?description=e2e-duplicate-deposit&transferRef=${duplicate_deposit_ref}")" >/tmp/opex-e2e-duplicate-deposit-reject.json
+  expect_http_status "duplicate-deposit second USDT deposit" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/5_test-ethereum_USDT/${duplicate_deposit_owner}_MAIN?description=e2e-duplicate-deposit&transferRef=${duplicate_deposit_ref}")" >/tmp/opex-e2e-duplicate-deposit-reject.json
   assert_wallet_balance "duplicate-deposit owner unchanged after duplicate ref" "$duplicate_deposit_owner" "USDT" "5"
   wait_query_eq "duplicate deposit ledger row credited once" "postgres-wallet" "1" "
     select count(*)
@@ -6758,7 +7154,7 @@ main() {
   "
   local duplicate_deposit_history_body
   local duplicate_deposit_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  until duplicate_deposit_history_body="$(expect_2xx "duplicate deposit transaction history" "$(curl_json POST "http://127.0.0.1:8091/v2/transaction" '{"currency":"USDT","category":"DEPOSIT","limit":10,"offset":0,"ascendingByTime":false}' "$duplicate_deposit_owner")")" &&
+  until duplicate_deposit_history_body="$(expect_2xx "duplicate deposit transaction history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/v2/transaction" '{"currency":"USDT","category":"DEPOSIT","limit":10,"offset":0,"ascendingByTime":false}' "$duplicate_deposit_owner")")" &&
     printf '%s\n' "$duplicate_deposit_history_body" | jq -e --arg owner "$duplicate_deposit_owner" '
       length == 1
       and .[0].userId == $owner
@@ -6780,7 +7176,7 @@ main() {
 
   local duplicate_deposit_legacy_history_body
   local duplicate_deposit_legacy_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  until duplicate_deposit_legacy_history_body="$(expect_2xx "duplicate deposit legacy transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/deposit/${duplicate_deposit_owner}" '{"coin":"USDT","category":"DEPOSIT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+  until duplicate_deposit_legacy_history_body="$(expect_2xx "duplicate deposit legacy transaction history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/transaction/deposit/${duplicate_deposit_owner}" '{"coin":"USDT","category":"DEPOSIT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
     printf '%s\n' "$duplicate_deposit_legacy_history_body" | jq -e --arg ref "$duplicate_deposit_ref" '
       length == 1
       and .[0].currency == "USDT"
@@ -6805,14 +7201,14 @@ main() {
   local transfer_ref="e2e-transfer-$(date +%s)"
   local transfer_body
   transfer_body="$(jq -nc --arg transferRef "$transfer_ref" '{description:"e2e wallet transfer", transferRef:$transferRef, transferCategory:"NORMAL"}')"
-  expect_2xx "transfer sender USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/12_test-ethereum_USDT/${transfer_sender}_MAIN?description=e2e-transfer&transferRef=${transfer_ref}-deposit")" >/dev/null
+  expect_2xx "transfer sender USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/12_test-ethereum_USDT/${transfer_sender}_MAIN?description=e2e-transfer&transferRef=${transfer_ref}-deposit")" >/dev/null
   assert_wallet_balance "transfer sender initial USDT" "$transfer_sender" "USDT" "12"
-  expect_2xx "wallet v2 transfer success" "$(curl_json POST "http://127.0.0.1:8091/v2/transfer/3_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$transfer_body")" >/tmp/opex-e2e-wallet-transfer.json
+  expect_2xx "wallet v2 transfer success" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/v2/transfer/3_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$transfer_body")" >/tmp/opex-e2e-wallet-transfer.json
   assert_wallet_balance "transfer sender debited" "$transfer_sender" "USDT" "9"
   assert_wallet_balance "transfer receiver credited" "$transfer_receiver" "USDT" "3"
-  expect_http_status "wallet v2 duplicate transfer ref rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/v2/transfer/3_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$transfer_body")" >/tmp/opex-e2e-wallet-transfer-duplicate-ref.json
-  expect_http_status "wallet v2 negative transfer rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/v2/transfer/-1_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$(jq -nc --arg transferRef "${transfer_ref}-negative" '{description:"e2e negative transfer", transferRef:$transferRef, transferCategory:"NORMAL"}')")" >/tmp/opex-e2e-wallet-transfer-negative.json
-  expect_http_status "wallet v2 overbalance transfer rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/v2/transfer/10_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$(jq -nc --arg transferRef "${transfer_ref}-overbalance" '{description:"e2e overbalance transfer", transferRef:$transferRef, transferCategory:"NORMAL"}')")" >/tmp/opex-e2e-wallet-transfer-overbalance.json
+  expect_http_status "wallet v2 duplicate transfer ref rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/v2/transfer/3_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$transfer_body")" >/tmp/opex-e2e-wallet-transfer-duplicate-ref.json
+  expect_http_status "wallet v2 negative transfer rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/v2/transfer/-1_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$(jq -nc --arg transferRef "${transfer_ref}-negative" '{description:"e2e negative transfer", transferRef:$transferRef, transferCategory:"NORMAL"}')")" >/tmp/opex-e2e-wallet-transfer-negative.json
+  expect_http_status "wallet v2 overbalance transfer rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/v2/transfer/10_USDT/from/${transfer_sender}_MAIN/to/${transfer_receiver}_MAIN" "$(jq -nc --arg transferRef "${transfer_ref}-overbalance" '{description:"e2e overbalance transfer", transferRef:$transferRef, transferCategory:"NORMAL"}')")" >/tmp/opex-e2e-wallet-transfer-overbalance.json
   assert_wallet_balance "transfer sender unchanged after rejected transfers" "$transfer_sender" "USDT" "9"
   assert_wallet_balance "transfer receiver unchanged after rejected transfers" "$transfer_receiver" "USDT" "3"
   wait_query_eq "wallet v2 transfer ledger row" "postgres-wallet" "1" "
@@ -6850,7 +7246,7 @@ main() {
   "
   local transfer_sender_history_body transfer_receiver_history_body
   local transfer_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  until transfer_sender_history_body="$(expect_2xx "wallet transfer sender transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${transfer_sender}" '{"coin":"USDT","category":"NORMAL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+  until transfer_sender_history_body="$(expect_2xx "wallet transfer sender transaction history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/transaction/${transfer_sender}" '{"coin":"USDT","category":"NORMAL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
     printf '%s\n' "$transfer_sender_history_body" | jq -e \
       --arg sender "$transfer_sender" \
       --arg receiver "$transfer_receiver" \
@@ -6868,7 +7264,7 @@ main() {
       and ((.[0].amount | tonumber) >= 2.999999)
       and ((.[0].amount | tonumber) <= 3.000001)
     ' >/dev/null &&
-    transfer_receiver_history_body="$(expect_2xx "wallet transfer receiver transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${transfer_receiver}" '{"coin":"USDT","category":"NORMAL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    transfer_receiver_history_body="$(expect_2xx "wallet transfer receiver transaction history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/transaction/${transfer_receiver}" '{"coin":"USDT","category":"NORMAL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
     printf '%s\n' "$transfer_receiver_history_body" | jq -e \
       --arg sender "$transfer_sender" \
       --arg receiver "$transfer_receiver" \
@@ -6908,10 +7304,10 @@ main() {
   local withdraw_net_below_minimum_body='{"currency":"USDT","amount":1.05,"destSymbol":"USDT","destAddress":"0xwithdrawnetbelowminimum","destNetwork":"test-ethereum","destNote":"net-below-minimum","description":"e2e withdraw net below minimum"}'
   local withdraw_zero_amount_body='{"currency":"USDT","amount":0,"destSymbol":"USDT","destAddress":"0xwithdrawzero","destNetwork":"test-ethereum","destNote":"zero","description":"e2e withdraw zero"}'
   local withdraw_overbalance_body='{"currency":"USDT","amount":11,"destSymbol":"USDT","destAddress":"0xwithdrawoverbalance","destNetwork":"test-ethereum","destNote":"overbalance","description":"e2e withdraw overbalance"}'
-  expect_http_status "withdraw below minimum rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_below_minimum_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-below-minimum.json
-  expect_http_status "withdraw net below minimum rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_net_below_minimum_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-net-below-minimum.json
-  expect_http_status "withdraw zero amount rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_zero_amount_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-zero-amount.json
-  expect_http_status "withdraw overbalance rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_overbalance_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-overbalance.json
+  expect_http_status "withdraw below minimum rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw" "$withdraw_below_minimum_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-below-minimum.json
+  expect_http_status "withdraw net below minimum rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw" "$withdraw_net_below_minimum_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-net-below-minimum.json
+  expect_http_status "withdraw zero amount rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw" "$withdraw_zero_amount_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-zero-amount.json
+  expect_http_status "withdraw overbalance rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw" "$withdraw_overbalance_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-overbalance.json
   assert_wallet_balance "withdraw owner unchanged after invalid requests" "$withdraw_owner" "USDT" "10"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "10" "0" "0" /tmp/opex-e2e-withdraw-after-invalid-asset.json
   wait_query_eq "invalid withdraw requests absent from ledger" "postgres-wallet" "0" "
@@ -6927,96 +7323,96 @@ main() {
   "
 
   local withdraw_cancel_body='{"currency":"USDT","amount":3,"destSymbol":"USDT","destAddress":"0xwithdrawcancel","destNetwork":"test-ethereum","destNote":"cancel","description":"e2e withdraw cancel"}'
-  expect_2xx "withdraw cancel request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_cancel_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-cancel-request.json
+  expect_2xx "withdraw cancel request" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw" "$withdraw_cancel_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-cancel-request.json
   local withdraw_cancel_id
   withdraw_cancel_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-cancel-request.json)"
   wait_withdraw_status "withdraw cancel created" "$withdraw_cancel_id" "CREATED" /tmp/opex-e2e-withdraw-cancel-created.json
   assert_wallet_balance "withdraw owner reserved for cancel" "$withdraw_owner" "USDT" "7"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "7" "0" "3" /tmp/opex-e2e-withdraw-cancel-created-asset.json
-  expect_http_status "withdraw intruder cancel rejected" "403" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_cancel_id}/cancel" "" "${withdraw_owner}-intruder")" >/tmp/opex-e2e-withdraw-intruder-cancel.json
+  expect_http_status "withdraw intruder cancel rejected" "403" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw/${withdraw_cancel_id}/cancel" "" "${withdraw_owner}-intruder")" >/tmp/opex-e2e-withdraw-intruder-cancel.json
   wait_withdraw_status "withdraw cancel still created after intruder cancel" "$withdraw_cancel_id" "CREATED" /tmp/opex-e2e-withdraw-cancel-after-intruder.json
   assert_wallet_balance "withdraw owner unchanged after intruder cancel" "$withdraw_owner" "USDT" "7"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "7" "0" "3" /tmp/opex-e2e-withdraw-cancel-after-intruder-asset.json
-  expect_2xx "withdraw cancel action" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_cancel_id}/cancel" "" "$withdraw_owner")" >/dev/null
+  expect_2xx "withdraw cancel action" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw/${withdraw_cancel_id}/cancel" "" "$withdraw_owner")" >/dev/null
   wait_withdraw_status "withdraw cancel canceled" "$withdraw_cancel_id" "CANCELED" /tmp/opex-e2e-withdraw-cancel-canceled.json
   assert_wallet_balance "withdraw owner restored after cancel" "$withdraw_owner" "USDT" "10"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "10" "0" "0" /tmp/opex-e2e-withdraw-cancel-canceled-asset.json
-  expect_http_status "withdraw canceled cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_cancel_id}/process")" >/tmp/opex-e2e-withdraw-canceled-process.json
-  expect_http_status "withdraw canceled cannot reject" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_cancel_id}/reject?reason=e2e-canceled-reject")" >/tmp/opex-e2e-withdraw-canceled-reject.json
+  expect_http_status "withdraw canceled cannot process" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_cancel_id}/process")" >/tmp/opex-e2e-withdraw-canceled-process.json
+  expect_http_status "withdraw canceled cannot reject" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_cancel_id}/reject?reason=e2e-canceled-reject")" >/tmp/opex-e2e-withdraw-canceled-reject.json
   wait_withdraw_status "withdraw cancel remains canceled" "$withdraw_cancel_id" "CANCELED" /tmp/opex-e2e-withdraw-cancel-terminal.json
   assert_wallet_balance "withdraw owner unchanged after canceled terminal attempts" "$withdraw_owner" "USDT" "10"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "10" "0" "0" /tmp/opex-e2e-withdraw-cancel-terminal-asset.json
 
   local withdraw_accept_body='{"currency":"USDT","amount":4,"destSymbol":"USDT","destAddress":"0xwithdrawaccept","destNetwork":"test-ethereum","destNote":"accept","description":"e2e withdraw accept"}'
-  expect_2xx "withdraw accept request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_accept_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-accept-request.json
+  expect_2xx "withdraw accept request" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw" "$withdraw_accept_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-accept-request.json
   local withdraw_accept_id
   withdraw_accept_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-accept-request.json)"
   wait_withdraw_status "withdraw accept created" "$withdraw_accept_id" "CREATED" /tmp/opex-e2e-withdraw-accept-created.json
   assert_wallet_balance "withdraw owner reserved for accept" "$withdraw_owner" "USDT" "6"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "4" /tmp/opex-e2e-withdraw-accept-created-asset.json
-  expect_2xx "withdraw process action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/process")" >/tmp/opex-e2e-withdraw-processing.json
+  expect_2xx "withdraw process action" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_accept_id}/process")" >/tmp/opex-e2e-withdraw-processing.json
   wait_withdraw_status "withdraw processing" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-state.json
-  expect_http_status "withdraw processing user cancel rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-processing-cancel.json
+  expect_http_status "withdraw processing user cancel rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-processing-cancel.json
   wait_withdraw_status "withdraw remains processing after cancel attempt" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-after-cancel.json
   assert_wallet_balance "withdraw owner still reserved while processing" "$withdraw_owner" "USDT" "6"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "4" /tmp/opex-e2e-withdraw-processing-asset.json
-  expect_http_status "withdraw zero dest amount accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-zero-dest&destAmount=0")" >/tmp/opex-e2e-withdraw-zero-dest-accept.json
-  expect_http_status "withdraw excessive dest amount accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-excessive-dest&destAmount=4.01")" >/tmp/opex-e2e-withdraw-excessive-dest-accept.json
+  expect_http_status "withdraw zero dest amount accept rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-zero-dest&destAmount=0")" >/tmp/opex-e2e-withdraw-zero-dest-accept.json
+  expect_http_status "withdraw excessive dest amount accept rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-excessive-dest&destAmount=4.01")" >/tmp/opex-e2e-withdraw-excessive-dest-accept.json
   wait_withdraw_status "withdraw remains processing after invalid accept attempts" "$withdraw_accept_id" "PROCESSING" /tmp/opex-e2e-withdraw-processing-after-invalid-accept.json
   assert_wallet_balance "withdraw owner still reserved after invalid accept attempts" "$withdraw_owner" "USDT" "6"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "4" /tmp/opex-e2e-withdraw-processing-after-invalid-accept-asset.json
-  expect_2xx "withdraw accept action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=3.9")" >/tmp/opex-e2e-withdraw-done.json
+  expect_2xx "withdraw accept action" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=3.9")" >/tmp/opex-e2e-withdraw-done.json
   wait_withdraw_status "withdraw done" "$withdraw_accept_id" "DONE" /tmp/opex-e2e-withdraw-done-state.json
   assert_wallet_balance "withdraw owner final after accept" "$withdraw_owner" "USDT" "6"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-done-asset.json
-  expect_http_status "withdraw duplicate accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain-duplicate&destAmount=3.9")" >/tmp/opex-e2e-withdraw-duplicate-accept.json
-  expect_http_status "withdraw done cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/process")" >/tmp/opex-e2e-withdraw-done-process.json
-  expect_http_status "withdraw done cannot reject" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_accept_id}/reject?reason=e2e-done-reject")" >/tmp/opex-e2e-withdraw-done-reject.json
-  expect_http_status "withdraw done user cancel rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-done-cancel.json
+  expect_http_status "withdraw duplicate accept rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_accept_id}/accept?destTransactionRef=${withdraw_ref}-chain-duplicate&destAmount=3.9")" >/tmp/opex-e2e-withdraw-duplicate-accept.json
+  expect_http_status "withdraw done cannot process" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_accept_id}/process")" >/tmp/opex-e2e-withdraw-done-process.json
+  expect_http_status "withdraw done cannot reject" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_accept_id}/reject?reason=e2e-done-reject")" >/tmp/opex-e2e-withdraw-done-reject.json
+  expect_http_status "withdraw done user cancel rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw/${withdraw_accept_id}/cancel" "" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-done-cancel.json
   wait_withdraw_status "withdraw remains done after terminal attempts" "$withdraw_accept_id" "DONE" /tmp/opex-e2e-withdraw-done-terminal.json
   assert_wallet_balance "withdraw owner unchanged after done terminal attempts" "$withdraw_owner" "USDT" "6"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-done-terminal-asset.json
 
   local withdraw_duplicate_ref_body='{"currency":"USDT","amount":1.1,"destSymbol":"USDT","destAddress":"0xwithdrawduplicateref","destNetwork":"test-ethereum","destNote":"duplicate-ref","description":"e2e withdraw duplicate destination ref"}'
-  expect_2xx "withdraw duplicate destination ref request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_duplicate_ref_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-duplicate-ref-request.json
+  expect_2xx "withdraw duplicate destination ref request" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw" "$withdraw_duplicate_ref_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-duplicate-ref-request.json
   local withdraw_duplicate_ref_id
   withdraw_duplicate_ref_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-duplicate-ref-request.json)"
   wait_withdraw_status "withdraw duplicate destination ref created" "$withdraw_duplicate_ref_id" "CREATED" /tmp/opex-e2e-withdraw-duplicate-ref-created.json
   assert_wallet_balance "withdraw owner reserved for duplicate destination ref" "$withdraw_owner" "USDT" "4.9"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "4.9" "0" "1.1" /tmp/opex-e2e-withdraw-duplicate-ref-created-asset.json
-  expect_2xx "withdraw duplicate destination ref process action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/process")" >/tmp/opex-e2e-withdraw-duplicate-ref-processing.json
+  expect_2xx "withdraw duplicate destination ref process action" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_duplicate_ref_id}/process")" >/tmp/opex-e2e-withdraw-duplicate-ref-processing.json
   wait_withdraw_status "withdraw duplicate destination ref processing" "$withdraw_duplicate_ref_id" "PROCESSING" /tmp/opex-e2e-withdraw-duplicate-ref-processing-state.json
-  expect_http_status "withdraw duplicate destination ref accept rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=1.0")" >/tmp/opex-e2e-withdraw-duplicate-ref-accept.json
+  expect_http_status "withdraw duplicate destination ref accept rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_duplicate_ref_id}/accept?destTransactionRef=${withdraw_ref}-chain&destAmount=1.0")" >/tmp/opex-e2e-withdraw-duplicate-ref-accept.json
   wait_withdraw_status "withdraw duplicate destination ref remains processing" "$withdraw_duplicate_ref_id" "PROCESSING" /tmp/opex-e2e-withdraw-duplicate-ref-after-accept.json
   assert_wallet_balance "withdraw owner still reserved after duplicate destination ref" "$withdraw_owner" "USDT" "4.9"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "4.9" "0" "1.1" /tmp/opex-e2e-withdraw-duplicate-ref-after-accept-asset.json
-  expect_2xx "withdraw duplicate destination ref reject action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_duplicate_ref_id}/reject?reason=e2e-duplicate-ref")" >/tmp/opex-e2e-withdraw-duplicate-ref-rejected.json
+  expect_2xx "withdraw duplicate destination ref reject action" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_duplicate_ref_id}/reject?reason=e2e-duplicate-ref")" >/tmp/opex-e2e-withdraw-duplicate-ref-rejected.json
   wait_withdraw_status "withdraw duplicate destination ref rejected" "$withdraw_duplicate_ref_id" "REJECTED" /tmp/opex-e2e-withdraw-duplicate-ref-rejected-state.json
   assert_wallet_balance "withdraw owner restored after duplicate destination ref reject" "$withdraw_owner" "USDT" "6"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-duplicate-ref-rejected-asset.json
 
   local withdraw_reject_body='{"currency":"USDT","amount":2,"destSymbol":"USDT","destAddress":"0xwithdrawreject","destNetwork":"test-ethereum","destNote":"reject","description":"e2e withdraw reject"}'
-  expect_2xx "withdraw reject request" "$(curl_json POST "http://127.0.0.1:8091/withdraw" "$withdraw_reject_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-reject-request.json
+  expect_2xx "withdraw reject request" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw" "$withdraw_reject_body" "$withdraw_owner")" >/tmp/opex-e2e-withdraw-reject-request.json
   local withdraw_reject_id
   withdraw_reject_id="$(jq -r '.withdrawId' /tmp/opex-e2e-withdraw-reject-request.json)"
   wait_withdraw_status "withdraw reject created" "$withdraw_reject_id" "CREATED" /tmp/opex-e2e-withdraw-reject-created.json
   assert_wallet_balance "withdraw owner reserved for reject" "$withdraw_owner" "USDT" "4"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "4" "0" "2" /tmp/opex-e2e-withdraw-reject-created-asset.json
-  expect_2xx "withdraw reject process action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/process")" >/tmp/opex-e2e-withdraw-reject-processing.json
+  expect_2xx "withdraw reject process action" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_reject_id}/process")" >/tmp/opex-e2e-withdraw-reject-processing.json
   wait_withdraw_status "withdraw reject processing" "$withdraw_reject_id" "PROCESSING" /tmp/opex-e2e-withdraw-reject-processing-state.json
-  expect_2xx "withdraw reject action" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject")" >/tmp/opex-e2e-withdraw-rejected.json
+  expect_2xx "withdraw reject action" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject")" >/tmp/opex-e2e-withdraw-rejected.json
   wait_withdraw_status "withdraw rejected" "$withdraw_reject_id" "REJECTED" /tmp/opex-e2e-withdraw-rejected-state.json
   assert_wallet_balance "withdraw owner restored after reject" "$withdraw_owner" "USDT" "6"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-rejected-asset.json
-  expect_http_status "withdraw rejected cannot process" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/process")" >/tmp/opex-e2e-withdraw-rejected-process.json
-  expect_http_status "withdraw rejected cannot accept" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/accept?destTransactionRef=${withdraw_ref}-rejected-chain&destAmount=1.9")" >/tmp/opex-e2e-withdraw-rejected-accept.json
-  expect_http_status "withdraw rejected duplicate reject rejected" "400" "$(curl_json POST "http://127.0.0.1:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject-duplicate")" >/tmp/opex-e2e-withdraw-rejected-duplicate-reject.json
+  expect_http_status "withdraw rejected cannot process" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_reject_id}/process")" >/tmp/opex-e2e-withdraw-rejected-process.json
+  expect_http_status "withdraw rejected cannot accept" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_reject_id}/accept?destTransactionRef=${withdraw_ref}-rejected-chain&destAmount=1.9")" >/tmp/opex-e2e-withdraw-rejected-accept.json
+  expect_http_status "withdraw rejected duplicate reject rejected" "400" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/admin/withdraw/${withdraw_reject_id}/reject?reason=e2e-reject-duplicate")" >/tmp/opex-e2e-withdraw-rejected-duplicate-reject.json
   wait_withdraw_status "withdraw remains rejected after terminal attempts" "$withdraw_reject_id" "REJECTED" /tmp/opex-e2e-withdraw-rejected-terminal.json
   assert_wallet_balance "withdraw owner unchanged after rejected terminal attempts" "$withdraw_owner" "USDT" "6"
   wait_binance_user_asset_balance "$withdraw_owner" "USDT" "6" "0" "0" /tmp/opex-e2e-withdraw-rejected-terminal-asset.json
   local withdraw_history_body
   local withdraw_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  until withdraw_history_body="$(expect_2xx "withdraw user history" "$(curl_json POST "http://127.0.0.1:8091/withdraw/history" '{"currency":"USDT","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&
+  until withdraw_history_body="$(expect_2xx "withdraw user history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/withdraw/history" '{"currency":"USDT","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&
     printf '%s\n' "$withdraw_history_body" | jq -e \
       --arg owner "$withdraw_owner" \
       --arg chain_ref "${withdraw_ref}-chain" \
@@ -7053,7 +7449,7 @@ main() {
   wait_binance_withdraw_history_status_filter_v2 "$withdraw_owner" "USDT" 2 2 "$withdraw_reject_id" /tmp/opex-e2e-binance-withdraw-history-v2-status-rejected.json
   local withdraw_transaction_history_body
   local withdraw_transaction_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  until withdraw_transaction_history_body="$(expect_2xx "withdraw transaction history" "$(curl_json POST "http://127.0.0.1:8091/v2/transaction" '{"currency":"USDT","category":"WITHDRAW","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&
+  until withdraw_transaction_history_body="$(expect_2xx "withdraw transaction history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/v2/transaction" '{"currency":"USDT","category":"WITHDRAW","limit":10,"offset":0,"ascendingByTime":false}' "$withdraw_owner")")" &&
     printf '%s\n' "$withdraw_transaction_history_body" | jq -e --arg owner "$withdraw_owner" '
       length == 1
       and .[0].userId == $owner
@@ -7075,7 +7471,7 @@ main() {
 
   local withdraw_legacy_accept_history_body withdraw_legacy_cancel_history_body withdraw_legacy_reject_history_body
   local withdraw_legacy_history_deadline=$((SECONDS + EVENTUAL_TIMEOUT))
-  until withdraw_legacy_accept_history_body="$(expect_2xx "withdraw legacy accept transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_ACCEPT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+  until withdraw_legacy_accept_history_body="$(expect_2xx "withdraw legacy accept transaction history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_ACCEPT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
     printf '%s\n' "$withdraw_legacy_accept_history_body" | jq -e \
       --arg owner "$withdraw_owner" \
       --arg refPrefix "wallet:withdraw:${withdraw_owner}:DONE:" '
@@ -7092,7 +7488,7 @@ main() {
       and ((.[0].amount | tonumber) >= 3.999999)
       and ((.[0].amount | tonumber) <= 4.000001)
     ' >/dev/null &&
-    withdraw_legacy_cancel_history_body="$(expect_2xx "withdraw legacy cancel transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_CANCEL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    withdraw_legacy_cancel_history_body="$(expect_2xx "withdraw legacy cancel transaction history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_CANCEL","limit":10,"offset":0,"ascendingByTime":false}')")" &&
     printf '%s\n' "$withdraw_legacy_cancel_history_body" | jq -e \
       --arg owner "$withdraw_owner" \
       --arg refPrefix "wallet:withdraw:${withdraw_cancel_id}:CANCELED:" '
@@ -7109,7 +7505,7 @@ main() {
       and ((.[0].amount | tonumber) >= 2.999999)
       and ((.[0].amount | tonumber) <= 3.000001)
     ' >/dev/null &&
-    withdraw_legacy_reject_history_body="$(expect_2xx "withdraw legacy reject transaction history" "$(curl_json POST "http://127.0.0.1:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_REJECT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
+    withdraw_legacy_reject_history_body="$(expect_2xx "withdraw legacy reject transaction history" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/transaction/${withdraw_owner}" '{"coin":"USDT","category":"WITHDRAW_REJECT","limit":10,"offset":0,"ascendingByTime":false}')")" &&
     printf '%s\n' "$withdraw_legacy_reject_history_body" | jq -e \
       --arg owner "$withdraw_owner" \
       --arg duplicateRefPrefix "wallet:withdraw:${withdraw_duplicate_ref_id}:REJECTED:" \
@@ -7334,22 +7730,22 @@ main() {
   local best_price_low_asker="e2e-best-low-ask-$(date +%s)"
   local best_price_high_asker="e2e-best-high-ask-$(date +%s)"
   local best_price_ref="e2e-best-price-$(date +%s)"
-  expect_2xx "best-price low bidder USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${best_price_low_bidder}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-low-bid-usdt")" >/dev/null
-  expect_2xx "best-price high bidder USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${best_price_high_bidder}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-high-bid-usdt")" >/dev/null
-  expect_2xx "best-price low asker ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.1_test-ethereum_ETH/${best_price_low_asker}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-low-ask-eth")" >/dev/null
-  expect_2xx "best-price high asker ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.1_test-ethereum_ETH/${best_price_high_asker}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-high-ask-eth")" >/dev/null
+  expect_2xx "best-price low bidder USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/20_test-ethereum_USDT/${best_price_low_bidder}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-low-bid-usdt")" >/dev/null
+  expect_2xx "best-price high bidder USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/20_test-ethereum_USDT/${best_price_high_bidder}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-high-bid-usdt")" >/dev/null
+  expect_2xx "best-price low asker ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/0.1_test-ethereum_ETH/${best_price_low_asker}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-low-ask-eth")" >/dev/null
+  expect_2xx "best-price high asker ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/0.1_test-ethereum_ETH/${best_price_high_asker}_MAIN?description=e2e-best-price&transferRef=${best_price_ref}-high-ask-eth")" >/dev/null
 
   local best_price_low_bid='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local best_price_high_bid='{"uuid":null,"pair":"ETH_USDT","price":110,"quantity":0.1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local best_price_low_ask='{"uuid":null,"pair":"ETH_USDT","price":120,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local best_price_high_ask='{"uuid":null,"pair":"ETH_USDT","price":130,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "best-price low bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$best_price_low_bid' '$best_price_low_bidder'" >/tmp/opex-e2e-best-price-low-bid.json
+  expect_2xx_retry "best-price low bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$best_price_low_bid' '$best_price_low_bidder'" >/tmp/opex-e2e-best-price-low-bid.json
   wait_user_open_order "$best_price_low_bidder" "ETH_USDT" "100" "0.1" /tmp/opex-e2e-best-price-low-bid-open-orders.json
-  expect_2xx_retry "best-price high bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$best_price_high_bid' '$best_price_high_bidder'" >/tmp/opex-e2e-best-price-high-bid.json
+  expect_2xx_retry "best-price high bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$best_price_high_bid' '$best_price_high_bidder'" >/tmp/opex-e2e-best-price-high-bid.json
   wait_user_open_order "$best_price_high_bidder" "ETH_USDT" "110" "0.1" /tmp/opex-e2e-best-price-high-bid-open-orders.json
-  expect_2xx_retry "best-price low ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$best_price_low_ask' '$best_price_low_asker'" >/tmp/opex-e2e-best-price-low-ask.json
+  expect_2xx_retry "best-price low ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$best_price_low_ask' '$best_price_low_asker'" >/tmp/opex-e2e-best-price-low-ask.json
   wait_user_open_order "$best_price_low_asker" "ETH_USDT" "120" "0.1" /tmp/opex-e2e-best-price-low-ask-open-orders.json
-  expect_2xx_retry "best-price high ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$best_price_high_ask' '$best_price_high_asker'" >/tmp/opex-e2e-best-price-high-ask.json
+  expect_2xx_retry "best-price high ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$best_price_high_ask' '$best_price_high_asker'" >/tmp/opex-e2e-best-price-high-ask.json
   wait_user_open_order "$best_price_high_asker" "ETH_USDT" "130" "0.1" /tmp/opex-e2e-best-price-high-ask-open-orders.json
   wait_best_prices "ETH_USDT" "110" "120"
 
@@ -7368,7 +7764,7 @@ main() {
       exit 1
     fi
     best_price_cancel_request="$(jq -nc --arg ouid "$best_price_ouid" --arg uuid "$best_price_owner" --argjson orderId "$best_price_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-    expect_2xx_retry "cancel best-price order" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$best_price_cancel_request' '$best_price_owner'" >/tmp/opex-e2e-best-price-cancel.json
+    expect_2xx_retry "cancel best-price order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$best_price_cancel_request' '$best_price_owner'" >/tmp/opex-e2e-best-price-cancel.json
     wait_no_user_open_orders "$best_price_owner" "ETH_USDT"
     wait_order_projection "$best_price_owner" "$best_price_ouid" "CANCELED" "0" "0"
   done
@@ -7379,16 +7775,16 @@ main() {
   local market_bid_cap_low_seller="e2e-mkt-bid-cap-low-$(date +%s)"
   local market_bid_cap_high_seller="e2e-mkt-bid-cap-high-$(date +%s)"
   local market_bid_cap_ref="e2e-mkt-bid-cap-$(date +%s)"
-  expect_2xx "market-bid-cap buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/19_test-ethereum_USDT/${market_bid_cap_buyer}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-usdt")" >/dev/null
-  expect_2xx "market-bid-cap low seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${market_bid_cap_low_seller}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-low-eth")" >/dev/null
-  expect_2xx "market-bid-cap high seller ETH deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-ethereum_ETH/${market_bid_cap_high_seller}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-high-eth")" >/dev/null
+  expect_2xx "market-bid-cap buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/19_test-ethereum_USDT/${market_bid_cap_buyer}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-usdt")" >/dev/null
+  expect_2xx "market-bid-cap low seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${market_bid_cap_low_seller}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-low-eth")" >/dev/null
+  expect_2xx "market-bid-cap high seller ETH deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-ethereum_ETH/${market_bid_cap_high_seller}_MAIN?description=e2e-market-bid-cap&transferRef=${market_bid_cap_ref}-high-eth")" >/dev/null
 
   local market_bid_cap_low_ask='{"uuid":null,"pair":"ETH_USDT","price":90,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local market_bid_cap_high_ask='{"uuid":null,"pair":"ETH_USDT","price":100,"quantity":0.1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local market_bid_cap_bid='{"uuid":null,"pair":"ETH_USDT","price":95,"quantity":0.2,"direction":"BID","matchConstraint":"IOC","orderType":"MARKET_ORDER","userLevel":"*"}'
-  expect_2xx_retry "market-bid-cap low ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_low_ask' '$market_bid_cap_low_seller'" >/tmp/opex-e2e-market-bid-cap-low-ask.json
+  expect_2xx_retry "market-bid-cap low ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$market_bid_cap_low_ask' '$market_bid_cap_low_seller'" >/tmp/opex-e2e-market-bid-cap-low-ask.json
   wait_user_open_order "$market_bid_cap_low_seller" "ETH_USDT" "90" "0.1" /tmp/opex-e2e-market-bid-cap-low-open-orders.json
-  expect_2xx_retry "market-bid-cap high ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_high_ask' '$market_bid_cap_high_seller'" >/tmp/opex-e2e-market-bid-cap-high-ask.json
+  expect_2xx_retry "market-bid-cap high ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$market_bid_cap_high_ask' '$market_bid_cap_high_seller'" >/tmp/opex-e2e-market-bid-cap-high-ask.json
   wait_user_open_order "$market_bid_cap_high_seller" "ETH_USDT" "100" "0.1" /tmp/opex-e2e-market-bid-cap-high-open-orders.json
 
   local market_bid_cap_low_ouid market_bid_cap_high_ouid market_bid_cap_high_order_id market_bid_cap_high_cancel_request
@@ -7404,7 +7800,7 @@ main() {
     exit 1
   fi
 
-  expect_2xx_retry "market-bid-cap market bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$market_bid_cap_bid' '$market_bid_cap_buyer'" >/tmp/opex-e2e-market-bid-cap-bid.json
+  expect_2xx_retry "market-bid-cap market bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$market_bid_cap_bid' '$market_bid_cap_buyer'" >/tmp/opex-e2e-market-bid-cap-bid.json
   wait_no_user_open_orders "$market_bid_cap_low_seller" "ETH_USDT"
   wait_order_projection "$market_bid_cap_low_seller" "$market_bid_cap_low_ouid" "FILLED" "0.1" "9"
   wait_order_projection "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "NEW" "0" "0"
@@ -7438,7 +7834,7 @@ main() {
   done
 
   market_bid_cap_high_cancel_request="$(jq -nc --arg ouid "$market_bid_cap_high_ouid" --arg uuid "$market_bid_cap_high_seller" --argjson orderId "$market_bid_cap_high_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"ETH_USDT"}')"
-  expect_2xx_retry "cancel market-bid-cap high ask" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$market_bid_cap_high_cancel_request' '$market_bid_cap_high_seller'" >/tmp/opex-e2e-market-bid-cap-high-cancel.json
+  expect_2xx_retry "cancel market-bid-cap high ask" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$market_bid_cap_high_cancel_request' '$market_bid_cap_high_seller'" >/tmp/opex-e2e-market-bid-cap-high-cancel.json
   wait_no_user_open_orders "$market_bid_cap_high_seller" "ETH_USDT"
   wait_order_projection "$market_bid_cap_high_seller" "$market_bid_cap_high_ouid" "CANCELED" "0" "0"
   deadline=$((SECONDS + EVENTUAL_TIMEOUT))
@@ -7457,15 +7853,15 @@ main() {
   local btc_seller="e2e-btc-seller-$(date +%s)"
   local btc_buyer="e2e-btc-buyer-$(date +%s)"
   local btc_ref="e2e-btc-$(date +%s)"
-  expect_2xx "btc-usdt seller BTC deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.01_test-bitcoin_BTC/${btc_seller}_MAIN?description=e2e-btc-usdt&transferRef=${btc_ref}-btc")" >/dev/null
-  expect_2xx "btc-usdt buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/50_test-ethereum_USDT/${btc_buyer}_MAIN?description=e2e-btc-usdt&transferRef=${btc_ref}-usdt")" >/dev/null
+  expect_2xx "btc-usdt seller BTC deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/0.01_test-bitcoin_BTC/${btc_seller}_MAIN?description=e2e-btc-usdt&transferRef=${btc_ref}-btc")" >/dev/null
+  expect_2xx "btc-usdt buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/50_test-ethereum_USDT/${btc_buyer}_MAIN?description=e2e-btc-usdt&transferRef=${btc_ref}-usdt")" >/dev/null
 
   local btc_ask='{"uuid":null,"pair":"BTC_USDT","price":20000,"quantity":0.001,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local btc_bid='{"uuid":null,"pair":"BTC_USDT","price":20000,"quantity":0.001,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "btc-usdt ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$btc_ask' '$btc_seller'" >/tmp/opex-e2e-btc-usdt-ask.json
+  expect_2xx_retry "btc-usdt ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$btc_ask' '$btc_seller'" >/tmp/opex-e2e-btc-usdt-ask.json
   wait_user_open_order "$btc_seller" "BTC_USDT" "20000" "0.001" /tmp/opex-e2e-btc-usdt-open-orders.json
   wait_order_book_level "BTC_USDT" "ASK" "20000" "0.001"
-  expect_2xx_retry "btc-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$btc_bid' '$btc_buyer'" >/tmp/opex-e2e-btc-usdt-bid.json
+  expect_2xx_retry "btc-usdt bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$btc_bid' '$btc_buyer'" >/tmp/opex-e2e-btc-usdt-bid.json
   wait_no_user_open_orders "$btc_seller" "BTC_USDT"
   wait_user_trade_projection "$btc_seller" "BTC_USDT" "20000" "0.001" "20" "0.2" "USDT" false true false /tmp/opex-e2e-btc-usdt-seller-trades.json
   wait_user_trade_projection "$btc_buyer" "BTC_USDT" "20000" "0.001" "20" "0.00001" "BTC" true false false /tmp/opex-e2e-btc-usdt-buyer-trades.json
@@ -7501,15 +7897,15 @@ main() {
   local sol_seller="e2e-sol-seller-$(date +%s)"
   local sol_buyer="e2e-sol-buyer-$(date +%s)"
   local sol_ref="e2e-sol-$(date +%s)"
-  expect_2xx "sol-usdt seller SOL deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/1_test-bsc_SOL/${sol_seller}_MAIN?description=e2e-sol-usdt&transferRef=${sol_ref}-sol")" >/dev/null
-  expect_2xx "sol-usdt buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${sol_buyer}_MAIN?description=e2e-sol-usdt&transferRef=${sol_ref}-usdt")" >/dev/null
+  expect_2xx "sol-usdt seller SOL deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/1_test-bsc_SOL/${sol_seller}_MAIN?description=e2e-sol-usdt&transferRef=${sol_ref}-sol")" >/dev/null
+  expect_2xx "sol-usdt buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/20_test-ethereum_USDT/${sol_buyer}_MAIN?description=e2e-sol-usdt&transferRef=${sol_ref}-usdt")" >/dev/null
 
   local sol_ask='{"uuid":null,"pair":"SOL_USDT","price":10,"quantity":1,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local sol_bid='{"uuid":null,"pair":"SOL_USDT","price":10,"quantity":1,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "sol-usdt ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$sol_ask' '$sol_seller'" >/tmp/opex-e2e-sol-usdt-ask.json
+  expect_2xx_retry "sol-usdt ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$sol_ask' '$sol_seller'" >/tmp/opex-e2e-sol-usdt-ask.json
   wait_user_open_order "$sol_seller" "SOL_USDT" "10" "1" /tmp/opex-e2e-sol-usdt-open-orders.json
   wait_order_book_level "SOL_USDT" "ASK" "10" "1"
-  expect_2xx_retry "sol-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$sol_bid' '$sol_buyer'" >/tmp/opex-e2e-sol-usdt-bid.json
+  expect_2xx_retry "sol-usdt bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$sol_bid' '$sol_buyer'" >/tmp/opex-e2e-sol-usdt-bid.json
   wait_no_user_open_orders "$sol_seller" "SOL_USDT"
   wait_user_trade_projection "$sol_seller" "SOL_USDT" "10" "1" "10" "0.1" "USDT" false true false /tmp/opex-e2e-sol-usdt-seller-trades.json
   wait_user_trade_projection "$sol_buyer" "SOL_USDT" "10" "1" "10" "0.01" "SOL" true false false /tmp/opex-e2e-sol-usdt-buyer-trades.json
@@ -7551,15 +7947,15 @@ main() {
   local doge_seller="e2e-doge-seller-$(date +%s)"
   local doge_buyer="e2e-doge-buyer-$(date +%s)"
   local doge_ref="e2e-doge-$(date +%s)"
-  expect_2xx "doge-usdt seller DOGE deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/10_test-dogecoin_DOGE/${doge_seller}_MAIN?description=e2e-doge-usdt&transferRef=${doge_ref}-doge")" >/dev/null
-  expect_2xx "doge-usdt buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${doge_buyer}_MAIN?description=e2e-doge-usdt&transferRef=${doge_ref}-usdt")" >/dev/null
+  expect_2xx "doge-usdt seller DOGE deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/10_test-dogecoin_DOGE/${doge_seller}_MAIN?description=e2e-doge-usdt&transferRef=${doge_ref}-doge")" >/dev/null
+  expect_2xx "doge-usdt buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/20_test-ethereum_USDT/${doge_buyer}_MAIN?description=e2e-doge-usdt&transferRef=${doge_ref}-usdt")" >/dev/null
 
   local doge_ask='{"uuid":null,"pair":"DOGE_USDT","price":1,"quantity":10,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local doge_bid='{"uuid":null,"pair":"DOGE_USDT","price":1,"quantity":10,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "doge-usdt ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$doge_ask' '$doge_seller'" >/tmp/opex-e2e-doge-usdt-ask.json
+  expect_2xx_retry "doge-usdt ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$doge_ask' '$doge_seller'" >/tmp/opex-e2e-doge-usdt-ask.json
   wait_user_open_order "$doge_seller" "DOGE_USDT" "1" "10" /tmp/opex-e2e-doge-usdt-open-orders.json
   wait_order_book_level "DOGE_USDT" "ASK" "1" "10"
-  expect_2xx_retry "doge-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$doge_bid' '$doge_buyer'" >/tmp/opex-e2e-doge-usdt-bid.json
+  expect_2xx_retry "doge-usdt bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$doge_bid' '$doge_buyer'" >/tmp/opex-e2e-doge-usdt-bid.json
   wait_no_user_open_orders "$doge_seller" "DOGE_USDT"
   wait_user_trade_projection "$doge_seller" "DOGE_USDT" "1" "10" "10" "0.1" "USDT" false true false /tmp/opex-e2e-doge-usdt-seller-trades.json
   wait_user_trade_projection "$doge_buyer" "DOGE_USDT" "1" "10" "10" "0.1" "DOGE" true false false /tmp/opex-e2e-doge-usdt-buyer-trades.json
@@ -7601,15 +7997,15 @@ main() {
   local ton_seller="e2e-ton-seller-$(date +%s)"
   local ton_buyer="e2e-ton-buyer-$(date +%s)"
   local ton_ref="e2e-ton-$(date +%s)"
-  expect_2xx "ton-usdt seller TON deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/2_test-ethereum_TON/${ton_seller}_MAIN?description=e2e-ton-usdt&transferRef=${ton_ref}-ton")" >/dev/null
-  expect_2xx "ton-usdt buyer USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/20_test-ethereum_USDT/${ton_buyer}_MAIN?description=e2e-ton-usdt&transferRef=${ton_ref}-usdt")" >/dev/null
+  expect_2xx "ton-usdt seller TON deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/2_test-ethereum_TON/${ton_seller}_MAIN?description=e2e-ton-usdt&transferRef=${ton_ref}-ton")" >/dev/null
+  expect_2xx "ton-usdt buyer USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/20_test-ethereum_USDT/${ton_buyer}_MAIN?description=e2e-ton-usdt&transferRef=${ton_ref}-usdt")" >/dev/null
 
   local ton_ask='{"uuid":null,"pair":"TON_USDT","price":5,"quantity":2,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local ton_bid='{"uuid":null,"pair":"TON_USDT","price":5,"quantity":2,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "ton-usdt ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$ton_ask' '$ton_seller'" >/tmp/opex-e2e-ton-usdt-ask.json
+  expect_2xx_retry "ton-usdt ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$ton_ask' '$ton_seller'" >/tmp/opex-e2e-ton-usdt-ask.json
   wait_user_open_order "$ton_seller" "TON_USDT" "5" "2" /tmp/opex-e2e-ton-usdt-open-orders.json
   wait_order_book_level "TON_USDT" "ASK" "5" "2"
-  expect_2xx_retry "ton-usdt bid order" "curl_json POST 'http://127.0.0.1:8093/order' '$ton_bid' '$ton_buyer'" >/tmp/opex-e2e-ton-usdt-bid.json
+  expect_2xx_retry "ton-usdt bid order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$ton_bid' '$ton_buyer'" >/tmp/opex-e2e-ton-usdt-bid.json
   wait_no_user_open_orders "$ton_seller" "TON_USDT"
   wait_user_trade_projection "$ton_seller" "TON_USDT" "5" "2" "10" "0.1" "USDT" false true false /tmp/opex-e2e-ton-usdt-seller-trades.json
   wait_user_trade_projection "$ton_buyer" "TON_USDT" "5" "2" "10" "0.02" "TON" true false false /tmp/opex-e2e-ton-usdt-buyer-trades.json
@@ -7653,24 +8049,24 @@ main() {
   local concurrent_buyer_two="e2e-concurrent-buyer-2-$(date +%s)"
   local concurrent_buyer_three="e2e-concurrent-buyer-3-$(date +%s)"
   local concurrent_ref="e2e-concurrent-$(date +%s)"
-  expect_2xx "concurrent seller BTC deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.003_test-bitcoin_BTC/${concurrent_seller}_MAIN?description=e2e-concurrent&transferRef=${concurrent_ref}-btc")" >/dev/null
-  expect_2xx "concurrent buyer one USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${concurrent_buyer_one}_MAIN?description=e2e-concurrent&transferRef=${concurrent_ref}-buyer-1-usdt")" >/dev/null
-  expect_2xx "concurrent buyer two USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${concurrent_buyer_two}_MAIN?description=e2e-concurrent&transferRef=${concurrent_ref}-buyer-2-usdt")" >/dev/null
-  expect_2xx "concurrent buyer three USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${concurrent_buyer_three}_MAIN?description=e2e-concurrent&transferRef=${concurrent_ref}-buyer-3-usdt")" >/dev/null
+  expect_2xx "concurrent seller BTC deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/0.003_test-bitcoin_BTC/${concurrent_seller}_MAIN?description=e2e-concurrent&transferRef=${concurrent_ref}-btc")" >/dev/null
+  expect_2xx "concurrent buyer one USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${concurrent_buyer_one}_MAIN?description=e2e-concurrent&transferRef=${concurrent_ref}-buyer-1-usdt")" >/dev/null
+  expect_2xx "concurrent buyer two USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${concurrent_buyer_two}_MAIN?description=e2e-concurrent&transferRef=${concurrent_ref}-buyer-2-usdt")" >/dev/null
+  expect_2xx "concurrent buyer three USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${concurrent_buyer_three}_MAIN?description=e2e-concurrent&transferRef=${concurrent_ref}-buyer-3-usdt")" >/dev/null
 
   local concurrent_ask='{"uuid":null,"pair":"BTC_USDT","price":21000,"quantity":0.003,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local concurrent_bid='{"uuid":null,"pair":"BTC_USDT","price":21000,"quantity":0.001,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "concurrent resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$concurrent_ask' '$concurrent_seller'" >/tmp/opex-e2e-concurrent-ask.json
+  expect_2xx_retry "concurrent resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$concurrent_ask' '$concurrent_seller'" >/tmp/opex-e2e-concurrent-ask.json
   wait_user_open_order "$concurrent_seller" "BTC_USDT" "21000" "0.003" /tmp/opex-e2e-concurrent-open-orders.json
   wait_order_book_level "BTC_USDT" "ASK" "21000" "0.003"
   wait_wallet_type_balance "concurrent seller MAIN BTC fully reserved" "$concurrent_seller" "MAIN" "BTC" "0.00000000"
   wait_wallet_type_balance "concurrent seller EXCHANGE BTC reservation" "$concurrent_seller" "EXCHANGE" "BTC" "0.00300000"
 
-  expect_2xx_retry "concurrent buyer one bid" "curl_json POST 'http://127.0.0.1:8093/order' '$concurrent_bid' '$concurrent_buyer_one'" >/tmp/opex-e2e-concurrent-bid-1.json &
+  expect_2xx_retry "concurrent buyer one bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$concurrent_bid' '$concurrent_buyer_one'" >/tmp/opex-e2e-concurrent-bid-1.json &
   local concurrent_bid_pid_one=$!
-  expect_2xx_retry "concurrent buyer two bid" "curl_json POST 'http://127.0.0.1:8093/order' '$concurrent_bid' '$concurrent_buyer_two'" >/tmp/opex-e2e-concurrent-bid-2.json &
+  expect_2xx_retry "concurrent buyer two bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$concurrent_bid' '$concurrent_buyer_two'" >/tmp/opex-e2e-concurrent-bid-2.json &
   local concurrent_bid_pid_two=$!
-  expect_2xx_retry "concurrent buyer three bid" "curl_json POST 'http://127.0.0.1:8093/order' '$concurrent_bid' '$concurrent_buyer_three'" >/tmp/opex-e2e-concurrent-bid-3.json &
+  expect_2xx_retry "concurrent buyer three bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$concurrent_bid' '$concurrent_buyer_three'" >/tmp/opex-e2e-concurrent-bid-3.json &
   local concurrent_bid_pid_three=$!
   wait "$concurrent_bid_pid_one"
   wait "$concurrent_bid_pid_two"
@@ -7738,24 +8134,24 @@ main() {
   local overfill_buyer_two="e2e-overfill-buyer-2-$(date +%s)"
   local overfill_buyer_three="e2e-overfill-buyer-3-$(date +%s)"
   local overfill_ref="e2e-overfill-$(date +%s)"
-  expect_2xx "overfill seller BTC deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/0.002_test-bitcoin_BTC/${overfill_seller}_MAIN?description=e2e-overfill&transferRef=${overfill_ref}-btc")" >/dev/null
-  expect_2xx "overfill buyer one USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${overfill_buyer_one}_MAIN?description=e2e-overfill&transferRef=${overfill_ref}-buyer-1-usdt")" >/dev/null
-  expect_2xx "overfill buyer two USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${overfill_buyer_two}_MAIN?description=e2e-overfill&transferRef=${overfill_ref}-buyer-2-usdt")" >/dev/null
-  expect_2xx "overfill buyer three USDT deposit" "$(curl_json POST "http://127.0.0.1:8091/deposit/30_test-ethereum_USDT/${overfill_buyer_three}_MAIN?description=e2e-overfill&transferRef=${overfill_ref}-buyer-3-usdt")" >/dev/null
+  expect_2xx "overfill seller BTC deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/0.002_test-bitcoin_BTC/${overfill_seller}_MAIN?description=e2e-overfill&transferRef=${overfill_ref}-btc")" >/dev/null
+  expect_2xx "overfill buyer one USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${overfill_buyer_one}_MAIN?description=e2e-overfill&transferRef=${overfill_ref}-buyer-1-usdt")" >/dev/null
+  expect_2xx "overfill buyer two USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${overfill_buyer_two}_MAIN?description=e2e-overfill&transferRef=${overfill_ref}-buyer-2-usdt")" >/dev/null
+  expect_2xx "overfill buyer three USDT deposit" "$(curl_json POST "http://${E2E_HTTP_HOST}:8091/deposit/30_test-ethereum_USDT/${overfill_buyer_three}_MAIN?description=e2e-overfill&transferRef=${overfill_ref}-buyer-3-usdt")" >/dev/null
 
   local overfill_ask='{"uuid":null,"pair":"BTC_USDT","price":22000,"quantity":0.002,"direction":"ASK","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
   local overfill_bid='{"uuid":null,"pair":"BTC_USDT","price":22000,"quantity":0.001,"direction":"BID","matchConstraint":"GTC","orderType":"LIMIT_ORDER","userLevel":"*"}'
-  expect_2xx_retry "overfill resting ask order" "curl_json POST 'http://127.0.0.1:8093/order' '$overfill_ask' '$overfill_seller'" >/tmp/opex-e2e-overfill-ask.json
+  expect_2xx_retry "overfill resting ask order" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$overfill_ask' '$overfill_seller'" >/tmp/opex-e2e-overfill-ask.json
   wait_user_open_order "$overfill_seller" "BTC_USDT" "22000" "0.002" /tmp/opex-e2e-overfill-open-orders.json
   wait_order_book_level "BTC_USDT" "ASK" "22000" "0.002"
   wait_wallet_type_balance "overfill seller MAIN BTC fully reserved" "$overfill_seller" "MAIN" "BTC" "0.00000000"
   wait_wallet_type_balance "overfill seller EXCHANGE BTC reservation" "$overfill_seller" "EXCHANGE" "BTC" "0.00200000"
 
-  expect_2xx_retry "overfill buyer one bid" "curl_json POST 'http://127.0.0.1:8093/order' '$overfill_bid' '$overfill_buyer_one'" >/tmp/opex-e2e-overfill-bid-1.json &
+  expect_2xx_retry "overfill buyer one bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$overfill_bid' '$overfill_buyer_one'" >/tmp/opex-e2e-overfill-bid-1.json &
   local overfill_bid_pid_one=$!
-  expect_2xx_retry "overfill buyer two bid" "curl_json POST 'http://127.0.0.1:8093/order' '$overfill_bid' '$overfill_buyer_two'" >/tmp/opex-e2e-overfill-bid-2.json &
+  expect_2xx_retry "overfill buyer two bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$overfill_bid' '$overfill_buyer_two'" >/tmp/opex-e2e-overfill-bid-2.json &
   local overfill_bid_pid_two=$!
-  expect_2xx_retry "overfill buyer three bid" "curl_json POST 'http://127.0.0.1:8093/order' '$overfill_bid' '$overfill_buyer_three'" >/tmp/opex-e2e-overfill-bid-3.json &
+  expect_2xx_retry "overfill buyer three bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order' '$overfill_bid' '$overfill_buyer_three'" >/tmp/opex-e2e-overfill-bid-3.json &
   local overfill_bid_pid_three=$!
   wait "$overfill_bid_pid_one"
   wait "$overfill_bid_pid_two"
@@ -7783,7 +8179,7 @@ main() {
   local overfill_open_owner="" overfill_open_ouid="" overfill_open_order_id=""
   local overfill_filled_buyers=()
   for overfill_buyer in "$overfill_buyer_one" "$overfill_buyer_two" "$overfill_buyer_three"; do
-    curl -fsS "http://127.0.0.1:8096/v1/user/${overfill_buyer}/orders/BTC_USDT/open?limit=20" >"/tmp/opex-e2e-overfill-${overfill_buyer}-open-orders.json"
+    curl -fsS "http://${E2E_HTTP_HOST}:8096/v1/user/${overfill_buyer}/orders/BTC_USDT/open?limit=20" >"/tmp/opex-e2e-overfill-${overfill_buyer}-open-orders.json"
     if jq -e --argjson price 22000 --argjson quantity 0.001 '[.[] | select(.price == $price and .quantity == $quantity and (.status == "NEW" or .status == "PARTIALLY_FILLED"))] | length == 1' "/tmp/opex-e2e-overfill-${overfill_buyer}-open-orders.json" >/dev/null; then
       if [[ -n "$overfill_open_owner" ]]; then
         echo "Expected exactly one residual overfill bid, found at least two: $overfill_open_owner and $overfill_buyer" >&2
@@ -7810,7 +8206,7 @@ main() {
   done
   local overfill_cancel_request
   overfill_cancel_request="$(jq -nc --arg ouid "$overfill_open_ouid" --arg uuid "$overfill_open_owner" --argjson orderId "$overfill_open_order_id" '{ouid:$ouid, uuid:$uuid, orderId:$orderId, symbol:"BTC_USDT"}')"
-  expect_2xx_retry "cancel overfill residual bid" "curl_json POST 'http://127.0.0.1:8093/order/cancel' '$overfill_cancel_request' '$overfill_open_owner'" >/tmp/opex-e2e-overfill-cancel.json
+  expect_2xx_retry "cancel overfill residual bid" "curl_json POST 'http://${E2E_HTTP_HOST}:8093/order/cancel' '$overfill_cancel_request' '$overfill_open_owner'" >/tmp/opex-e2e-overfill-cancel.json
   wait_no_user_open_orders "$overfill_open_owner" "BTC_USDT"
   wait_order_book_empty "BTC_USDT" "BID"
   wait_wallet_type_balance "overfill residual buyer EXCHANGE USDT released" "$overfill_open_owner" "EXCHANGE" "USDT" "0.00000000"
@@ -8748,7 +9144,7 @@ main() {
 EOF
 
   if (( KEEP_RUNNING == 0 )); then
-    "${COMPOSE[@]}" stop matching-gateway matching-engine matching-engine-duo accountant wallet market api bc-gateway auth eventlog || true
+    stop_e2e_app_containers
   fi
 }
 

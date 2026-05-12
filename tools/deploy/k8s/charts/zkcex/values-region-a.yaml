@@ -1,0 +1,46 @@
+# Region A (primary) — e.g. ap-northeast-2 (Seoul)
+region: a
+isPrimary: true
+
+ingress:
+  host: app.zkcex.io
+
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      size: 20Gi
+  auth:
+    username: zkcex
+    database: zkcex
+  replicaUrl: ""        # source of truth; no upstream
+
+mariadb:
+  enabled: true
+  primary:
+    persistence:
+      size: 10Gi
+  replicaUrl: ""
+
+crossRegion:
+  peerRegion: b
+  peerProxyUrl: https://internal-b.zkcex.io
+  leaseDurationSeconds: 30
+
+# Singletons are active here in region-A.
+services:
+  mm-bot:
+    leaderElect: true
+    active: true
+  pol-feed:
+    leaderElect: true
+    active: true
+  custody-coordinator:
+    leaderElect: true
+    active: true
+  perp:
+    leaderElect: true
+    active: true
+  order-engine:
+    leaderElect: true
+    active: true

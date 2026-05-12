@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>보안 / Security — zkCEX</title>
+  <meta name="description" content="zkCEX 보안 센터: 패스키, 2단계 인증(TOTP), 복구 코드, 비밀번호 변경." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <style>
+    .sec-page { max-width: 760px; margin: 0 auto; padding: 24px 18px 40px; }
+    .sec-card { padding: 18px 18px; background: var(--panel, #11131a);
+                 border: 1px solid var(--line, #1d2230); border-radius: 14px;
+                 margin-bottom: 16px; }
+    .sec-card h2 { font-size: 17px; margin: 0 0 6px; }
+    .sec-card .en  { color: var(--ink-dim, #7e8ba2); font-weight: 400; font-size: 13px; }
+    .sec-card p   { font-size: 13px; color: var(--ink-dim, #95a0bb); margin: 4px 0; }
+    .pill        { display: inline-block; padding: 2px 10px; border-radius: 999px;
+                    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+                    border: 1px solid rgba(120,128,160,0.35); color: #8c93a8; }
+    .pill.on     { color: #5ce0a1; border-color: rgba(92,224,161,0.5);
+                    background: rgba(92,224,161,0.10); }
+    .pill.off    { color: #f59e0b; border-color: rgba(245,158,11,0.5);
+                    background: rgba(245,158,11,0.10); }
+    .totp-row    { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start;
+                    margin-top: 12px; }
+    .totp-qr     { width: 216px; height: 216px; border-radius: 8px;
+                    background: #fff; padding: 8px; flex: 0 0 auto; }
+    .totp-qr img { width: 100%; height: 100%; }
+    .totp-info   { flex: 1 1 240px; min-width: 240px; }
+    .totp-info code { display: block; word-break: break-all;
+                      font-size: 12px; padding: 8px 10px; border-radius: 6px;
+                      background: rgba(255,255,255,0.05);
+                      border: 1px solid rgba(255,255,255,0.08);
+                      margin: 6px 0; user-select: all; }
+    .totp-input  { width: 100%; max-width: 260px; padding: 12px 14px;
+                    font-size: 22px; font-family: 'JetBrains Mono', monospace;
+                    letter-spacing: 6px; text-align: center;
+                    background: var(--panel, #11131a);
+                    border: 1px solid var(--line, #1d2230); border-radius: 10px;
+                    color: var(--ink, #e6ecf5); }
+    .recov-grid  { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                    gap: 8px; margin-top: 10px; }
+    .recov-grid code { background: rgba(255,255,255,0.05);
+                       border: 1px solid rgba(255,255,255,0.08);
+                       border-radius: 6px; padding: 8px 10px;
+                       font-family: 'JetBrains Mono', monospace; font-size: 13px;
+                       letter-spacing: 1px; user-select: all; text-align: center; }
+    .recov-grid code.used { text-decoration: line-through; opacity: 0.4; }
+    .actions     { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    .field-stack { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+    .field-stack input { padding: 10px 12px; font-size: 14px;
+                         background: var(--panel, #11131a);
+                         border: 1px solid var(--line, #1d2230); border-radius: 10px;
+                         color: var(--ink, #e6ecf5); }
+    .status-banner { padding: 12px 14px; border-radius: 10px; margin: 10px 0;
+                     background: rgba(11,58,255,0.10); border: 1px solid rgba(11,58,255,0.45);
+                     color: var(--ink, #e6ecf5); font-size: 13px; }
+    .status-banner.error { background: rgba(255,77,77,0.10); border-color: rgba(255,77,77,0.45); }
+    .status-banner.ok    { background: rgba(92,224,161,0.10); border-color: rgba(92,224,161,0.45); }
+    .muted-link { font-size: 12px; color: var(--ink-dim, #7e8ba2); text-decoration: underline; cursor: pointer; }
+
+    /* Passkey list */
+    .pk-list   { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    .pk-row    { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+                  padding: 10px 12px; border: 1px solid var(--line, #1d2230); border-radius: 10px;
+                  background: rgba(255,255,255,0.02); }
+    .pk-row .pk-name { font-weight: 600; font-size: 14px; color: var(--ink, #e6ecf5); }
+    .pk-row .pk-meta { font-size: 11px; color: var(--ink-dim, #7e8ba2); margin-top: 2px;
+                        font-family: 'JetBrains Mono', monospace; }
+    .pk-row .pk-actions { display: flex; gap: 6px; }
+    .pk-row .pk-icon  { display: inline-block; width: 22px; height: 22px; margin-right: 8px;
+                        vertical-align: middle; border-radius: 4px;
+                        background: linear-gradient(135deg, #5ce0a1 0%, #0b3aff 100%);
+                        position: relative; }
+    .pk-row .pk-icon::after { content: "key"; font-size: 9px; color: #000; font-weight: 700;
+                              position: absolute; top: 4px; left: 1px; right: 1px; text-align: center; }
+    .pk-empty  { padding: 16px; text-align: center; color: var(--ink-dim, #7e8ba2);
+                  font-size: 13px; border: 1px dashed var(--line, #1d2230); border-radius: 10px; }
+    .pk-warn   { font-size: 12px; color: #f59e0b; margin-top: 8px; }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main id="main" class="sec-page">
+  <section class="page-heading">
+    <h1>보안 센터<span class="en">Security Center</span></h1>
+    <p>계정 보호 설정. 2단계 인증을 활성화하여 출금 보안을 강화하세요. / Enable two-factor authentication to harden withdrawals.</p>
+  </section>
+
+  <div id="banner" class="status-banner" hidden></div>
+
+  <!-- ============== STATUS ============== -->
+  <section class="sec-card">
+    <h2>2단계 인증 <span class="en">/ Two-factor authentication (TOTP)</span></h2>
+    <p>인증 앱 (Google Authenticator, Authy, 1Password, Bitwarden) 으로 6자리 코드를 받아 로그인과 출금에 사용합니다. / Use an authenticator app to generate a 6-digit code at login and withdraw.</p>
+    <div id="status-row" style="margin-top: 10px;">
+      <span id="status-pill" class="pill off">상태 확인 중… / Checking…</span>
+      <span id="status-meta" style="margin-left: 10px; font-size:12px; color: var(--ink-dim, #7e8ba2);"></span>
+    </div>
+  </section>
+
+  <!-- ============== SETUP (hidden until "Setup") ============== -->
+  <section class="sec-card" id="setup-card" hidden>
+    <h2>Step 1 · 인증 앱에 비밀키 추가 <span class="en">/ Add to authenticator app</span></h2>
+    <p>아래 QR 또는 OTP URI 를 인증 앱에 추가하세요. iOS/Android 앱은 URI 를 복사해서 붙여넣어도 됩니다. / Scan the QR or paste the otpauth URI into your app.</p>
+    <div class="totp-row">
+      <div class="totp-qr">
+        <img id="qr-img" alt="otpauth QR" />
+      </div>
+      <div class="totp-info">
+        <div style="font-size:12px;color:var(--ink-dim,#7e8ba2);">비밀키 / Secret</div>
+        <code id="secret-text">—</code>
+        <div style="font-size:12px;color:var(--ink-dim,#7e8ba2);">OTP URI (복사 / Copy)</div>
+        <code id="otpauth-text">—</code>
+        <button class="btn btn-quiet" type="button" id="copy-otpauth">URI 복사 / Copy URI</button>
+      </div>
+    </div>
+
+    <hr style="border:0;border-top:1px solid var(--line,#1d2230);margin:18px 0;" />
+
+    <h2>Step 2 · 앱이 표시한 6자리 코드 입력 <span class="en">/ Enter the 6-digit code</span></h2>
+    <form id="verify-setup-form" class="field-stack" novalidate>
+      <input type="text" id="setup-code" inputmode="numeric" pattern="[0-9]{6}"
+             maxlength="6" autocomplete="one-time-code"
+             class="totp-input" placeholder="000000" required
+             aria-label="인증 앱의 6자리 코드 / 6-digit code from authenticator app" />
+      <div class="actions">
+        <button class="btn btn-primary" type="submit" id="verify-setup-btn">
+          확인 후 활성화 <span class="btn-en">/ Verify &amp; enable</span>
+        </button>
+        <button class="btn btn-quiet" type="button" id="cancel-setup-btn">취소 / Cancel</button>
+      </div>
+    </form>
+
+    <h2 style="margin-top:24px;">Step 3 · 복구 코드 저장 <span class="en">/ Save your recovery codes</span></h2>
+    <p>각 코드는 한 번만 사용할 수 있습니다. 안전한 곳에 보관하세요. 인증 앱이 망가졌을 때 사용합니다. / Each code is single-use. Store them somewhere safe — they are your way back in if you lose your authenticator.</p>
+    <div class="recov-grid" id="recovery-codes"></div>
+    <div class="actions">
+      <button class="btn btn-quiet" type="button" id="print-recov">인쇄 / Print</button>
+      <button class="btn btn-quiet" type="button" id="download-recov">다운로드 / Download .txt</button>
+    </div>
+  </section>
+
+  <!-- ============== ENABLED-STATE actions ============== -->
+  <section class="sec-card" id="enabled-card" hidden>
+    <h2>관리 <span class="en">/ Manage</span></h2>
+    <p>2단계 인증이 활성화되어 있습니다. 새 복구 코드를 만들거나 2단계 인증을 비활성화할 수 있습니다. / Two-factor authentication is enabled. Disable below if needed.</p>
+
+    <details style="margin-top:14px;">
+      <summary style="cursor:pointer;">2단계 인증 비활성화 / Disable 2FA</summary>
+      <form id="disable-form" class="field-stack" novalidate style="margin-top:10px;">
+        <input type="password" id="disable-password" placeholder="비밀번호 / Password"
+               autocomplete="current-password" required
+               aria-label="비밀번호 / Password" />
+        <input type="text" id="disable-code" inputmode="numeric" pattern="[0-9]{6}"
+               maxlength="6" autocomplete="one-time-code"
+               placeholder="현재 6자리 코드 / Current 6-digit code"
+               aria-label="현재 6자리 인증 코드 / Current 6-digit authentication code" />
+        <div class="actions">
+          <button class="btn btn-danger" type="submit">비활성화 / Disable</button>
+        </div>
+      </form>
+    </details>
+  </section>
+
+  <!-- ============== Initial setup CTA ============== -->
+  <section class="sec-card" id="cta-card" hidden>
+    <p>2단계 인증이 꺼져 있습니다. 출금을 안전하게 보호하려면 활성화하세요. / 2FA is off. Turn it on to protect withdrawals.</p>
+    <div class="actions">
+      <button class="btn btn-primary" type="button" id="start-setup-btn">
+        지금 설정 <span class="btn-en">/ Set up now</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ============== Passkeys (WebAuthn) ============== -->
+  <section class="sec-card">
+    <h2>패스키 <span class="en">/ Passkeys (WebAuthn)</span></h2>
+    <p>
+      Touch ID / Face ID / Windows Hello / 보안 키(YubiKey) 등으로 비밀번호 없이 안전하게 로그인합니다.
+      <br/>
+      <span class="muted">Sign in without a password using Touch ID, Face ID, Windows Hello, or a security key. Phishing-resistant by design.</span>
+    </p>
+
+    <div id="pk-unsupported" class="pk-warn" hidden>
+      이 브라우저는 WebAuthn 을 지원하지 않습니다. / This browser does not support WebAuthn.
+    </div>
+    <div id="pk-server-warn" class="pk-warn" hidden>
+      서버에 cryptography 라이브러리가 설치되지 않아 패스키 로그인이 비활성화되어 있습니다. 등록은 가능하지만, 인증은 서버 패키지 설치 후 동작합니다.
+      <br/>
+      <span class="muted">Server is missing the cryptography library — passkey enrollment works but sign-in returns 501 until installed.</span>
+    </div>
+
+    <div id="pk-list" class="pk-list" hidden></div>
+    <div id="pk-empty" class="pk-empty" hidden>
+      등록된 패스키가 없습니다. / No passkeys enrolled yet.
+    </div>
+
+    <div class="actions" style="margin-top: 12px;">
+      <button class="btn btn-primary" type="button" id="pk-add-btn">
+        패스키 추가 <span class="btn-en">/ Add a passkey</span>
+      </button>
+    </div>
+  </section>
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    requireSession, authedFetch, toast, escapeHtml,
+  } from "./app.js";
+
+  const session = requireSession({ redirectTo: "/app/signin.html" });
+  if (session) {
+    renderHeader("security");
+    renderFooter();
+
+    const banner = document.getElementById("banner");
+    function showBanner(text, kind) {
+      banner.textContent = text;
+      banner.hidden = false;
+      banner.classList.remove("ok", "error");
+      if (kind === "ok") banner.classList.add("ok");
+      if (kind === "error") banner.classList.add("error");
+      if (kind === "ok") {
+        setTimeout(() => { banner.hidden = true; }, 4000);
+      }
+    }
+
+    const statusPill = document.getElementById("status-pill");
+    const statusMeta = document.getElementById("status-meta");
+    const ctaCard    = document.getElementById("cta-card");
+    const setupCard  = document.getElementById("setup-card");
+    const enabledCard= document.getElementById("enabled-card");
+
+    async function refreshStatus() {
+      try {
+        const r = await authedFetch("/auth/2fa/status");
+        if (r.enabled) {
+          statusPill.className = "pill on";
+          statusPill.textContent = "활성화 / ENABLED";
+          if (r.enabled_at) {
+            const d = new Date(r.enabled_at * 1000);
+            statusMeta.textContent = `활성화 시각 / since ${d.toLocaleString()} · 남은 복구 코드 / recovery left: ${r.recovery_codes_remaining}`;
+          }
+          enabledCard.hidden = false;
+          ctaCard.hidden = true;
+          setupCard.hidden = true;
+        } else {
+          statusPill.className = "pill off";
+          statusPill.textContent = "비활성화 / NOT CONFIGURED";
+          statusMeta.textContent = r.pending_setup
+            ? "설정 진행 중 / setup in progress"
+            : "권장 / recommended";
+          enabledCard.hidden = true;
+          ctaCard.hidden = false;
+        }
+      } catch (e) {
+        showBanner(`상태를 불러오지 못했습니다 / Couldn't load status: ${e.message || e}`, "error");
+      }
+    }
+    refreshStatus();
+
+    // --------- Setup flow ---------
+    let recoveryCodesPlain = [];
+    document.getElementById("start-setup-btn").addEventListener("click", async () => {
+      try {
+        const r = await authedFetch("/auth/2fa/setup", { method: "POST" });
+        document.getElementById("qr-img").src = `data:image/svg+xml;base64,${r.qr_svg}`;
+        document.getElementById("secret-text").textContent = r.secret_b32;
+        document.getElementById("otpauth-text").textContent = r.otpauth_url;
+        recoveryCodesPlain = r.recovery_codes || [];
+        renderRecoveryCodes(recoveryCodesPlain);
+        ctaCard.hidden = true;
+        setupCard.hidden = false;
+        document.getElementById("setup-code").focus();
+      } catch (e) {
+        let msg = e.message || String(e);
+        try { const b = JSON.parse(e.body || "{}"); if (b.error) msg = b.error; } catch {}
+        if (msg === "already_enabled") {
+          showBanner("이미 활성화되어 있습니다 / Already enabled", "error");
+          refreshStatus();
+        } else {
+          showBanner(`설정 실패 / Setup failed: ${msg}`, "error");
+        }
+      }
+    });
+
+    function renderRecoveryCodes(codes) {
+      const grid = document.getElementById("recovery-codes");
+      grid.innerHTML = codes.map(c => `<code>${escapeHtml(c)}</code>`).join("");
+    }
+
+    document.getElementById("copy-otpauth").addEventListener("click", async () => {
+      const t = document.getElementById("otpauth-text").textContent;
+      try { await navigator.clipboard.writeText(t); toast("복사됨", "Copied"); }
+      catch { toast("복사 실패", "Copy failed"); }
+    });
+
+    document.getElementById("print-recov").addEventListener("click", () => {
+      const w = window.open("", "_blank");
+      if (!w) return;
+      const html = `<pre style="font:14px monospace">zkCEX 2FA recovery codes\n\n${recoveryCodesPlain.join("\n")}\n\nEach code is single-use. Store somewhere safe.</pre>`;
+      w.document.write(html);
+      w.document.close();
+      w.print();
+    });
+    document.getElementById("download-recov").addEventListener("click", () => {
+      const blob = new Blob([
+        "zkCEX 2FA recovery codes\n\n" + recoveryCodesPlain.join("\n") +
+        "\n\nEach code is single-use.\n"
+      ], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "zkcex-recovery-codes.txt";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    document.getElementById("cancel-setup-btn").addEventListener("click", () => {
+      setupCard.hidden = true;
+      ctaCard.hidden = false;
+    });
+
+    document.getElementById("verify-setup-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const code = document.getElementById("setup-code").value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        showBanner("6자리 숫자 입력 / Enter 6 digits", "error");
+        return;
+      }
+      const btn = document.getElementById("verify-setup-btn");
+      btn.disabled = true;
+      try {
+        const r = await authedFetch("/auth/2fa/verify-setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        if (r.enabled) {
+          showBanner("2단계 인증이 활성화되었습니다 / Two-factor enabled.", "ok");
+          await refreshStatus();
+        }
+      } catch (e) {
+        let body = null;
+        try { body = JSON.parse(e.body || "{}"); } catch {}
+        if (body && body.error === "wrong_code") {
+          showBanner(`코드가 일치하지 않습니다 (남은 시도 ${body.attempts_left}) / Code didn't match (${body.attempts_left} attempts left)`, "error");
+        } else if (body && body.error === "too_many_setup_attempts") {
+          showBanner("시도 초과. 처음부터 다시 설정하세요 / Too many attempts. Restart setup.", "error");
+          setupCard.hidden = true;
+          ctaCard.hidden = false;
+        } else {
+          showBanner(`확인 실패 / Verification failed: ${(body && body.error) || e.message}`, "error");
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // =====================================================================
+    // Passkeys / WebAuthn
+    // =====================================================================
+    // The browser exposes navigator.credentials.{create,get} for the
+    // WebAuthn ceremony. The server hands us a PublicKeyCredentialCreationOptions
+    // JSON (with base64url-encoded challenge/user.id/excludeCredentials.id)
+    // and we have to inflate those strings into ArrayBuffers before passing
+    // to .create(). On success, we deflate the response back to base64url
+    // and POST it to /register/finish.
+
+    function b64urlToBytes(s) {
+      s = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+      while (s.length % 4) s += "=";
+      const bin = atob(s);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    function bytesToB64url(buf) {
+      const bytes = new Uint8Array(buf);
+      let bin = "";
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+    }
+
+    function pkBrowserHint() {
+      // Build a "iPhone 15 (Safari)" style hint from userAgent + platform.
+      // Used only as a fallback when the server's AAGUID lookup fails to
+      // come up with a friendlier name.
+      const ua = navigator.userAgent || "";
+      let device = "Device";
+      if (/iPhone/.test(ua)) device = "iPhone";
+      else if (/iPad/.test(ua)) device = "iPad";
+      else if (/Android/.test(ua)) device = "Android";
+      else if (/Macintosh/.test(ua)) device = "Mac";
+      else if (/Windows/.test(ua)) device = "Windows";
+      else if (/Linux/.test(ua)) device = "Linux";
+      let browser = "Browser";
+      if (/Edg\//.test(ua))         browser = "Edge";
+      else if (/Chrome\//.test(ua)) browser = "Chrome";
+      else if (/Firefox\//.test(ua))browser = "Firefox";
+      else if (/Safari\//.test(ua)) browser = "Safari";
+      return `${device} (${browser})`;
+    }
+
+    const pkSupported = !!(window.PublicKeyCredential && navigator.credentials &&
+                            typeof navigator.credentials.create === "function");
+    if (!pkSupported) {
+      document.getElementById("pk-unsupported").hidden = false;
+      document.getElementById("pk-add-btn").disabled = true;
+    }
+
+    async function pkFetchStatus() {
+      try {
+        const r = await fetch("/auth/webauthn/status", { cache: "no-store" });
+        if (!r.ok) return;
+        const v = await r.json();
+        if (!v.crypto_available) {
+          document.getElementById("pk-server-warn").hidden = false;
+        }
+      } catch { /* offline; skip */ }
+    }
+    pkFetchStatus();
+
+    async function pkRefresh() {
+      const listEl  = document.getElementById("pk-list");
+      const emptyEl = document.getElementById("pk-empty");
+      try {
+        const r = await authedFetch("/auth/webauthn/credentials");
+        const creds = r.credentials || [];
+        if (!creds.length) {
+          listEl.hidden = true;
+          emptyEl.hidden = false;
+          return;
+        }
+        emptyEl.hidden = true;
+        listEl.hidden = false;
+        listEl.innerHTML = creds.map(c => {
+          const created = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString() : "—";
+          const lastUsed = c.last_used_at
+            ? `최근 사용 / last used ${new Date(c.last_used_at * 1000).toLocaleDateString()}`
+            : `미사용 / never used`;
+          const aaguid = c.aaguid_name
+            ? `<span style="color:#7cc1ff">${escapeHtml(c.aaguid_name)}</span> · `
+            : "";
+          return `
+            <div class="pk-row" data-id="${c.id}">
+              <div>
+                <div class="pk-name"><span class="pk-icon"></span>${escapeHtml(c.device_name || "Passkey")}</div>
+                <div class="pk-meta">${aaguid}등록 / added ${escapeHtml(created)} · ${escapeHtml(lastUsed)}</div>
+              </div>
+              <div class="pk-actions">
+                <button class="btn btn-quiet pk-rename" type="button">이름 변경 / Rename</button>
+                <button class="btn btn-danger  pk-del"    type="button">삭제 / Delete</button>
+              </div>
+            </div>`;
+        }).join("");
+      } catch (e) {
+        showBanner(`패스키 목록 로드 실패 / Couldn't load passkeys: ${e.message || e}`, "error");
+      }
+    }
+    pkRefresh();
+
+    document.getElementById("pk-list").addEventListener("click", async (e) => {
+      const row = e.target.closest(".pk-row");
+      if (!row) return;
+      const id = row.getAttribute("data-id");
+      if (e.target.classList.contains("pk-del")) {
+        if (!confirm("이 패스키를 삭제할까요? / Delete this passkey?")) return;
+        try {
+          await authedFetch(`/auth/webauthn/credentials/${id}`, { method: "DELETE" });
+          showBanner("패스키 삭제됨 / Passkey deleted.", "ok");
+          await pkRefresh();
+        } catch (err) {
+          showBanner(`삭제 실패 / Delete failed: ${err.message || err}`, "error");
+        }
+      } else if (e.target.classList.contains("pk-rename")) {
+        const current = row.querySelector(".pk-name")?.textContent?.trim() || "";
+        const next = prompt("새 이름 / New name", current);
+        if (!next || next === current) return;
+        try {
+          await authedFetch(`/auth/webauthn/credentials/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ device_name: next.slice(0, 64) }),
+          });
+          await pkRefresh();
+        } catch (err) {
+          showBanner(`이름 변경 실패 / Rename failed: ${err.message || err}`, "error");
+        }
+      }
+    });
+
+    document.getElementById("pk-add-btn").addEventListener("click", async () => {
+      if (!pkSupported) return;
+      const btn = document.getElementById("pk-add-btn");
+      btn.disabled = true;
+      try {
+        // 1. Ask the server for the registration options.
+        const opts = await authedFetch("/auth/webauthn/register/begin", { method: "POST" });
+        // 2. Inflate base64url strings into ArrayBuffers.
+        const creationOptions = {
+          challenge: b64urlToBytes(opts.challenge),
+          rp: opts.rp,
+          user: {
+            id: b64urlToBytes(opts.user.id),
+            name: opts.user.name,
+            displayName: opts.user.displayName,
+          },
+          pubKeyCredParams: opts.pubKeyCredParams,
+          timeout: opts.timeout,
+          attestation: opts.attestation,
+          authenticatorSelection: opts.authenticatorSelection,
+          excludeCredentials: (opts.excludeCredentials || []).map(c => ({
+            type: c.type,
+            id: b64urlToBytes(c.id),
+            transports: c.transports,
+          })),
+          extensions: opts.extensions || {},
+        };
+        // 3. Browser pops the platform UI (Touch ID, Face ID, security key prompt).
+        const cred = await navigator.credentials.create({ publicKey: creationOptions });
+        if (!cred) throw new Error("no credential returned");
+
+        const transports = (cred.response.getTransports && cred.response.getTransports()) || [];
+        // 4. POST the response back to /register/finish.
+        const finishBody = {
+          id: cred.id, // already base64url
+          rawId: bytesToB64url(cred.rawId),
+          type: cred.type,
+          response: {
+            attestationObject: bytesToB64url(cred.response.attestationObject),
+            clientDataJSON:    bytesToB64url(cred.response.clientDataJSON),
+            transports,
+          },
+          device_name: pkBrowserHint(),
+        };
+        const r = await authedFetch("/auth/webauthn/register/finish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(finishBody),
+        });
+        if (r && r.ok) {
+          showBanner(`패스키 추가됨 / Passkey added: ${r.credential.device_name}`, "ok");
+          await pkRefresh();
+        }
+      } catch (err) {
+        // The browser throws DOMException for cancel / no-authenticator.
+        if (err && err.name === "NotAllowedError") {
+          showBanner("취소되었습니다 / Cancelled or denied.", "error");
+        } else if (err && err.name === "InvalidStateError") {
+          showBanner("이 인증기는 이미 등록되어 있습니다 / Authenticator already registered.", "error");
+        } else {
+          let msg = err.message || String(err);
+          try { const b = JSON.parse(err.body || "{}"); if (b.error) msg = b.error; } catch {}
+          showBanner(`패스키 등록 실패 / Passkey enroll failed: ${msg}`, "error");
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // --------- Disable flow ---------
+    document.getElementById("disable-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const password = document.getElementById("disable-password").value;
+      const code = document.getElementById("disable-code").value.trim();
+      if (!password) { showBanner("비밀번호 / Password required", "error"); return; }
+      if (!/^\d{6}$/.test(code)) {
+        showBanner("6자리 코드 필요 / 6-digit code required", "error");
+        return;
+      }
+      try {
+        const r = await authedFetch("/auth/2fa/disable", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password, code }),
+        });
+        if (r.enabled === false) {
+          showBanner("2단계 인증이 비활성화되었습니다 / Two-factor disabled.", "ok");
+          document.getElementById("disable-password").value = "";
+          document.getElementById("disable-code").value = "";
+          await refreshStatus();
+        }
+      } catch (err) {
+        let body = null;
+        try { body = JSON.parse(err.body || "{}"); } catch {}
+        const code = body && body.error;
+        if (code === "invalid_password") showBanner("비밀번호 오류 / Invalid password", "error");
+        else if (code === "totp_wrong") showBanner("코드 오류 / Invalid TOTP code", "error");
+        else showBanner(`비활성화 실패 / Disable failed: ${code || err.message}`, "error");
+      }
+    });
+  }
+</script>
+
+</body>
+</html>

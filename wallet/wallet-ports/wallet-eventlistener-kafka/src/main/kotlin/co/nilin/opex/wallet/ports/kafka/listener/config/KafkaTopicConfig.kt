@@ -2,6 +2,7 @@ package co.nilin.opex.wallet.ports.kafka.listener.config
 
 import org.apache.kafka.clients.admin.NewTopic
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
 import org.springframework.context.support.GenericApplicationContext
@@ -10,6 +11,7 @@ import java.util.function.Supplier
 
 @Configuration
 @Profile("!otc & !localbridge")
+@ConditionalOnProperty(name = ["app.kafka.topics.enabled"], havingValue = "true", matchIfMissing = true)
 class KafkaTopicConfig {
 
     @Autowired

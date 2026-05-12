@@ -1,0 +1,56 @@
+# Region B (warm standby) — e.g. ap-southeast-1 (Singapore)
+region: b
+isPrimary: false
+
+ingress:
+  host: app-b.zkcex.io
+
+postgresql:
+  enabled: true
+  architecture: replication
+  replicaUrl: "postgres://region-a.zkcex.internal:5432"
+  primary:
+    persistence:
+      size: 20Gi
+  recoveryConf: |
+    primary_conninfo = 'host=region-a.zkcex.internal port=5432 user=replicator sslmode=require'
+    primary_slot_name = 'region_b_slot'
+    hot_standby = on
+    standby_mode = on
+
+mariadb:
+  enabled: true
+  architecture: replication
+  replicaUrl: "region-a.mariadb.internal:3306"
+  primary:
+    persistence:
+      size: 10Gi
+
+crossRegion:
+  peerRegion: a
+  peerProxyUrl: https://internal-a.zkcex.io
+  leaseDurationSeconds: 30
+
+# Singletons in region-B are passive (replicas: 0 effectively, or active=false).
+# Leader-election Lease ensures they won't take traffic until region-A's lease lapses.
+services:
+  mm-bot:
+    leaderElect: true
+    active: false
+    replicas: 1   # standby pod present, idle
+  pol-feed:
+    leaderElect: true
+    active: false
+    replicas: 1
+  custody-coordinator:
+    leaderElect: true
+    active: false
+    replicas: 1
+  perp:
+    leaderElect: true
+    active: false
+    replicas: 1
+  order-engine:
+    leaderElect: true
+    active: false
+    replicas: 1

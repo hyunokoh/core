@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>API 키 / API keys — zkCEX</title>
+  <meta name="description" content="외부 클라이언트(트레이딩 봇, 포트폴리오 매니저, AI 에이전트)가 거래소에 접근할 때 사용하는 API 키를 관리합니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    /* Page-local styling. Keeps the rest of the app.css surface untouched. */
+    .keys-shell { max-width: 1080px; margin: 0 auto; padding: 28px 22px 80px; }
+
+    .keys-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .keys-toolbar h2 {
+      margin: 0; font-size: 15px; font-weight: 600; color: var(--ink-mute);
+    }
+
+    .keys-card {
+      background: var(--panel, #11151f);
+      border: 1px solid var(--line, rgba(255,255,255,0.06));
+      border-radius: 12px;
+      padding: 18px;
+      margin: 0 0 18px;
+    }
+    .keys-card h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--ink-mute);
+    }
+    .keys-card .desc { color: var(--ink-mute); font-size: 13px; margin: 0 0 14px; }
+
+    table.keys-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.keys-table th, table.keys-table td {
+      text-align: left; padding: 10px 8px;
+      border-bottom: 1px solid var(--line, rgba(255,255,255,0.06));
+      vertical-align: top;
+    }
+    table.keys-table th {
+      color: var(--ink-mute); font-weight: 600; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    table.keys-table td.r, table.keys-table th.r { text-align: right; }
+    table.keys-table tr:last-child td { border-bottom: 0; }
+    table.keys-table .row-muted { color: var(--ink-dim); }
+    table.keys-table tr.revoked td { opacity: 0.45; }
+
+    .scope-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      margin-right: 4px;
+      letter-spacing: 0.04em;
+      border: 1px solid transparent;
+    }
+    .scope-pill.read     { color: #7aa2ff; background: rgba(42,85,255,0.14); border-color: rgba(42,85,255,0.3); }
+    .scope-pill.trade    { color: #f0b429; background: rgba(240,180,41,0.14); border-color: rgba(240,180,41,0.3); }
+    .scope-pill.withdraw { color: #ff7a8c; background: rgba(255,77,99,0.14);  border-color: rgba(255,77,99,0.36); }
+
+    .keys-row-actions {
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .keys-row-actions button {
+      font-size: 11px; padding: 4px 10px; border-radius: 6px;
+      border: 1px solid var(--line-strong, rgba(255,255,255,0.12));
+      color: var(--ink-mute);
+    }
+    .keys-row-actions button:hover { color: #fff; border-color: rgba(255,255,255,0.32); }
+    .keys-row-actions button.danger { color: #ff7a8c; border-color: rgba(255,77,99,0.36); }
+    .keys-row-actions button.danger:hover { color: #fff; background: rgba(255,77,99,0.18); }
+
+    .empty-row {
+      color: var(--ink-dim); font-size: 13px; text-align: center; padding: 24px 0;
+    }
+
+    /* Modal */
+    .keys-modal-back {
+      position: fixed; inset: 0;
+      background: rgba(7,9,15,0.74);
+      backdrop-filter: blur(2px);
+      display: none; align-items: center; justify-content: center; z-index: 80;
+      padding: 16px;
+    }
+    .keys-modal-back.show { display: flex; }
+    .keys-modal {
+      background: var(--panel-2, #161b27);
+      border: 1px solid var(--line-strong, rgba(255,255,255,0.12));
+      border-radius: 14px;
+      padding: 22px;
+      width: 100%;
+      max-width: 540px;
+      max-height: 88vh;
+      overflow-y: auto;
+    }
+    .keys-modal h3 { margin: 0 0 4px; font-size: 17px; }
+    .keys-modal .modal-sub { color: var(--ink-mute); font-size: 12px; margin: 0 0 14px; }
+    .form-row {
+      display: flex; flex-direction: column; gap: 6px;
+      margin-bottom: 12px;
+    }
+    .form-row label.label-strong {
+      font-weight: 600; font-size: 12px; color: var(--ink); text-transform: none;
+      letter-spacing: 0;
+    }
+    .form-row .help { color: var(--ink-dim); font-size: 11px; }
+    .form-row input[type="text"], .form-row input[type="number"], .form-row textarea {
+      background: var(--panel, #11151f);
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      padding: 8px 10px;
+      font-family: inherit;
+      color: var(--ink);
+      font-size: 13px;
+      outline: none;
+    }
+    .form-row input:focus, .form-row textarea:focus {
+      border-color: var(--accent-bright);
+    }
+    .form-row textarea { resize: vertical; min-height: 56px; font-family: var(--font-mono); }
+
+    .scope-toggle {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-bottom: 6px;
+      background: rgba(255,255,255,0.02);
+    }
+    .scope-toggle input { accent-color: var(--accent-bright); }
+    .scope-toggle.locked input { pointer-events: none; }
+    .scope-toggle .tag-en { color: var(--ink-mute); font-size: 11px; }
+    .scope-toggle .scope-desc { color: var(--ink-dim); font-size: 11px; flex: 1; text-align: right; }
+
+    .modal-actions {
+      display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;
+    }
+
+    .secret-card {
+      background: rgba(240,180,41,0.06);
+      border: 1px solid rgba(240,180,41,0.32);
+      border-radius: 10px;
+      padding: 14px;
+      margin-top: 12px;
+    }
+    .secret-card .label-row {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 11px; text-transform: uppercase; color: var(--ink-mute);
+      margin-bottom: 4px;
+    }
+    .secret-card .secret-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      word-break: break-all;
+      background: rgba(0,0,0,0.4);
+      padding: 8px 10px;
+      border-radius: 6px;
+      user-select: all;
+    }
+    .secret-card .warn-msg {
+      color: #f0b429; font-size: 12px; margin: 8px 0 0;
+    }
+
+    .copy-btn {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-mute);
+      border: 1px solid var(--line-strong);
+      padding: 3px 8px;
+      border-radius: 5px;
+    }
+    .copy-btn:hover { color: #fff; }
+    .copy-btn.flash { color: var(--bid); border-color: var(--bid); }
+
+    .examples-detail {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.18);
+      padding: 0 14px;
+    }
+    .examples-detail summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 12px 0;
+      font-weight: 600;
+      color: var(--ink);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .examples-detail summary::-webkit-details-marker { display: none; }
+    .examples-detail summary::after {
+      content: "▾"; color: var(--ink-mute); margin-left: auto; transition: transform 160ms ease;
+    }
+    .examples-detail[open] summary::after { transform: rotate(180deg); }
+    .examples-detail .ex-block { margin: 0 0 14px; }
+    .examples-detail h4 {
+      margin: 6px 0 6px;
+      font-size: 12px; text-transform: uppercase; color: var(--ink-mute); letter-spacing: 0.05em;
+    }
+    .examples-detail pre {
+      margin: 0;
+      background: rgba(0,0,0,0.45);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.55;
+      font-family: var(--font-mono);
+      color: #c9d2e6;
+    }
+    .ex-block .ex-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px;
+    }
+
+    .usage-pop-back { position: fixed; inset: 0; background: rgba(7,9,15,0.74); display: none; z-index: 90; }
+    .usage-pop-back.show { display: block; }
+    .usage-pop {
+      position: fixed; right: 32px; top: 80px;
+      width: min(90vw, 720px); max-height: 70vh; overflow: auto;
+      background: var(--panel-2);
+      border: 1px solid var(--line-strong);
+      border-radius: 12px;
+      padding: 18px;
+      z-index: 91;
+    }
+    .usage-pop h3 { margin: 0 0 8px; font-size: 14px; }
+    .usage-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--font-mono); }
+    .usage-table th, .usage-table td {
+      padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left;
+    }
+    .usage-table .d-allow            { color: var(--bid); }
+    .usage-table .d-deny_signature   { color: #ff7a8c; }
+    .usage-table .d-deny_scope       { color: #f0b429; }
+    .usage-table .d-deny_quota       { color: #f0b429; }
+    .usage-table .d-deny_ip          { color: #f0b429; }
+    .usage-table .d-deny_timestamp   { color: #ff7a8c; }
+    .usage-table .d-deny_revoked     { color: #ff7a8c; }
+    .usage-table .d-deny_expired     { color: #ff7a8c; }
+    .usage-table .d-deny_invalid_key { color: #ff7a8c; }
+  </style>
+</head>
+<body>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>API 키<span class="en">API keys</span></h1>
+  <p>외부 클라이언트(트레이딩 봇, 포트폴리오 매니저, AI 에이전트)가 거래소에 접근할 때 사용합니다 / For external clients to access the exchange.</p>
+</section>
+
+<main class="keys-shell">
+
+  <div class="keys-toolbar">
+    <h2>발급된 키 / Issued keys</h2>
+    <button class="btn btn-primary btn-sm" id="btn-create">+ 새 키 만들기 / Create key</button>
+  </div>
+
+  <section class="keys-card">
+    <table class="keys-table" id="keys-table">
+      <thead>
+        <tr>
+          <th>라벨 / Label</th>
+          <th>키 ID / Key ID</th>
+          <th>권한 / Scopes</th>
+          <th>IP 화이트리스트 / IP allowlist</th>
+          <th>만료 / Expires</th>
+          <th>마지막 사용 / Last used</th>
+          <th class="r">동작 / Actions</th>
+        </tr>
+      </thead>
+      <tbody id="keys-body">
+        <tr><td class="empty-row" colspan="7">불러오는 중… / Loading…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <details class="examples-detail" id="examples-detail">
+    <summary>사용 예시 / Example code (curl · Python ccxt · Python raw HMAC)</summary>
+    <div id="examples-body" style="padding-bottom: 14px;">
+      <p class="muted" style="font-size:12px;margin:0 0 12px;">
+        키를 하나 이상 발급하면 아래 예시가 그 키 ID로 미리 채워집니다. 시크릿은 절대 표시되지 않으니 직접 채워 넣으세요.
+        <br/>Once you issue a key, the snippets below are pre-filled with that key ID. The secret is never shown — paste it in yourself.
+      </p>
+      <div class="ex-block">
+        <div class="ex-row"><h4>curl (HMAC inline via openssl)</h4><button class="copy-btn" data-copy="ex-curl">copy</button></div>
+        <pre id="ex-curl">…</pre>
+      </div>
+      <div class="ex-block">
+        <div class="ex-row"><h4>Python (ccxt — for AI trading agents)</h4><button class="copy-btn" data-copy="ex-ccxt">copy</button></div>
+        <pre id="ex-ccxt">…</pre>
+      </div>
+      <div class="ex-block">
+        <div class="ex-row"><h4>Python (raw HMAC, no dependency)</h4><button class="copy-btn" data-copy="ex-py">copy</button></div>
+        <pre id="ex-py">…</pre>
+      </div>
+    </div>
+  </details>
+
+  <!-- ===== Official SDKs ============================================ -->
+  <section class="sdk-panel" id="sdk-panel" style="
+       margin-top: 22px;
+       border: 1px solid var(--line);
+       border-radius: 10px;
+       background: rgba(0,0,0,0.18);
+       padding: 16px 18px;
+     ">
+    <h3 style="margin:0 0 4px; font-size: 15px;">
+      공식 SDK <span class="muted" style="font-weight:400;">/ Official SDKs</span>
+    </h3>
+    <p class="muted" style="font-size: 12px; margin: 0 0 12px;">
+      어떤 외부 라이브러리도 필요 없는 stdlib-only 클라이언트입니다. 5줄이면 주문을 낼 수 있습니다.
+      <br/>Stdlib-only clients with zero external deps. Place an order in five lines.
+    </p>
+    <div style="display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
+      <div class="sdk-card" style="border:1px solid var(--line); border-radius:8px; padding:12px; background:rgba(255,255,255,0.02);">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <strong style="font-size: 13px;">Python</strong>
+          <a class="btn btn-ghost btn-sm" href="/sdks/zkcex-python.tar.gz" download>다운로드 / Download</a>
+        </div>
+        <pre style="margin:8px 0 0; font-size:11px; background:rgba(0,0,0,0.45); border:1px solid var(--line); border-radius:6px; padding:8px 10px; overflow-x:auto;">pip install -e sdks/python
+from zkcex import ZkcexClient
+c = ZkcexClient(api_key=..., api_secret=...)
+c.place_order("ETHUSDT","BUY","LIMIT",
+              quantity="0.01", price="50")</pre>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <a class="btn-link-quiet" style="font-size:11px;" href="/sdks/python/README.md">README</a>
+          <span class="muted" style="font-size:11px;">·</span>
+          <a class="btn-link-quiet" style="font-size:11px;" href="/sdks/python/examples/place_limit_order.py">예제 / Example</a>
+        </div>
+      </div>
+      <div class="sdk-card" style="border:1px solid var(--line); border-radius:8px; padding:12px; background:rgba(255,255,255,0.02);">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <strong style="font-size: 13px;">JavaScript (Node + browser)</strong>
+          <a class="btn btn-ghost btn-sm" href="/sdks/zkcex-javascript.tar.gz" download>다운로드 / Download</a>
+        </div>
+        <pre style="margin:8px 0 0; font-size:11px; background:rgba(0,0,0,0.45); border:1px solid var(--line); border-radius:6px; padding:8px 10px; overflow-x:auto;">import { ZkcexClient } from "./zkcex.mjs";
+const c = new ZkcexClient({ apiKey: "...",
+                            apiSecret: "..." });
+await c.placeOrder({ symbol:"ETHUSDT", side:"BUY",
+  type:"LIMIT", quantity:"0.01", price:"50" });</pre>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <a class="btn-link-quiet" style="font-size:11px;" href="/sdks/javascript/README.md">README</a>
+          <span class="muted" style="font-size:11px;">·</span>
+          <a class="btn-link-quiet" style="font-size:11px;" href="/sdks/javascript/examples/place-order.mjs">예제 / Example</a>
+        </div>
+      </div>
+      <div class="sdk-card" style="border:1px solid var(--line); border-radius:8px; padding:12px; background:rgba(255,255,255,0.02);">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <strong style="font-size: 13px;">Go</strong>
+          <a class="btn btn-ghost btn-sm" href="/sdks/zkcex-go.tar.gz" download>다운로드 / Download</a>
+        </div>
+        <pre style="margin:8px 0 0; font-size:11px; background:rgba(0,0,0,0.45); border:1px solid var(--line); border-radius:6px; padding:8px 10px; overflow-x:auto;">import zkcex "github.com/zkcex/zkcex-go/zkcex"
+c := zkcex.New(base, key, secret)
+c.PlaceOrder(zkcex.PlaceOrderRequest{
+  Symbol:"ETHUSDT", Side:"BUY", Type:"LIMIT",
+  Quantity:"0.01", Price:"50", TimeInForce:"GTC",
+})</pre>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <a class="btn-link-quiet" style="font-size:11px;" href="/sdks/go/zkcex/client.go">client.go</a>
+          <span class="muted" style="font-size:11px;">·</span>
+          <a class="btn-link-quiet" style="font-size:11px;" href="/sdks/go/examples/main.go">예제 / Example</a>
+        </div>
+      </div>
+    </div>
+    <p class="muted" style="font-size: 11px; margin: 12px 0 0;">
+      전체 API 문서 / Full API docs: <a href="api-docs.html">api-docs.html</a> ·
+      <a href="/openapi.json">openapi.json</a> ·
+      <a href="/openapi.yaml">openapi.yaml</a>
+    </p>
+  </section>
+
+</main>
+
+<!-- ===== Modal: create / edit key ===== -->
+<div class="keys-modal-back" id="modal-back">
+  <div class="keys-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h3 id="modal-title">새 API 키 만들기 / Create API key</h3>
+    <p class="modal-sub" id="modal-sub">외부 자동화 도구가 사용할 키를 발급합니다. 시크릿은 한 번만 표시됩니다 / Issue a key for external automation. The secret is shown only once.</p>
+
+    <div class="form-row">
+      <label class="label-strong" for="f-label">라벨 / Label</label>
+      <input id="f-label" type="text" placeholder="예: trading bot 1, tax export" maxlength="64" />
+      <span class="help">사용 목적이 드러나는 설명을 짧게 적어주세요 / Short, descriptive purpose.</span>
+    </div>
+
+    <div class="form-row">
+      <label class="label-strong">권한 / Scopes</label>
+      <span class="help">기본은 읽기 전용입니다. 필요한 권한만 켜세요 / Default is read-only. Enable only what you need.</span>
+      <div class="scope-toggle locked" title="필수 / required">
+        <input type="checkbox" id="f-scope-read" checked disabled />
+        <span><span class="scope-pill read">read</span> 시세·잔고 조회 <span class="tag-en">/ market &amp; balance reads</span></span>
+        <span class="scope-desc">필수 / always on</span>
+      </div>
+      <div class="scope-toggle">
+        <input type="checkbox" id="f-scope-trade" />
+        <span><span class="scope-pill trade">trade</span> 주문 생성·취소 <span class="tag-en">/ place &amp; cancel orders</span></span>
+        <span class="scope-desc">자동매매 / automation</span>
+      </div>
+      <div class="scope-toggle">
+        <input type="checkbox" id="f-scope-withdraw" />
+        <span><span class="scope-pill withdraw">withdraw</span> 자산 출금 <span class="tag-en">/ withdraw assets</span></span>
+        <span class="scope-desc">위험 / high risk</span>
+      </div>
+      <div class="form-row" id="f-confirm-wrap" style="display:none; margin: 6px 0 0;">
+        <label class="label-strong" for="f-confirm">확인 문구 / Confirm phrase</label>
+        <input id="f-confirm" type="text"
+               placeholder='입력 / Type exactly: I want to enable withdraw'
+               autocomplete="off" />
+        <span class="help">출금 권한을 켜려면 정확히 다음 문구를 입력해야 합니다: <code>I want to enable withdraw</code> / To enable withdraw, type that phrase exactly.</span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label class="label-strong" for="f-ip">IP 화이트리스트 / IP allowlist (CIDR 콤마 구분 / comma-separated)</label>
+      <textarea id="f-ip" placeholder="예: 1.2.3.4/32, 10.0.0.0/24 (비워두면 모든 IP 허용 / leave empty to allow any)"></textarea>
+    </div>
+
+    <div class="form-row">
+      <label class="label-strong" for="f-daily">일일 거래량 상한 (USDT) / Daily traded notional cap (USDT)</label>
+      <input id="f-daily" type="text" placeholder="예: 10000 (비우면 무제한 / blank = unlimited)" />
+    </div>
+
+    <div class="form-row">
+      <label class="label-strong" for="f-hourly">시간당 요청 수 상한 / Hourly request cap</label>
+      <input id="f-hourly" type="number" min="1" placeholder="예: 1000 (비우면 무제한 / blank = unlimited)" />
+    </div>
+
+    <div class="form-row">
+      <label class="label-strong" for="f-expires">만료 / Expires (days)</label>
+      <input id="f-expires" type="number" min="0" max="3650" value="90" />
+      <span class="help">0을 입력하면 만료되지 않습니다 / Enter 0 for no expiry.</span>
+    </div>
+
+    <div id="modal-error" style="color:#ff7a8c; font-size:12px; margin-bottom:10px; display:none;"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" type="button" id="btn-cancel">취소 / Cancel</button>
+      <button class="btn btn-primary" type="button" id="btn-submit">발급 / Create</button>
+    </div>
+
+    <!-- Secret reveal card (only shown post-create) -->
+    <div id="secret-reveal" hidden>
+      <div class="secret-card">
+        <div class="label-row">
+          <span>API key (X-MBX-APIKEY) / 키 ID</span>
+          <button class="copy-btn" data-copy="rv-key">copy</button>
+        </div>
+        <div class="secret-value" id="rv-key">…</div>
+
+        <div class="label-row" style="margin-top:12px;">
+          <span>API secret (HMAC key) / 시크릿</span>
+          <button class="copy-btn" data-copy="rv-secret">copy</button>
+        </div>
+        <div class="secret-value" id="rv-secret">…</div>
+
+        <p class="warn-msg">
+          이 시크릿은 다시 표시되지 않습니다. 안전한 곳에 보관하세요.<br/>
+          This secret will not be shown again. Store it somewhere safe (password manager, secrets vault).
+        </p>
+      </div>
+      <div class="modal-actions" style="margin-top:14px;">
+        <button class="btn btn-primary" type="button" id="btn-reveal-done">확인 / Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Usage popover ===== -->
+<div class="usage-pop-back" id="usage-back"></div>
+<div class="usage-pop" id="usage-pop" hidden>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+    <h3 id="usage-title">사용 내역 / Usage</h3>
+    <button class="copy-btn" id="usage-close">close</button>
+  </div>
+  <table class="usage-table">
+    <thead>
+      <tr><th>시각 / Time</th><th>메서드</th><th>경로 / Path</th><th>결과 / Decision</th><th>IP</th></tr>
+    </thead>
+    <tbody id="usage-body"></tbody>
+  </table>
+</div>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    api, requireSession, getSession, escapeHtml,
+  } from "./app.js";
+
+  const session = requireSession({ redirectTo: "/app/signin.html" });
+  if (session) {
+    renderHeader("");
+    renderFooter();
+    boot();
+  }
+
+  // -------- helpers ---------------------------------------------------
+  function fmtTs(ts) {
+    if (!ts) return "—";
+    const d = new Date(ts * 1000);
+    const pad = n => n.toString().padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function relTime(ts) {
+    if (!ts) return "—";
+    const diff = Math.floor(Date.now()/1000) - ts;
+    if (diff < 60)    return diff <= 0 ? "방금 / just now" : `${diff}s ago`;
+    if (diff < 3600)  return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
+  }
+
+  function bearer() {
+    const s = getSession();
+    return s ? { Authorization: `Bearer ${s.token}` } : {};
+  }
+
+  async function jget(url) {
+    return api(url, { headers: { ...bearer() } });
+  }
+  async function jsend(url, method, body) {
+    return api(url, {
+      method,
+      headers: { "Content-Type": "application/json", ...bearer() },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  function setCopy(btn) {
+    const target = btn.dataset.copy;
+    const el = document.getElementById(target);
+    if (!el) return;
+    navigator.clipboard.writeText(el.textContent || "").then(() => {
+      btn.classList.add("flash");
+      const old = btn.textContent;
+      btn.textContent = "copied";
+      setTimeout(() => { btn.classList.remove("flash"); btn.textContent = old; }, 1100);
+    });
+  }
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button.copy-btn");
+    if (btn && btn.dataset.copy) setCopy(btn);
+  });
+
+  // -------- main flow -------------------------------------------------
+  function boot() {
+    document.getElementById("btn-create").addEventListener("click", openCreateModal);
+    document.getElementById("btn-cancel").addEventListener("click", closeModal);
+    document.getElementById("btn-submit").addEventListener("click", submitCreate);
+    document.getElementById("btn-reveal-done").addEventListener("click", () => {
+      closeModal();
+      refreshKeys();
+    });
+    document.getElementById("f-scope-withdraw").addEventListener("change", (ev) => {
+      document.getElementById("f-confirm-wrap").style.display = ev.target.checked ? "" : "none";
+    });
+    document.getElementById("usage-close").addEventListener("click", closeUsage);
+    document.getElementById("usage-back").addEventListener("click", closeUsage);
+    refreshKeys();
+  }
+
+  let cachedKeys = [];
+
+  async function refreshKeys() {
+    const tbody = document.getElementById("keys-body");
+    tbody.innerHTML = `<tr><td class="empty-row" colspan="7">불러오는 중… / Loading…</td></tr>`;
+    try {
+      const r = await jget("/api-keys/list");
+      cachedKeys = r.keys || [];
+    } catch (e) {
+      tbody.innerHTML = `<tr><td class="empty-row" colspan="7">불러오기 실패 / Failed to load: ${escapeHtml(String(e.message || e))}</td></tr>`;
+      return;
+    }
+    if (cachedKeys.length === 0) {
+      tbody.innerHTML = `<tr><td class="empty-row" colspan="7">아직 발급된 키가 없습니다. 위의 “+ 새 키 만들기” 버튼으로 시작하세요. / No keys yet — click “+ Create key” above.</td></tr>`;
+      updateExamples(null);
+      return;
+    }
+    tbody.innerHTML = cachedKeys.map(rowHtml).join("");
+    tbody.querySelectorAll("button[data-act]").forEach(b => {
+      b.addEventListener("click", onRowAction);
+    });
+    updateExamples(cachedKeys.find(k => !k.revoked_at) || cachedKeys[0]);
+  }
+
+  function rowHtml(k) {
+    const revoked = !!k.revoked_at;
+    const scopes = (k.scopes || []).map(s =>
+      `<span class="scope-pill ${escapeHtml(s)}">${escapeHtml(s)}</span>`
+    ).join("");
+    const ip = k.ip_allowlist
+      ? `<span class="mono" style="font-size:11px;">${escapeHtml(k.ip_allowlist)}</span>`
+      : `<span class="row-muted">any</span>`;
+    const exp = k.expires_at ? fmtTs(k.expires_at) : `<span class="row-muted">no expiry</span>`;
+    const lastUsed = k.last_used_at ? relTime(k.last_used_at) : `<span class="row-muted">never</span>`;
+    const status = revoked ? `<span style="color:#ff7a8c;font-size:11px;">revoked ${fmtTs(k.revoked_at)}</span>` : "";
+    const actions = revoked
+      ? `<button data-act="usage" data-key="${escapeHtml(k.key_id)}">View usage</button>`
+      : `<button data-act="usage" data-key="${escapeHtml(k.key_id)}">View usage</button>
+         <button data-act="revoke" class="danger" data-key="${escapeHtml(k.key_id)}">Revoke</button>`;
+    return `<tr class="${revoked ? "revoked" : ""}">
+      <td>
+        <div style="font-weight:600;">${escapeHtml(k.label)}</div>
+        ${status}
+      </td>
+      <td><span class="mono" style="font-size:11px;">${escapeHtml(k.key_id)}</span></td>
+      <td>${scopes}</td>
+      <td>${ip}</td>
+      <td><span class="mono" style="font-size:11px;">${exp}</span></td>
+      <td><span class="mono" style="font-size:11px;">${lastUsed}</span></td>
+      <td class="r">
+        <div class="keys-row-actions" style="justify-content:flex-end;">${actions}</div>
+      </td>
+    </tr>`;
+  }
+
+  // -------- create modal ----------------------------------------------
+  function openCreateModal() {
+    document.getElementById("modal-title").textContent = "새 API 키 만들기 / Create API key";
+    document.getElementById("modal-error").style.display = "none";
+    document.getElementById("secret-reveal").hidden = true;
+    document.getElementById("f-label").value = "";
+    document.getElementById("f-scope-trade").checked = false;
+    document.getElementById("f-scope-withdraw").checked = false;
+    document.getElementById("f-confirm").value = "";
+    document.getElementById("f-confirm-wrap").style.display = "none";
+    document.getElementById("f-ip").value = "";
+    document.getElementById("f-daily").value = "";
+    document.getElementById("f-hourly").value = "";
+    document.getElementById("f-expires").value = "90";
+    document.querySelectorAll(".keys-modal .form-row, .modal-actions, #btn-submit, #btn-cancel").forEach(el => {
+      // ensure form is visible (in case it was hidden in last open)
+    });
+    document.querySelectorAll(".keys-modal > .form-row, .keys-modal > #modal-error, .keys-modal > .modal-actions, .keys-modal > .modal-sub")
+      .forEach(el => { el.style.display = ""; });
+    document.getElementById("f-confirm-wrap").style.display =
+      document.getElementById("f-scope-withdraw").checked ? "" : "none";
+    document.getElementById("modal-back").classList.add("show");
+  }
+
+  function closeModal() {
+    document.getElementById("modal-back").classList.remove("show");
+  }
+
+  async function submitCreate() {
+    const errEl = document.getElementById("modal-error");
+    errEl.style.display = "none";
+    const label = document.getElementById("f-label").value.trim();
+    if (!label) {
+      errEl.textContent = "라벨을 입력하세요 / Please enter a label.";
+      errEl.style.display = "";
+      return;
+    }
+    const scopes = ["read"];
+    if (document.getElementById("f-scope-trade").checked) scopes.push("trade");
+    if (document.getElementById("f-scope-withdraw").checked) scopes.push("withdraw");
+    const confirm_phrase = document.getElementById("f-confirm").value;
+    const ipRaw = document.getElementById("f-ip").value.trim();
+    const ip_allowlist = ipRaw
+      ? ipRaw.split(",").map(s => s.trim()).filter(Boolean)
+      : null;
+    const dailyRaw = document.getElementById("f-daily").value.trim();
+    const daily_quote_cap_usdt = dailyRaw || null;
+    const hourlyRaw = document.getElementById("f-hourly").value.trim();
+    const hourly_request_cap = hourlyRaw ? Number(hourlyRaw) : null;
+    const expRaw = document.getElementById("f-expires").value.trim();
+    const expires_in_days = expRaw === "" ? 90 : Number(expRaw);
+
+    const body = {
+      label, scopes,
+      ip_allowlist,
+      daily_quote_cap_usdt,
+      hourly_request_cap,
+      expires_in_days,
+    };
+    if (scopes.includes("withdraw")) body.confirm_phrase = confirm_phrase;
+
+    let resp;
+    try {
+      resp = await jsend("/api-keys/create", "POST", body);
+    } catch (e) {
+      let msg = e.message || String(e);
+      try { msg = JSON.parse(e.body).error || msg; } catch {}
+      errEl.textContent = `오류 / Error: ${msg}`;
+      errEl.style.display = "";
+      return;
+    }
+    // Hide form, show secret reveal card
+    document.querySelectorAll(".keys-modal > .form-row, .keys-modal > #modal-error, .keys-modal > .modal-sub")
+      .forEach(el => { el.style.display = "none"; });
+    document.querySelectorAll(".keys-modal > .modal-actions").forEach(el => { el.style.display = "none"; });
+    document.getElementById("modal-title").textContent = "키가 발급되었습니다 / API key created";
+    document.getElementById("rv-key").textContent = resp.key_id;
+    document.getElementById("rv-secret").textContent = resp.secret;
+    document.getElementById("secret-reveal").hidden = false;
+  }
+
+  // -------- row actions -----------------------------------------------
+  async function onRowAction(ev) {
+    const act = ev.currentTarget.dataset.act;
+    const keyId = ev.currentTarget.dataset.key;
+    if (act === "revoke") return revokeKey(keyId);
+    if (act === "usage")  return openUsage(keyId);
+  }
+  async function revokeKey(keyId) {
+    if (!window.confirm(`정말 이 API 키를 폐기하시겠습니까? 사용 중인 봇은 즉시 차단됩니다. / Revoke this key? Any bot using it will stop working immediately.\n\n${keyId}`)) return;
+    try {
+      await jsend(`/api-keys/${encodeURIComponent(keyId)}`, "DELETE");
+    } catch (e) {
+      alert(`Revoke failed: ${e.message || e}`);
+      return;
+    }
+    refreshKeys();
+  }
+
+  // -------- usage popover ---------------------------------------------
+  async function openUsage(keyId) {
+    document.getElementById("usage-title").textContent = `사용 내역 / Usage — ${keyId}`;
+    const tbody = document.getElementById("usage-body");
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">loading…</td></tr>`;
+    document.getElementById("usage-back").classList.add("show");
+    document.getElementById("usage-pop").hidden = false;
+    try {
+      const r = await jget(`/api-keys/${encodeURIComponent(keyId)}/usage?limit=50`);
+      const rows = r.rows || [];
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="5" class="empty-row">아직 호출 기록이 없습니다 / No calls recorded yet.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = rows.map(r =>
+        `<tr>
+          <td>${fmtTs(r.ts)}</td>
+          <td>${escapeHtml(r.method)}</td>
+          <td>${escapeHtml(r.endpoint)}</td>
+          <td class="d-${escapeHtml(r.decision)}">${escapeHtml(r.decision)}</td>
+          <td>${escapeHtml(r.client_ip || "")}</td>
+        </tr>`
+      ).join("");
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-row">load failed: ${escapeHtml(String(e.message || e))}</td></tr>`;
+    }
+  }
+  function closeUsage() {
+    document.getElementById("usage-back").classList.remove("show");
+    document.getElementById("usage-pop").hidden = true;
+  }
+
+  // -------- examples --------------------------------------------------
+  function updateExamples(activeKey) {
+    const keyId = activeKey ? activeKey.key_id : "<your-key-id>";
+    const apiBase = location.origin || "http://localhost:5500";
+
+    const curlEx = `# Example: GET /v3/depth (read scope)
+KEY="${keyId}"
+SECRET="<your-secret-here>"
+QS="symbol=ETHUSDT&limit=5&timestamp=$(date +%s%3N)&recvWindow=5000"
+# sed strips OpenSSL's "HMAC-SHA256(stdin)= " prefix; LibreSSL omits it entirely.
+SIG=$(printf '%s' "$QS" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.*= //')
+curl -s -H "X-MBX-APIKEY: $KEY" "${apiBase}/v3/depth?$QS&signature=$SIG"`;
+
+    const ccxtEx = `# pip install ccxt
+# Works with any zkCEX-compatible client. Designed for AI / autonomous
+# trading agents that already speak the Binance Spot API.
+import ccxt
+
+ex = ccxt.binance({
+    "apiKey": "${keyId}",
+    "secret": "<your-secret-here>",
+    "urls": {
+        "api": {
+            "public":  "${apiBase}/api",
+            "private": "${apiBase}/api",
+            "v3":      "${apiBase}/v3",
+            "sapi":    "${apiBase}/sapi",
+        },
+    },
+    # zkCEX is a localhost demo; relax timestamp tolerance for local dev.
+    "options": {"recvWindow": 5000, "adjustForTimeDifference": True},
+})
+
+# Read scope: list balances
+print(ex.fetch_balance())
+
+# Trade scope: place a limit order
+order = ex.create_order("ETH/USDT", "limit", "sell", 0.05, 999.0)
+print(order)`;
+
+    const pyEx = `# Pure stdlib HMAC client — no third-party deps.
+# Useful as a reference for implementing zkCEX bots in any language.
+import hmac, hashlib, time, urllib.parse, urllib.request
+
+API_BASE = "${apiBase}"
+KEY      = "${keyId}"
+SECRET   = "<your-secret-here>"
+
+def signed_get(path, params):
+    params = dict(params)
+    params["timestamp"]  = int(time.time() * 1000)
+    params["recvWindow"] = 5000
+    qs  = urllib.parse.urlencode(params, doseq=True)
+    sig = hmac.new(SECRET.encode(), qs.encode(), hashlib.sha256).hexdigest()
+    url = f"{API_BASE}{path}?{qs}&signature={sig}"
+    req = urllib.request.Request(url, headers={"X-MBX-APIKEY": KEY})
+    with urllib.request.urlopen(req) as r:
+        return r.read().decode()
+
+print(signed_get("/v3/account", {}))
+print(signed_get("/v3/depth",   {"symbol": "ETHUSDT", "limit": 5}))`;
+
+    document.getElementById("ex-curl").textContent = curlEx;
+    document.getElementById("ex-ccxt").textContent = ccxtEx;
+    document.getElementById("ex-py").textContent   = pyEx;
+  }
+</script>
+</body>
+</html>

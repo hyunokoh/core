@@ -1,0 +1,45 @@
+# pol (Proof-of-Liabilities) service authorization.
+# Snapshot writers + the bridge that publishes commitments on-chain.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: pol-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pol
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            paths:
+              - /pol/snapshot
+              - /pol/snapshot/*
+              - /pol/prove
+              - /pol/root
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/pol-feed
+              - cluster.local/ns/zkcex/sa/zkpol-bridge
+              - cluster.local/ns/zkcex/sa/proxy
+    - to:
+        - operation:
+            methods: ["GET"]
+            paths:
+              - /pol/proof/*
+              - /pol/audits
+              - /pol/audits/*
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/proxy
+              - cluster.local/ns/zkcex/sa/export
+              - cluster.local/ns/zkcex/sa/ops
+    - to:
+        - operation:
+            paths: ["/pol/health"]
+      from:
+        - source:
+            namespaces: ["istio-system", "monitoring", "zkcex"]

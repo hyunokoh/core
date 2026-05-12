@@ -1,0 +1,1202 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>보유 자산과 고객 부채 / Proof of Reserves and Liabilities — zkCEX</title>
+  <meta name="description" content="zkCEX의 공개 투명성 페이지. 거래소가 자산을 충분히 보유하고 있는지 매분 갱신되는 서명된 스냅샷으로 확인하세요." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    /* PoRL page — slightly tighter, more "report" feel than the trade UI. */
+    body.porl { background: #07090f; }
+    .porl-shell {
+      max-width: 1180px; margin: 0 auto; padding: 8px 28px 80px;
+      display: flex; flex-direction: column; gap: 22px;
+    }
+
+    /* --- Hero ---------------------------------------------------- */
+    .porl-hero {
+      padding: 32px 36px 30px; border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, rgba(11,58,255,0.08), rgba(11,58,255,0.01)),
+                  radial-gradient(1100px 380px at 100% 0%, rgba(0,184,124,0.10), transparent 60%);
+      border: 1px solid var(--line-strong);
+      display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 20px; align-items: start;
+    }
+    .porl-hero .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: #9aa3b3; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      font-weight: 600;
+    }
+    .porl-hero .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #2ee59b;
+      box-shadow: 0 0 0 4px rgba(46,229,155,0.18);
+      animation: porl-pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes porl-pulse {
+      0%, 100% { box-shadow: 0 0 0 4px rgba(46,229,155,0.18); }
+      50%      { box-shadow: 0 0 0 8px rgba(46,229,155,0.06); }
+    }
+    .porl-hero h1 {
+      margin: 10px 0 8px; font-size: 32px; font-weight: 800; letter-spacing: -0.02em;
+      color: #fff; line-height: 1.12;
+    }
+    .porl-hero h1 .en { display: block; color: var(--ink-mute); font-weight: 500; font-size: 16px; margin-top: 4px; }
+    .porl-hero p.sub { margin: 0 0 14px; color: var(--ink-mute); font-size: 14px; max-width: 720px; }
+    .porl-hero p.sub .en { display: block; color: var(--ink-dim); font-size: 12px; margin-top: 2px; }
+    .porl-hero .last-line {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      color: var(--ink-dim); font-size: 12px;
+      font-family: var(--font-mono);
+    }
+    .porl-hero .last-line .lbl { color: var(--ink-mute); }
+    .porl-hero .last-line button {
+      background: var(--panel-2); border: 1px solid var(--line-strong); color: var(--ink);
+      padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12px; cursor: pointer;
+      font-family: var(--font-sans);
+    }
+    .porl-hero .last-line button:hover { border-color: rgba(255,255,255,0.24); color: #fff; }
+    .porl-hero .last-line button:disabled { opacity: 0.5; cursor: progress; }
+
+    .porl-pill {
+      align-self: start; justify-self: end;
+      padding: 14px 18px; border-radius: var(--radius);
+      border: 1px solid var(--line-strong);
+      background: var(--panel-2);
+      display: flex; flex-direction: column; gap: 4px; min-width: 200px;
+      text-align: right;
+    }
+    .porl-pill .ratio {
+      font-family: var(--font-mono); font-size: 30px; font-weight: 700; letter-spacing: -0.02em;
+      color: #fff;
+    }
+    .porl-pill .label { font-size: 12px; font-weight: 600; }
+    .porl-pill .label .en { color: var(--ink-dim); font-weight: 500; margin-left: 4px; }
+    .porl-pill.ok   { background: linear-gradient(180deg, rgba(0,184,124,0.16), rgba(0,184,124,0.04)); border-color: rgba(0,184,124,0.42); }
+    .porl-pill.ok   .label { color: #2ee59b; }
+    .porl-pill.warn { background: linear-gradient(180deg, rgba(255,77,99,0.16), rgba(255,77,99,0.04)); border-color: rgba(255,77,99,0.42); }
+    .porl-pill.warn .label { color: #ff6b85; }
+    .porl-pill.idle { color: var(--ink-mute); }
+
+    /* --- Big stat cards ----------------------------------------- */
+    .porl-stats {
+      display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px;
+    }
+    .porl-stat-card {
+      padding: 22px 24px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .porl-stat-card .ko {
+      font-size: 12px; letter-spacing: 0.04em; color: var(--ink-mute); text-transform: uppercase;
+      font-weight: 600;
+    }
+    .porl-stat-card .en  { color: var(--ink-dim); font-size: 11px; margin-top: -3px; }
+    .porl-stat-card .big {
+      font-family: var(--font-mono); font-size: 28px; font-weight: 700; color: #fff;
+      letter-spacing: -0.01em; line-height: 1.1; margin-top: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .porl-stat-card .breakdown { color: var(--ink-mute); font-family: var(--font-mono); font-size: 12px; }
+    .porl-stat-card .big.pos { color: #2ee59b; }
+    .porl-stat-card .big.neg { color: #ff6b85; }
+
+    /* --- Per-asset table ---------------------------------------- */
+    .porl-section {
+      padding: 22px 26px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+    }
+    .porl-section h2 {
+      margin: 0 0 12px; font-size: 16px; font-weight: 700; color: #fff;
+      letter-spacing: -0.005em;
+    }
+    .porl-section h2 .en { color: var(--ink-dim); font-weight: 500; font-size: 13px; margin-left: 8px; }
+    .porl-section h2 .hint { color: var(--ink-dim); font-weight: 400; font-size: 12px; margin-left: 12px; }
+
+    .porl-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+    }
+    .porl-table th {
+      text-align: left; color: var(--ink-mute); font-weight: 500; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 10px 12px; border-bottom: 1px solid var(--line);
+    }
+    .porl-table th .en { color: var(--ink-dim); font-size: 10px; margin-left: 4px; }
+    .porl-table td {
+      padding: 14px 12px; border-bottom: 1px solid var(--line);
+      color: var(--ink); font-family: var(--font-mono); vertical-align: top;
+    }
+    .porl-table tr:last-child td { border-bottom: none; }
+    .porl-table .num { text-align: right; }
+    .porl-table .units { color: #fff; font-weight: 600; }
+    .porl-table .usdt-sub { color: var(--ink-mute); font-size: 11px; margin-top: 2px; }
+    .porl-table .ratio-cell {
+      font-weight: 700; font-size: 14px; color: #2ee59b;
+    }
+    .porl-table .ratio-cell.warn { color: #ff6b85; }
+
+    .asset-glyph {
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .asset-glyph .badge {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono); font-weight: 700; font-size: 11px; color: #fff;
+      background: var(--panel-3);
+    }
+    .asset-glyph .badge.eth  { background: linear-gradient(180deg, #627eea, #3c5ad6); }
+    .asset-glyph .badge.usdt { background: linear-gradient(180deg, #26a17b, #1c8060); }
+    .asset-glyph .badge.btc  { background: linear-gradient(180deg, #f7931a, #c87410); }
+    .asset-glyph .name { font-family: var(--font-sans); font-weight: 600; color: #fff; }
+
+    .row-expand {
+      cursor: pointer; user-select: none; color: var(--ink-mute);
+      transition: transform 150ms ease; display: inline-block;
+    }
+    .row-expand.open { transform: rotate(90deg); color: #fff; }
+    .row-detail {
+      background: var(--panel-2); padding: 14px 16px; font-family: var(--font-mono); font-size: 12px;
+      color: var(--ink-mute);
+      display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; align-items: start;
+    }
+    .row-detail .k { color: var(--ink-dim); }
+    .row-detail .copy {
+      background: var(--panel-3); border: 1px solid var(--line); color: var(--ink-mute);
+      border-radius: 4px; font-size: 10px; padding: 1px 6px; cursor: pointer; font-family: var(--font-mono);
+      margin-left: 6px;
+    }
+    .row-detail .copy:hover { color: #fff; border-color: var(--line-strong); }
+    .row-detail .copy.ok    { color: #2ee59b; }
+
+    /* --- Sparkline --------------------------------------------- */
+    .porl-history {
+      display: grid; grid-template-columns: 1fr; gap: 10px;
+    }
+    .porl-history svg {
+      width: 100%; height: 220px; display: block;
+      background: linear-gradient(180deg, rgba(11,58,255,0.04), transparent);
+      border-radius: var(--radius-sm);
+    }
+    .porl-history .empty {
+      padding: 40px 16px; text-align: center; color: var(--ink-mute); font-size: 13px;
+      background: var(--panel-2); border-radius: var(--radius-sm);
+    }
+    .porl-history .axis-line { stroke: rgba(255,77,99,0.5); stroke-dasharray: 4 4; }
+    .porl-history .ratio-line { stroke: #2ee59b; stroke-width: 2; fill: none; }
+    .porl-history .ratio-fill { fill: rgba(46,229,155,0.10); }
+    .porl-history .point { fill: #2ee59b; }
+
+    /* --- Crypto card ------------------------------------------- */
+    .crypto-card {
+      display: grid; grid-template-columns: 1fr; gap: 12px;
+    }
+    .crypto-card pre {
+      background: #0a0d14; border: 1px solid var(--line); border-radius: var(--radius-sm);
+      padding: 12px 14px; margin: 0;
+      font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
+      color: #d6dae3; white-space: pre; overflow-x: auto; max-height: 280px; overflow-y: auto;
+    }
+    .crypto-card .crypto-fields {
+      display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px;
+      font-family: var(--font-mono); font-size: 12px; align-items: center;
+    }
+    .crypto-card .crypto-fields .k { color: var(--ink-mute); font-family: var(--font-sans); }
+    .crypto-card .crypto-fields .v { color: var(--ink); display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .crypto-card .crypto-fields .v .mono-trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .crypto-card .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .crypto-card details {
+      padding: 10px 14px; background: var(--panel-2); border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+    }
+    .crypto-card details summary {
+      cursor: pointer; user-select: none; color: var(--ink); font-size: 13px; font-weight: 600;
+    }
+    .crypto-card details summary .en { color: var(--ink-dim); font-weight: 400; margin-left: 6px; font-size: 12px; }
+    .crypto-card details[open] summary { margin-bottom: 8px; }
+
+    /* --- FAQ -------------------------------------------------- */
+    .porl-faq details {
+      padding: 14px 18px; border-radius: var(--radius-sm);
+      background: var(--panel-2); border: 1px solid var(--line);
+      margin-bottom: 8px;
+    }
+    .porl-faq details summary {
+      cursor: pointer; user-select: none; color: #fff; font-weight: 600; font-size: 14px;
+    }
+    .porl-faq details summary .en { color: var(--ink-dim); font-weight: 400; margin-left: 6px; font-size: 12px; }
+    .porl-faq details[open] summary { margin-bottom: 8px; }
+    .porl-faq .body { color: var(--ink-mute); font-size: 13px; line-height: 1.6; }
+
+    /* --- Trust footer ----------------------------------------- */
+    .porl-trust {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      padding: 14px 18px; border-radius: var(--radius-sm);
+      background: var(--panel); border: 1px solid var(--line);
+    }
+    .porl-trust .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 11px; border-radius: var(--pill);
+      background: var(--panel-2); border: 1px solid var(--line-strong);
+      color: var(--ink-mute); font-size: 12px;
+    }
+    .porl-trust .pill .en { color: var(--ink-dim); font-size: 11px; margin-left: 4px; }
+    .porl-trust .pill::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%; background: #2ee59b;
+    }
+
+    /* --- Inline copy + verify-link --- */
+    .copy-btn {
+      flex-shrink: 0;
+      background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-mute);
+      border-radius: 4px; font-size: 10px; padding: 2px 6px; cursor: pointer; font-family: var(--font-mono);
+    }
+    .copy-btn:hover { color: #fff; border-color: var(--line-strong); }
+    .copy-btn.ok { color: #2ee59b; border-color: rgba(0,184,124,0.32); }
+
+    /* Live mode toggle row */
+    .porl-live-row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+      padding: 14px 18px; border-radius: var(--radius);
+      background: var(--panel-2); border: 1px solid var(--line);
+    }
+    .porl-live-row .switch {
+      display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
+    }
+    .porl-live-row .switch input { display: none; }
+    .porl-live-row .switch .track {
+      width: 38px; height: 22px; border-radius: 22px;
+      background: #1a1f2c; border: 1px solid var(--line-strong); position: relative;
+      transition: background 180ms ease, border-color 180ms ease;
+    }
+    .porl-live-row .switch .track::after {
+      content: ""; position: absolute; top: 2px; left: 2px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #cdd2dc; transition: left 180ms ease, background 180ms ease;
+    }
+    .porl-live-row .switch input:checked + .track { background: rgba(46,229,155,0.20); border-color: rgba(46,229,155,0.55); }
+    .porl-live-row .switch input:checked + .track::after { left: 18px; background: #2ee59b; }
+    .porl-live-row .label-ko { color: #fff; font-weight: 600; }
+    .porl-live-row .label-en { color: var(--ink-dim); font-size: 12px; margin-left: 4px; }
+    .porl-live-row .explain { color: var(--ink-mute); font-size: 12px; flex: 1 1 320px; min-width: 220px; line-height: 1.5; }
+    .porl-live-row .live-status { font-family: var(--font-mono); font-size: 12px; color: var(--ink-mute); }
+    .porl-live-row .live-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: var(--pill);
+      font-size: 12px; font-weight: 600;
+    }
+    .porl-live-row .live-pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+    .porl-live-row .live-pill.on   { background: rgba(46,229,155,0.16); color: #2ee59b; border: 1px solid rgba(46,229,155,0.42); }
+    .porl-live-row .live-pill.on   .dot { background: #2ee59b; animation: porl-live-pulse 1.6s ease-in-out infinite; }
+    .porl-live-row .live-pill.warn { background: rgba(240,180,41,0.14); color: #f0b429; border: 1px solid rgba(240,180,41,0.42); }
+    .porl-live-row .live-pill.warn .dot { background: #f0b429; }
+    .porl-live-row .live-pill.off  { background: var(--panel-3); color: var(--ink-dim); border: 1px solid var(--line); }
+    .porl-live-row .live-pill.off  .dot { background: var(--ink-mute); }
+    @keyframes porl-live-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(46,229,155,0); }
+      50%      { box-shadow: 0 0 0 6px rgba(46,229,155,0.10); }
+    }
+
+    /* Subtle ratio-pop animation on commit. */
+    @keyframes porl-pop { 0% { transform: scale(1); } 40% { transform: scale(1.03); } 100% { transform: scale(1); } }
+    .porl-pop { animation: porl-pop 280ms ease-out; }
+
+    /* Skeleton placeholders */
+    .skel {
+      background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.04) 100%);
+      background-size: 200% 100%; animation: porl-skel 1.4s ease-in-out infinite;
+      border-radius: 4px; display: inline-block;
+    }
+    @keyframes porl-skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+    /* Mobile */
+    @media (max-width: 760px) {
+      .porl-shell { padding: 8px 16px 64px; }
+      .porl-hero  { grid-template-columns: 1fr; padding: 24px; }
+      .porl-pill  { justify-self: stretch; text-align: left; }
+      .porl-hero h1 { font-size: 24px; }
+      .porl-stats { grid-template-columns: 1fr; }
+      .porl-section { padding: 18px; }
+      .porl-table th, .porl-table td { padding: 10px 8px; font-size: 12px; }
+    }
+    /* zkPoL match column */
+    .zkpol-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 99px;
+      font-family: var(--font-sans); font-size: 11px; font-weight: 600;
+    }
+    .zkpol-pill.ok    { background: rgba(46,229,155,0.16); color: #2ee59b; border: 1px solid rgba(46,229,155,0.42); }
+    .zkpol-pill.bad   { background: rgba(255,77,99,0.16);  color: #ff6b85; border: 1px solid rgba(255,77,99,0.42); }
+    .zkpol-pill.muted { background: var(--panel-3); color: var(--ink-dim); border: 1px solid var(--line); }
+  </style>
+</head>
+<body class="porl">
+
+<div id="app-header"></div>
+
+<main class="porl-shell" id="porl-shell">
+
+  <!-- ============== Section 1 — Hero ============== -->
+  <section class="porl-hero" id="porl-hero">
+    <div>
+      <span class="eyebrow"><span class="dot"></span> 투명성 / Transparency</span>
+      <h1>
+        보유 자산과 고객 부채
+        <span class="en">Reserves and Liabilities</span>
+      </h1>
+      <p class="sub">
+        거래소가 자산을 충분히 보유하고 있는지 직접 확인하세요. 매분 갱신, 암호학적으로 서명됩니다.
+        <span class="en">Verify directly that the exchange holds enough assets. Refreshed every minute, cryptographically signed.</span>
+      </p>
+      <div class="last-line">
+        <span class="lbl">최종 갱신 / Last refresh:</span>
+        <span id="hero-stamp">—</span>
+        <button id="hero-refresh" type="button">지금 새로고침 / Refresh now</button>
+      </div>
+    </div>
+    <div class="porl-pill idle" id="hero-pill">
+      <div class="ratio" id="hero-ratio">—</div>
+      <div class="label" id="hero-label">계산 중<span class="en">Loading</span></div>
+    </div>
+  </section>
+
+  <!-- ============== Live mode toggle ============== -->
+  <section class="porl-live-row">
+    <label class="switch" for="live-toggle">
+      <input type="checkbox" id="live-toggle" />
+      <span class="track" aria-hidden="true"></span>
+      <span><span class="label-ko">실시간 모드</span><span class="label-en">/ Live mode</span></span>
+    </label>
+    <div class="explain">
+      거래소 보유고/부채가 변할 때마다 새 서명된 commit을 받습니다. OFF 상태에서는 기본 60초 폴링으로 갱신됩니다.<br/>
+      Streams a new signed commit whenever reserves or liabilities move. Default polling refreshes once per minute.
+    </div>
+    <span class="live-pill off" id="live-pill"><span class="dot"></span><span id="live-pill-text">OFF</span></span>
+    <span class="live-status" id="live-status"></span>
+  </section>
+
+  <!-- ============== Section 2 — Big stats ============== -->
+  <section class="porl-stats">
+    <div class="porl-stat-card">
+      <div class="ko">총 보유 자산</div>
+      <div class="en">Total reserves</div>
+      <div class="big" id="stat-reserves"><span class="skel" style="width:160px;height:1em;"></span></div>
+      <div class="breakdown" id="stat-reserves-breakdown">—</div>
+    </div>
+    <div class="porl-stat-card">
+      <div class="ko">총 고객 부채</div>
+      <div class="en">Total customer liabilities</div>
+      <div class="big" id="stat-liabilities"><span class="skel" style="width:160px;height:1em;"></span></div>
+      <div class="breakdown" id="stat-liabilities-breakdown">—</div>
+    </div>
+    <div class="porl-stat-card">
+      <div class="ko">초과 자본</div>
+      <div class="en">Excess capital</div>
+      <div class="big" id="stat-delta"><span class="skel" style="width:160px;height:1em;"></span></div>
+      <div class="breakdown" id="stat-delta-breakdown">—</div>
+    </div>
+  </section>
+
+  <!-- ============== Section 2b — SAFU mini-card ============== -->
+  <section class="porl-section" id="safu-mini" style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+       background: linear-gradient(180deg, rgba(46,229,155,0.06), rgba(46,229,155,0.01));
+       border-color: rgba(46,229,155,0.32);">
+    <div style="flex:1 1 280px;min-width:240px;">
+      <div style="font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#2ee59b;font-weight:600;">
+        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#2ee59b;margin-right:6px;vertical-align:middle;"></span>
+        SAFU · 자체 보험 펀드 / Self-Insurance Fund
+      </div>
+      <div style="margin-top:8px;color:#fff;font-size:18px;font-weight:700;line-height:1.3;">
+        보유고 + 부채 검증에 더해, 거래 수수료의 10%가
+        <span style="color:#2ee59b;">고객 자산 보호 펀드</span>로 적립됩니다.
+        <div style="color:var(--ink-mute);font-size:13px;font-weight:400;margin-top:4px;">
+          Beyond reserves vs liabilities, 10% of every fee accrues to a self-insurance fund that backstops users against hacks, system errors and liquidation cascades.
+        </div>
+      </div>
+    </div>
+    <div style="font-family:var(--font-mono);text-align:right;min-width:200px;">
+      <div style="color:var(--ink-mute);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">현재 잔액 / Current balance</div>
+      <div id="safu-mini-bal" style="color:#fff;font-size:28px;font-weight:700;letter-spacing:-0.02em;">
+        <span class="skel" style="width:120px;height:1em;"></span>
+      </div>
+      <div style="margin-top:8px;">
+        <a href="safu.html" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;background:var(--panel-2);border:1px solid var(--line-strong);color:var(--ink);font-size:12px;text-decoration:none;font-family:var(--font-sans);">
+          → SAFU 페이지 / View fund
+        </a>
+      </div>
+    </div>
+  </section>
+  <script>
+    (function () {
+      fetch("/safu/summary").then(r => r.json()).then(d => {
+        var el = document.getElementById("safu-mini-bal");
+        if (!el || !d) return;
+        var n = Number(d.total_balance_usdt) || 0;
+        el.textContent = new Intl.NumberFormat("en-US",
+          { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(n) + " USDT";
+      }).catch(function () {});
+    })();
+  </script>
+
+  <!-- ============== Section 3 — Per-asset breakdown ============== -->
+  <section class="porl-section">
+    <h2>자산별 보유 vs 부채<span class="en">Per-asset breakdown</span>
+      <span class="hint">한 자산의 상세를 펼치려면 ▸ 화살표를 클릭하세요</span>
+    </h2>
+    <table class="porl-table" id="asset-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>자산<span class="en">Asset</span></th>
+          <th class="num">보유<span class="en">Reserves</span></th>
+          <th class="num">고객 부채<span class="en">Liabilities</span></th>
+          <th class="num">초과<span class="en">Excess</span></th>
+          <th class="num">비율<span class="en">Ratio</span></th>
+          <th>zkPoL 일치<span class="en">/ zkPoL match</span></th>
+        </tr>
+      </thead>
+      <tbody id="asset-tbody">
+        <tr><td colspan="7" style="color:var(--ink-mute); text-align:center; padding: 24px;">
+          불러오는 중… / Loading…
+        </td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============== Section 4 — History chart ============== -->
+  <section class="porl-section">
+    <h2>시간에 따른 솔벤시 비율<span class="en">Solvency over time</span>
+      <span class="hint" id="history-hint">최근 50개 스냅샷</span>
+    </h2>
+    <div class="porl-history">
+      <div id="history-host">
+        <div class="empty">데이터를 불러오는 중… / Loading history…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== Section 5 — Cryptographic proof ============== -->
+  <section class="porl-section">
+    <h2>암호학적 증명 / Cryptographic proof</h2>
+    <div class="crypto-card">
+      <div class="crypto-fields" id="crypto-fields">
+        <div class="k">snapshot_id</div>      <div class="v"><span id="crypto-snap-id">—</span></div>
+        <div class="k">epoch_id</div>         <div class="v"><span id="crypto-epoch-id">—</span></div>
+        <div class="k">asset_breakdown_hash</div> <div class="v"><span class="mono-trunc" id="crypto-bhash">—</span><span id="crypto-bhash-copy"></span></div>
+        <div class="k">signature</div>        <div class="v"><span class="mono-trunc" id="crypto-sig">—</span><span id="crypto-sig-copy"></span></div>
+        <div class="k">server_pubkey</div>    <div class="v"><span class="mono-trunc" id="crypto-pub">—</span><span id="crypto-pub-copy"></span></div>
+        <div class="k">sig_scheme · hash</div><div class="v"><span id="crypto-scheme">—</span></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="dl-btn">데이터 다운로드 / Download data (JSON)</button>
+        <a class="btn btn-ghost" href="/pol/server-info" target="_blank" rel="noopener">검증 키 보기 / View signing key</a>
+        <a class="btn btn-ghost" href="/pol/latest-epoch" target="_blank" rel="noopener">최신 epoch 보기 / View latest customer-balance epoch</a>
+      </div>
+
+      <details>
+        <summary>외부에서 직접 검증하는 법<span class="en">How to verify yourself</span></summary>
+        <div style="margin-top:10px;color:var(--ink-mute);font-size:13px;line-height:1.5;">
+          아래 Python 스크립트를 실행하면 표준 라이브러리만으로 서명, 자산 해시, 그리고
+          <code>eth_call balanceOf</code>를 통한 보유고를 모두 검증합니다.<br/>
+          The Python snippet below verifies the signature, asset breakdown hash, and reserves
+          via JSON-RPC <code>eth_call balanceOf</code> using only the standard library.
+        </div>
+        <pre id="verify-code">로딩 중… / Loading…</pre>
+        <div style="font-size:11px;color:var(--ink-dim); margin-top:6px;">
+          실행: <code>python3 verify_porl.py</code>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============== Section 6 — FAQ ============== -->
+  <section class="porl-section porl-faq">
+    <h2>자주 묻는 질문 / FAQ</h2>
+
+    <details>
+      <summary>왜 이 페이지가 중요한가요?<span class="en">Why does this matter?</span></summary>
+      <div class="body">
+        “고객 자산을 안전하게 보관합니다”는 모든 거래소가 하는 약속입니다. zkCEX는 그 약속이 사실인지
+        <strong>매분 갱신되는 서명된 스냅샷</strong>으로 직접 보여드립니다. 누구나 — 고객, 규제 당국, 기자, 의심 많은 트레이더 — 이 페이지를
+        열고 보유 자산이 고객 부채를 초과하는지 확인할 수 있습니다.<br/>
+        “Your funds are safe” is the easy promise. zkCEX shows it — a fresh signed snapshot every minute that anyone (customers, regulators, journalists, sceptical traders) can verify directly.
+      </div>
+    </details>
+
+    <details>
+      <summary>"솔벤시"는 무엇인가요?<span class="en">What does “solvent” mean?</span></summary>
+      <div class="body">
+        Reserves ÷ Liabilities ≥ 1.0 이면 솔벤시(solvent)입니다. 즉 거래소가 보유한 자산이 모든 고객에게 돌려줘야 할 부채와 같거나 많다는 뜻입니다.
+        1.0보다 작으면 일부 부채를 즉시 갚을 수 없는 <em>undercollateralized</em> 상태로 표시됩니다.<br/>
+        Solvent = reserves ÷ liabilities ≥ 1.0, meaning we hold at least as much as we owe customers. Below 1.0 we'd flag the snapshot as <em>undercollateralized</em>.
+      </div>
+    </details>
+
+    <details>
+      <summary>만약 "undercollateralized"가 표시되면요?<span class="en">What if I see “undercollateralized”?</span></summary>
+      <div class="body">
+        해당 자산을 즉시 출금하시고 운영팀에 연락 주세요. 그러나 디자인상 보유고는 항상 부채를 초과해야 하며,
+        매 스냅샷의 서명된 결과가 영구히 기록되므로 부정 데이터를 사후에 조작할 수 없습니다.<br/>
+        Withdraw the affected asset and contact our team. By design reserves should always exceed liabilities, and every signed snapshot is recorded permanently — we can't quietly fix the number after the fact.
+      </div>
+    </details>
+
+    <details>
+      <summary>여기 "고객 부채"는 제 잔고와 같은 숫자인가요?<span class="en">Is liabilities the same as my balance?</span></summary>
+      <div class="body">
+        고객 부채(liabilities)는 모든 사용자의 잔고를 합산한 값입니다. 본인 잔고가 그 합계에 포함되어 있는지는
+        로그인 후 <a href="verify.html">잔고 검증 / Verify</a> 페이지에서 직접 inclusion proof로 확인할 수 있습니다 — 두 페이지가 같은 epoch 식별자를 공유합니다.<br/>
+        Liabilities is the sum across all users. To prove your specific balance is included, sign in and use <a href="verify.html">Verify your balance</a> — both pages share the same <code>epoch_id</code>.
+      </div>
+    </details>
+
+    <details>
+      <summary>실시간인가요?<span class="en">Is this real-time?</span></summary>
+      <div class="body">
+        스냅샷 자체는 30초 캐시 이후 자동 재생성되며, 새로고침 버튼으로 즉시 강제 재생성할 수 있습니다.
+        고객 부채 Merkle 트리는 별도로 60초 주기로 갱신됩니다(아래 epoch_id 참조).<br/>
+        The PoRL snapshot is rebuilt every 30 seconds (or on-demand via the refresh button). The customer-balance Merkle tree is published on a separate 60-second cycle — see the linked <code>epoch_id</code>.
+      </div>
+    </details>
+
+    <details>
+      <summary>다른 거래소의 PoR과 무엇이 다른가요?<span class="en">How is this different from other exchanges?</span></summary>
+      <div class="body">
+        많은 거래소가 분기별로 사진처럼 정적인 보고서를 발표합니다. zkCEX는 보유고와 부채를 매분 갱신하고,
+        모든 스냅샷에 Ed25519 서명을 첨부하며, 보유고는 누구나 <code>eth_call balanceOf</code>로 직접 재계산할 수 있도록 주소를 공개합니다.<br/>
+        Where other exchanges publish quarterly snapshots, zkCEX rebuilds reserves and liabilities every minute, signs each one with Ed25519, and lists the on-chain addresses so anyone can re-derive the reserves number with <code>eth_call balanceOf</code>.
+      </div>
+    </details>
+  </section>
+
+  <!-- ============== Section 7 — Trust footer ============== -->
+  <section class="porl-trust">
+    <span class="pill">매분 갱신<span class="en">Refreshed every minute</span></span>
+    <span class="pill">Ed25519 서명<span class="en">Ed25519 signed</span></span>
+    <span class="pill">오픈 검증 가능<span class="en">Open to verification</span></span>
+    <span class="pill">독립 감사 가능<span class="en">Independently auditable</span></span>
+  </section>
+
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import { renderHeader, renderFooter, escapeHtml, toast } from "./app.js";
+
+  // Public page — render the shared app header / footer but DO NOT require a session.
+  renderHeader("transparency");
+  renderFooter();
+
+  let currentBundle = null;
+
+  // ---------- helpers ----------
+  function fmtUsdt(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + " USDT";
+  }
+  function fmtUnits(v, asset) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    let dp = 4;
+    if (asset === "USDT" || asset === "BUSD" || asset === "IRT") dp = 2;
+    if (asset === "ETH" || asset === "BTC") dp = 4;
+    if (asset === "DOGE") dp = 2;
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: dp }).format(n) + " " + asset;
+  }
+  function fmtRatio(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    if (n >= 1000) return ">1000.00×";
+    return n.toFixed(2) + "×";
+  }
+  function fmtTimestamp(ms) {
+    if (!ms) return "—";
+    return new Date(Number(ms)).toLocaleString();
+  }
+  function truncMid(s, head = 14, tail = 10) {
+    if (!s) return "—";
+    if (s.length <= head + tail + 1) return s;
+    return s.slice(0, head) + "…" + s.slice(-tail);
+  }
+  function assetBadgeClass(asset) {
+    const a = (asset || "").toLowerCase();
+    if (a === "eth")  return "eth";
+    if (a === "usdt") return "usdt";
+    if (a === "btc")  return "btc";
+    return "";
+  }
+
+  // Generic copy-button delegation (used by inline crypto fields and per-asset rows).
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-copy]");
+    if (!btn) return;
+    const v = btn.dataset.copy;
+    try {
+      await navigator.clipboard.writeText(v);
+      btn.classList.add("ok");
+      const old = btn.textContent;
+      btn.textContent = "copied";
+      setTimeout(() => { btn.classList.remove("ok"); btn.textContent = old; }, 1100);
+    } catch {
+      toast("복사 실패 / Copy failed");
+    }
+  });
+
+  // ---------- render ----------
+  function renderHero(b) {
+    const ratio = Number(b.totals.ratio);
+    const status = b.totals.status;
+    const pill = document.getElementById("hero-pill");
+    const ratioEl = document.getElementById("hero-ratio");
+    const labelEl = document.getElementById("hero-label");
+    pill.classList.remove("idle", "ok", "warn");
+    if (status === "solvent") {
+      pill.classList.add("ok");
+      ratioEl.textContent = fmtRatio(ratio);
+      labelEl.innerHTML = `🟢 솔벤시<span class="en">Solvent</span>`;
+    } else {
+      pill.classList.add("warn");
+      ratioEl.textContent = fmtRatio(ratio);
+      labelEl.innerHTML = `🔴 위험<span class="en">Risk</span>`;
+    }
+    document.getElementById("hero-stamp").textContent = fmtTimestamp(b.snapshot_at)
+      + ` · snapshot #${b.snapshot_id}`;
+  }
+
+  function renderStats(b) {
+    const reserves = Number(b.totals.reserves_usdt);
+    const liab     = Number(b.totals.liabilities_usdt);
+    const delta    = Number(b.totals.delta_usdt);
+
+    document.getElementById("stat-reserves").textContent = fmtUsdt(reserves);
+    document.getElementById("stat-liabilities").textContent = fmtUsdt(liab);
+
+    const deltaEl = document.getElementById("stat-delta");
+    deltaEl.classList.remove("pos", "neg");
+    if (delta >= 0) {
+      deltaEl.classList.add("pos");
+      deltaEl.textContent = "+" + fmtUsdt(delta);
+    } else {
+      deltaEl.classList.add("neg");
+      deltaEl.textContent = fmtUsdt(delta);
+    }
+
+    function shortAssets(side /* 'reserves' | 'liabilities' */) {
+      const parts = [];
+      for (const r of b.by_asset || []) {
+        const v = side === "reserves" ? r.reserves.on_chain_balance : r.liabilities.total_owed;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n === 0) continue;
+        parts.push(fmtUnits(n, r.asset));
+      }
+      return parts.length ? parts.join("  +  ") : "—";
+    }
+    document.getElementById("stat-reserves-breakdown").textContent    = shortAssets("reserves");
+    document.getElementById("stat-liabilities-breakdown").textContent = shortAssets("liabilities");
+    document.getElementById("stat-delta-breakdown").textContent       =
+      delta >= 0 ? "보유고가 부채를 초과 / reserves exceed liabilities"
+                 : "부채가 보유고를 초과 / liabilities exceed reserves";
+  }
+
+  // ====================================================================
+  // zkPoL upstream cross-check: sum every account's `value` for a token and
+  // compare against the snapshot's liabilities.total_owed for that asset.
+  // Cached per token to avoid re-fetching every render. Returns null if the
+  // upstream is unreachable or returns no data.
+  // ====================================================================
+  const ZKPOL_ASSET_TO_TOKEN = { ETH: "ETH", ZETH: "ETH", USDT: "USDT", ZUSDT: "USDT" };
+  const ZKPOL_SCALE = 100000000n; // 8 dp
+
+  async function zkpolFetchTokenLiability(token_id) {
+    // The /accounts listing endpoint is intentionally blocked at the public
+    // reverse proxy to avoid leaking the full customer directory. Instead we
+    // call /tokens/<id>/summary which exposes `current_liability` — the same
+    // independently-computed total customer liability for this token, in
+    // 8-dp scaled integer form.
+    const url = `/zkpol/tokens/${encodeURIComponent(token_id)}/summary`;
+    let resp;
+    try { resp = await fetch(url, { cache: "no-store" }); }
+    catch { return null; }
+    if (!resp.ok) return null;
+    let body;
+    try { body = await resp.json(); } catch { return null; }
+    let scaled;
+    try { scaled = BigInt(body.current_liability ?? "0"); } catch { return null; }
+    return { scaled, n_accounts: Number(body.account_count ?? 0) };
+  }
+
+  function zkpolDecimalFromScaled(b) {
+    // BigInt scaled (8dp) -> Number with 8 dp (good enough for display
+    // precision up to ~9e9 USDT, which we will not exceed in this demo).
+    const sign = b < 0n ? "-" : "";
+    const abs  = b < 0n ? -b : b;
+    const intPart = abs / ZKPOL_SCALE;
+    const frac    = abs % ZKPOL_SCALE;
+    const fracStr = frac.toString().padStart(8, "0").replace(/0+$/, "");
+    return sign + (fracStr ? `${intPart}.${fracStr}` : intPart.toString());
+  }
+
+  function zkpolMatchCell(porlOwedStr, zkpolResult) {
+    if (zkpolResult === null) {
+      return `<span class="zkpol-pill muted">offline</span>`;
+    }
+    let owedScaled;
+    try {
+      // porl reports "10.00000000" (decimal string). Convert to scaled BigInt.
+      const [intPart, fracPart = ""] = String(porlOwedStr ?? "0").split(".");
+      const fracPadded = (fracPart + "00000000").slice(0, 8);
+      owedScaled = BigInt(intPart) * ZKPOL_SCALE + BigInt(fracPadded);
+    } catch {
+      return `<span class="zkpol-pill muted">n/a</span>`;
+    }
+    const diff = zkpolResult.scaled - owedScaled;
+    const ok = diff === 0n;
+    const tip = `zkPoL=${zkpolDecimalFromScaled(zkpolResult.scaled)} | porl=${porlOwedStr} | n_accounts=${zkpolResult.n_accounts}`;
+    if (ok) {
+      return `<span class="zkpol-pill ok" title="${tip.replace(/"/g, '&quot;')}">✓ matched</span>`;
+    }
+    return `<span class="zkpol-pill bad" title="${tip.replace(/"/g, '&quot;')}">✗ Δ=${zkpolDecimalFromScaled(diff)}</span>`;
+  }
+
+  function renderAssetTable(b) {
+    const tbody = document.getElementById("asset-tbody");
+    if (!b.by_asset || !b.by_asset.length) {
+      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--ink-mute); text-align:center; padding:24px;">
+        자산 데이터가 없습니다 / No asset data
+      </td></tr>`;
+      return;
+    }
+    const rows = b.by_asset.map((r, i) => {
+      const ratioN = Number(r.solvency.ratio);
+      const ratioCls = ratioN >= 1 ? "" : "warn";
+      const deltaUsdtN = Number(r.solvency.delta_usdt);
+      const deltaCls = deltaUsdtN >= 0 ? "pos" : "neg";
+      const badgeCls = assetBadgeClass(r.asset);
+      const detailRowId = `detail-${i}`;
+      const tokensInfo = (r.reserves.tokens || []).map(t =>
+        t.address ? `${escapeHtml(t.symbol)} @ ${escapeHtml(t.address)}` : escapeHtml(t.symbol)
+      ).join(" · ") || "—";
+
+      return `
+        <tr class="asset-row" data-i="${i}">
+          <td><span class="row-expand" data-toggle="${detailRowId}">▸</span></td>
+          <td>
+            <span class="asset-glyph">
+              <span class="badge ${badgeCls}">${escapeHtml(r.asset.slice(0,4))}</span>
+              <span class="name">${escapeHtml(r.asset)}</span>
+            </span>
+          </td>
+          <td class="num">
+            <div class="units">${escapeHtml(fmtUnits(r.reserves.on_chain_balance, r.asset))}</div>
+            <div class="usdt-sub">${escapeHtml(fmtUsdt(r.reserves.valuation_usdt))}</div>
+          </td>
+          <td class="num">
+            <div class="units">${escapeHtml(fmtUnits(r.liabilities.total_owed, r.asset))}</div>
+            <div class="usdt-sub">${escapeHtml(fmtUsdt(r.liabilities.valuation_usdt))}</div>
+          </td>
+          <td class="num">
+            <div class="units" style="color: ${deltaCls === 'pos' ? '#2ee59b' : '#ff6b85'};">
+              ${deltaUsdtN >= 0 ? "+" : ""}${escapeHtml(fmtUnits(r.solvency.delta_units, r.asset))}
+            </div>
+            <div class="usdt-sub">${deltaUsdtN >= 0 ? "+" : ""}${escapeHtml(fmtUsdt(r.solvency.delta_usdt))}</div>
+          </td>
+          <td class="num">
+            <span class="ratio-cell ${ratioCls}">${escapeHtml(fmtRatio(r.solvency.ratio))}</span>
+          </td>
+          <td><span class="zkpol-pill muted" id="zkpol-cell-${i}">…</span></td>
+        </tr>
+        <tr id="${detailRowId}" hidden>
+          <td colspan="7" style="padding:0;">
+            <div class="row-detail">
+              <div class="k">on-chain custody</div>
+              <div>
+                ${(r.reserves.source_addresses || []).map(addr => `
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span style="color:var(--ink);">${escapeHtml(addr)}</span>
+                    <button class="copy" data-copy="${escapeHtml(addr)}">copy</button>
+                    <span style="color:var(--ink-dim);">— anyone can read this via <code>eth_call balanceOf</code></span>
+                  </div>
+                `).join("") || `<span style="color:var(--ink-dim);">—</span>`}
+              </div>
+              <div class="k">tokens</div>
+              <div>${tokensInfo}</div>
+              <div class="k">holders</div>
+              <div>${r.liabilities.n_holders}</div>
+              <div class="k">price source</div>
+              <div>${r.price_usdt == null
+                ? `<span style="color:var(--ink-dim);">no live price</span>`
+                : `${escapeHtml(r.price_usdt)} USDT (last trade on the matching engine)`}</div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+    tbody.innerHTML = rows;
+
+    for (const t of tbody.querySelectorAll("[data-toggle]")) {
+      t.addEventListener("click", () => {
+        const id = t.dataset.toggle;
+        const row = document.getElementById(id);
+        if (!row) return;
+        const isHidden = row.hidden;
+        row.hidden = !isHidden;
+        t.classList.toggle("open", isHidden);
+        t.textContent = isHidden ? "▾" : "▸";
+      });
+    }
+
+    // Async cross-check zkPoL upstream for each asset, filling the new column
+    // in place. Failures degrade to a muted "offline" pill.
+    (async () => {
+      for (let i = 0; i < b.by_asset.length; i++) {
+        const r = b.by_asset[i];
+        const cell = document.getElementById(`zkpol-cell-${i}`);
+        if (!cell) continue;
+        const tid = ZKPOL_ASSET_TO_TOKEN[(r.asset || "").toUpperCase()];
+        if (!tid) {
+          cell.outerHTML = `<span class="zkpol-pill muted" title="no zkPoL token mapping">n/a</span>`;
+          continue;
+        }
+        let res;
+        try { res = await zkpolFetchTokenLiability(tid); }
+        catch { res = null; }
+        const html = zkpolMatchCell(r.liabilities.total_owed, res);
+        cell.outerHTML = html;
+      }
+    })();
+  }
+
+  function renderCryptoCard(b) {
+    document.getElementById("crypto-snap-id").textContent  = b.snapshot_id;
+    document.getElementById("crypto-epoch-id").textContent = b.epoch_id == null ? "—" : b.epoch_id;
+    const setTrunc = (id, copyId, value) => {
+      document.getElementById(id).textContent = truncMid(value, 18, 14);
+      document.getElementById(copyId).innerHTML = `<button class="copy-btn" data-copy="${escapeHtml(value)}">copy</button>`;
+    };
+    setTrunc("crypto-bhash", "crypto-bhash-copy", b.asset_breakdown_hash);
+    setTrunc("crypto-sig",   "crypto-sig-copy",   b.signature);
+    setTrunc("crypto-pub",   "crypto-pub-copy",   b.server_pubkey);
+    document.getElementById("crypto-scheme").textContent = `${b.sig_scheme} · ${b.hash}`;
+    renderVerifyCode(b);
+  }
+
+  function renderVerifyCode(b) {
+    // Stdlib-only Python self-verifier. No third-party deps.
+    // Inline pubkey + sig so the snippet is genuinely self-contained.
+    const code = String.raw`# verify_porl.py — verify a zkCEX PoRL snapshot. Stdlib only (urllib + hashlib).
+# Run:  python3 verify_porl.py
+import json, urllib.request, hashlib
+
+PORL_URL    = "${location.origin}/pol/reserves-vs-liabilities"
+RPC_URL     = "http://127.0.0.1:8545"  # the same hardhat node listed in /chain/info
+
+# ---- 1. Fetch the snapshot ----
+b = json.loads(urllib.request.urlopen(PORL_URL, timeout=8).read().decode())
+
+# ---- 2. Recompute asset_breakdown_hash ----
+canon = json.dumps(b["by_asset"], sort_keys=True, separators=(",",":")).encode()
+recomputed = hashlib.sha256(canon).hexdigest()
+assert recomputed == b["asset_breakdown_hash"], (
+    f"FAIL: breakdown hash mismatch {recomputed} vs {b['asset_breakdown_hash']}"
+)
+
+# ---- 3. Build the signed message ----
+msg = (
+    f"zkcex-porl-v1|{b['snapshot_id']}|{b['totals']['reserves_usdt']}"
+    f"|{b['totals']['liabilities_usdt']}|{b['asset_breakdown_hash']}"
+).encode()
+
+# ---- 4. Verify Ed25519 signature (stdlib pure-python, RFC 8032) ----
+_q  = 2**255 - 19
+_l  = 2**252 + 27742317777372353535851937790883648493
+_d  = (-121665) * pow(121666, _q-2, _q) % _q
+_I  = pow(2, (_q-1)//4, _q)
+def _xrec(y):
+    xx = (y*y-1) * pow(_d*y*y+1, _q-2, _q)
+    x = pow(xx, (_q+3)//8, _q)
+    if (x*x - xx) % _q != 0: x = (x*_I) % _q
+    if x % 2: x = _q - x
+    return x
+_By = 4 * pow(5, _q-2, _q) % _q
+_Bx = _xrec(_By)
+_B  = (_Bx % _q, _By % _q)
+def _edw(P,Q):
+    x1,y1=P; x2,y2=Q
+    inv  = pow(1+_d*x1*x2*y1*y2, _q-2, _q)
+    inv2 = pow(1-_d*x1*x2*y1*y2, _q-2, _q)
+    return (((x1*y2+x2*y1)*inv)%_q, ((y1*y2+x1*x2)*inv2)%_q)
+def _smul(P,e):
+    if e==0: return (0,1)
+    Q=_smul(P, e//2); Q=_edw(Q,Q)
+    return _edw(Q,P) if e&1 else Q
+def _bit(h,i): return (h[i//8]>>(i%8))&1
+def _enc(P):
+    x,y=P
+    bits=[(y>>i)&1 for i in range(255)]+[x&1]
+    return bytes(sum(bits[i*8+j]<<j for j in range(8)) for i in range(32))
+def _decint(s): return sum(2**i*_bit(s,i) for i in range(256))
+def _decpt(s):
+    y=sum(2**i*_bit(s,i) for i in range(255))
+    x=_xrec(y)
+    if x&1 != _bit(s,255): x=_q-x
+    return (x,y)
+def _Hint(m):
+    h=hashlib.sha512(m).digest()
+    return sum(2**i*_bit(h,i) for i in range(512))
+def ed25519_verify(pk, msg, sig):
+    if len(sig)!=64 or len(pk)!=32: return False
+    R=_decpt(sig[:32]); A=_decpt(pk); S=_decint(sig[32:])
+    h=_Hint(_enc(R)+pk+msg)
+    return _smul(_B,S) == _edw(R, _smul(A,h))
+
+assert ed25519_verify(
+    bytes.fromhex(b["server_pubkey"]),
+    msg,
+    bytes.fromhex(b["signature"]),
+), "FAIL: signature invalid"
+
+# ---- 5. Independently confirm reserves on chain ----
+def rpc(method, params):
+    payload = json.dumps({"jsonrpc":"2.0","id":1,"method":method,"params":params}).encode()
+    req = urllib.request.Request(RPC_URL, data=payload, headers={"Content-Type":"application/json"})
+    return json.loads(urllib.request.urlopen(req, timeout=6).read().decode())["result"]
+
+for row in b["by_asset"]:
+    for tok in row["reserves"].get("tokens", []):
+        for src in row["reserves"]["source_addresses"]:
+            if tok.get("address") is None:        # native ETH balance
+                wei = int(rpc("eth_getBalance", [src.lower(), "latest"]) or "0x0", 16)
+            else:
+                addr = src.lower().replace("0x","").rjust(40, "0")
+                data = "0x70a08231" + ("0"*24) + addr
+                wei = int(rpc("eth_call", [{"to": tok["address"], "data": data}, "latest"]) or "0x0", 16)
+            print(f"  {row['asset']:>5} {tok['symbol']:>16}  src={src}  raw_wei={wei}")
+
+print("\nOK — signature, breakdown hash, and on-chain reads all match.")
+print(f"  snapshot_id       = {b['snapshot_id']}")
+print(f"  ratio             = {b['totals']['ratio']} ({b['totals']['status']})")
+print(f"  reserves   (USDT) = {b['totals']['reserves_usdt']}")
+print(f"  liabilities (USDT) = {b['totals']['liabilities_usdt']}")
+`;
+    document.getElementById("verify-code").textContent = code;
+  }
+
+  function renderHistory(snapshots) {
+    const host = document.getElementById("history-host");
+    if (!snapshots || snapshots.length < 5) {
+      host.innerHTML = `<div class="empty">스냅샷이 5개 이상 쌓이면 차트가 표시됩니다 (현재 ${snapshots?.length ?? 0}개).<br>
+        Chart appears once we've collected 5+ snapshots (currently ${snapshots?.length ?? 0}).</div>`;
+      return;
+    }
+
+    const w = 1080, h = 220;
+    const padL = 50, padR = 20, padT = 16, padB = 28;
+
+    const xs = snapshots.map(s => s.snapshot_at);
+    const ys = snapshots.map(s => Math.min(Number(s.ratio) || 0, 5)); // clamp wild values for display
+
+    const xmin = xs[0], xmax = xs[xs.length - 1];
+    let ymin = Math.min(...ys, 1), ymax = Math.max(...ys, 1.2);
+    if (ymin === ymax) { ymin -= 0.1; ymax += 0.1; }
+
+    const xScale = v => padL + ((v - xmin) / (xmax - xmin || 1)) * (w - padL - padR);
+    const yScale = v => padT + (1 - (v - ymin) / (ymax - ymin)) * (h - padT - padB);
+
+    const points = snapshots.map((s, i) => [xScale(xs[i]), yScale(ys[i])]);
+    const linePath = points.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+    const fillPath = linePath + ` L${(w - padR).toFixed(1)},${(h - padB).toFixed(1)} L${padL.toFixed(1)},${(h - padB).toFixed(1)} Z`;
+
+    const yDanger = yScale(1.0);
+    const yMaxLbl = yScale(ymax);
+    const yMinLbl = yScale(ymin);
+
+    const tickCount = 5;
+    const xTicks = [];
+    for (let i = 0; i < tickCount; i++) {
+      const t = xmin + (xmax - xmin) * (i / (tickCount - 1));
+      xTicks.push({ x: xScale(t), label: new Date(t).toLocaleTimeString().replace(/:\d\d /, " ") });
+    }
+
+    host.innerHTML = `
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Solvency over time">
+        <line class="axis-line" x1="${padL}" x2="${w - padR}" y1="${yDanger.toFixed(1)}" y2="${yDanger.toFixed(1)}"/>
+        <text x="${w - padR + 4}" y="${yDanger.toFixed(1) - 4}" fill="#ff6b85" font-size="11" font-family="JetBrains Mono">danger zone (1.0×)</text>
+        <path class="ratio-fill" d="${fillPath}"/>
+        <path class="ratio-line" d="${linePath}"/>
+        ${points.map(p => `<circle class="point" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5"/>`).join("")}
+        <text x="6"  y="${yMaxLbl + 4}" fill="#9aa3b3" font-size="11" font-family="JetBrains Mono">${ymax.toFixed(2)}×</text>
+        <text x="6"  y="${yMinLbl + 4}" fill="#9aa3b3" font-size="11" font-family="JetBrains Mono">${ymin.toFixed(2)}×</text>
+        ${xTicks.map(t => `<text x="${t.x}" y="${h - 8}" fill="#5c6477" font-size="10" font-family="JetBrains Mono" text-anchor="middle">${t.label}</text>`).join("")}
+      </svg>
+    `;
+    document.getElementById("history-hint").textContent = `최근 ${snapshots.length}개 스냅샷 / ${snapshots.length} snapshots`;
+  }
+
+  // ---------- main ----------
+  async function loadPorl(force = false) {
+    const heroBtn = document.getElementById("hero-refresh");
+    heroBtn.disabled = true;
+    heroBtn.textContent = force ? "강제 새로고침 중… / Refreshing…" : "갱신 중… / Refreshing…";
+    try {
+      const url = force
+        ? "/pol/reserves-vs-liabilities/refresh"
+        : "/pol/reserves-vs-liabilities";
+      const init = force ? { method: "POST" } : {};
+      const res = await fetch(url, init);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const bundle = await res.json();
+      currentBundle = bundle;
+      renderHero(bundle);
+      renderStats(bundle);
+      renderAssetTable(bundle);
+      renderCryptoCard(bundle);
+      // History pulls separately so a momentary 5xx on history doesn't break the page.
+      try {
+        const hres = await fetch("/pol/reserves-history?limit=50");
+        if (hres.ok) {
+          const hist = await hres.json();
+          renderHistory(hist.snapshots || []);
+        }
+      } catch (e) { /* silent */ }
+    } catch (err) {
+      const tbody = document.getElementById("asset-tbody");
+      tbody.innerHTML = `<tr><td colspan="6" style="color:#ff6b85; text-align:center; padding:24px;">
+        스냅샷을 불러오지 못했습니다 / Failed to load snapshot — ${escapeHtml(err.message || String(err))}
+      </td></tr>`;
+    } finally {
+      heroBtn.disabled = false;
+      heroBtn.textContent = "지금 새로고침 / Refresh now";
+    }
+  }
+
+  document.getElementById("hero-refresh").addEventListener("click", () => loadPorl(true));
+
+  document.getElementById("dl-btn").addEventListener("click", () => {
+    if (!currentBundle) return;
+    const blob = new Blob([JSON.stringify(currentBundle, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `zkcex-porl-${currentBundle.snapshot_id}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast("스냅샷 JSON 저장됨", "Snapshot JSON saved");
+  });
+
+  loadPorl(false);
+  // Auto-refresh every 60s in the background so the dashboard stays current
+  // without users needing to click the button.
+  let backgroundPoll = setInterval(() => loadPorl(false), 60_000);
+
+  // ---------- live mode ----------
+  // The PoRL bundle itself is rebuilt at most every 30s server-side (cache TTL).
+  // When live mode is ON, we still subscribe to the PoL live stream and treat
+  // each commit as a hint to re-fetch /pol/reserves-vs-liabilities. We do NOT
+  // bypass the 30s cache — that would force an expensive rebuild on every tick
+  // and the dashboard's USDT-level numbers wouldn't change on most ticks anyway.
+  // Net effect: a busier client poll cadence (~1Hz) on the PoRL endpoint, but
+  // the underlying snapshot is still computed at most every 30s. Trade-off
+  // documented here so future readers don't expect 1Hz solvency updates.
+  let liveES = null;
+  let liveLastCommitTs = null;
+  let liveTimer = null;
+  let liveRatioFlashing = false;
+  const livePill = document.getElementById("live-pill");
+  const livePillText = document.getElementById("live-pill-text");
+  const liveStatusEl = document.getElementById("live-status");
+  const liveToggle = document.getElementById("live-toggle");
+
+  function setLivePill(state, text) {
+    livePill.classList.remove("on", "off", "warn");
+    livePill.classList.add(state);
+    livePillText.textContent = text;
+  }
+  function updateLiveStatus() {
+    if (!liveES) { liveStatusEl.textContent = ""; return; }
+    if (!liveLastCommitTs) { liveStatusEl.textContent = "대기 중 / waiting…"; return; }
+    const dt = (Date.now() - liveLastCommitTs) / 1000;
+    const dtStr = dt < 1 ? `${(dt * 1000).toFixed(0)}ms` : `${dt.toFixed(1)}s`;
+    liveStatusEl.textContent = `마지막 commit ${dtStr} 전 / last commit ${dtStr} ago`;
+  }
+  function flashRatio() {
+    const el = document.getElementById("hero-ratio");
+    if (!el) return;
+    el.classList.remove("porl-pop");
+    void el.offsetWidth;
+    el.classList.add("porl-pop");
+  }
+
+  let liveFetchInflight = false;
+  async function liveRefresh() {
+    if (liveFetchInflight) return;
+    liveFetchInflight = true;
+    const prev = currentBundle ? currentBundle.totals.ratio : null;
+    try {
+      const res = await fetch("/pol/reserves-vs-liabilities");
+      if (res.ok) {
+        const bundle = await res.json();
+        const changed = !currentBundle
+          || bundle.snapshot_id !== currentBundle.snapshot_id
+          || bundle.totals.ratio !== currentBundle.totals.ratio;
+        currentBundle = bundle;
+        renderHero(bundle);
+        renderStats(bundle);
+        renderAssetTable(bundle);
+        renderCryptoCard(bundle);
+        if (changed && prev !== null) flashRatio();
+      }
+    } catch (e) { /* silent — keep polling */ }
+    finally { liveFetchInflight = false; }
+  }
+
+  function startLiveMode() {
+    if (liveES) return;
+    setLivePill("warn", "연결 중… / Connecting…");
+    try {
+      liveES = new EventSource("/pol/live/stream");
+    } catch {
+      setLivePill("warn", "연결 실패 / Connect failed");
+      return;
+    }
+    liveES.addEventListener("commit", () => {
+      setLivePill("on", "실시간 / LIVE");
+      liveLastCommitTs = Date.now();
+      liveRefresh();
+    });
+    liveES.addEventListener("epoch_rotated", () => liveRefresh());
+    liveES.addEventListener("ping", () => { /* keepalive */ });
+    liveES.onopen = () => setLivePill("on", "실시간 / LIVE");
+    liveES.onerror = () => setLivePill("warn", "연결 재시도 중… / Reconnecting…");
+    liveTimer = setInterval(updateLiveStatus, 200);
+    // Stop the slow 60s background poll while live (the live stream supersedes it).
+    if (backgroundPoll) { clearInterval(backgroundPoll); backgroundPoll = null; }
+    liveRefresh();
+  }
+  function stopLiveMode() {
+    if (liveES) { try { liveES.close(); } catch {} liveES = null; }
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+    liveLastCommitTs = null;
+    setLivePill("off", "OFF");
+    liveStatusEl.textContent = "";
+    // Resume background polling.
+    if (!backgroundPoll) backgroundPoll = setInterval(() => loadPorl(false), 60_000);
+  }
+  liveToggle.addEventListener("change", () => {
+    if (liveToggle.checked) startLiveMode();
+    else                    stopLiveMode();
+  });
+</script>
+
+</body>
+</html>
