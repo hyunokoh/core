@@ -2,12 +2,12 @@
 
 Status: not production-complete.
 
-Current completion decision: the local codebase has been hardened and the
-feasible local gates pass, but this worktree has not yet been pushed and
-verified by hosted GitHub Actions. Final production sign-off requires green
-hosted `exchange-e2e.yml`, green `build -> deploy-staging -> e2e`, and one
+Current completion decision: the production-readiness branch has been hardened
+and the PR-hosted gates are green, including the Docker-backed
+`exchange-e2e.yml` production path. Final production sign-off still requires a
 green `zkpol-live-e2e.yml` run against provisioned live zkPoL/BulletinBoard,
-wallet, bridge, and anchor services.
+wallet, bridge, and anchor services after the workflow is merged and the
+required repository variables/secrets are configured.
 
 This audit maps the production-readiness goal to concrete repo artifacts and
 verification evidence. It is intentionally strict: a light-profile or local
@@ -28,7 +28,7 @@ smoke pass is demo/MVP evidence, not a final production sign-off.
 | Real Docker-backed Exchange E2E | `tools/e2e/run_exchange_e2e.sh`, `tools/e2e/docker-compose.e2e.yml`, `docs/exchange-e2e.md` | Full profile is implemented and wired into CI. Kafka/Zookeeper have been moved to multi-arch Confluent Platform 7.6.1 images so Apple Silicon no longer needs amd64 emulation for those services after rebuild. The 2026-05-12 local full run passed with `--package --build --reset`. |
 | Kafka/Zookeeper image portability | `docker-images/kafka/Dockerfile`, `docker-compose.yml`, `tools/e2e/docker-compose.e2e.yml` | `confluentinc/cp-kafka:7.6.1` and `confluentinc/cp-zookeeper:7.6.1` publish amd64 and arm64 manifests. The custom Kafka image builds locally on arm64; the temporary verification image was removed after the check. |
 | Demo/MVP validation | `tools/e2e/run_exchange_e2e.sh --light-profile --reset` | Previously passed with `ready: light profile signed API core checks`. Light profile is allowed on arm64 as demo/MVP evidence and has a Docker memory preflight, but it is not production sign-off. |
-| Production E2E gate | `.github/workflows/exchange-e2e.yml` | Runs `tools/e2e/run_exchange_e2e.sh --package --build --reset` on Ubuntu for relevant PR/main changes and uploads logs/artifacts on failure. A local full run on 2026-05-12 passed after building the stack and exercising restart recovery, Kafka outage/recovery, Postgres recovery, replay/idempotency, DLT, multi-symbol, and concurrency paths. Hosted CI still needs to be observed green before final release sign-off. |
+| Production E2E gate | `.github/workflows/exchange-e2e.yml` | Runs `tools/e2e/run_exchange_e2e.sh --package --build --reset` on Ubuntu for relevant PR/main changes and uploads logs/artifacts on failure. A local full run on 2026-05-12 passed after building the stack and exercising restart recovery, Kafka outage/recovery, Postgres recovery, replay/idempotency, DLT, multi-symbol, and concurrency paths. The PR-hosted `exchange-e2e` run also passed on 2026-05-12 in `39m15s`. |
 | CI path correctness | `.github/workflows/*.yml`, `.github/dependabot.yml`, `.github/CODEOWNERS`, `docs/CI_CD.md` | Workflow YAML parses and `actionlint` passes. Root-relative paths were corrected from stale `/core/...` values where applicable. |
 | Docker Compose config | `docker-compose*.yml`, `tools/e2e/docker-compose.e2e.yml` | Compose `version:` warnings were removed. Default E2E compose config renders successfully; OTC compose config renders successfully when its required deployment `.env` is present. |
 | Legacy CI compatibility | `.github/workflows/pr.yml`, `main.yml`, `dev.yml`, `opex-test.yml`, `main-otc.yml`, `dev-otc.yml` | Updated to current checkout/setup-java/login actions and Temurin JDK 21. |
@@ -46,8 +46,8 @@ smoke pass is demo/MVP evidence, not a final production sign-off.
 
 ## Remaining Production Blockers
 
-- Hosted CI must show a green production E2E run on the target Ubuntu runner before final release sign-off. The equivalent local full run passed on 2026-05-12.
-- The zkPoL live E2E workflow now exists, but final production sign-off still needs one green run against a provisioned zkPoL/BulletinBoard/wallet/anchor environment with repository variables/secrets configured.
+- The zkPoL live E2E workflow now exists on the production-readiness branch, but final production sign-off still needs one green run against a provisioned zkPoL/BulletinBoard/wallet/anchor environment after the workflow is merged and repository variables/secrets are configured.
+- Required live zkPoL repository variables/secrets are not configured in the repository yet: `ZKPOL_E2E_WALLET_BASE`, `ZKPOL_E2E_BRIDGE_BASE`, `ZKPOL_E2E_ANCHOR_BASE`, `ZKPOL_E2E_USER`, `BULLETIN_BOARD_ADDRESS`, and secret `ZKCEX_TEST_BEARER`.
 
 ## Closed Hardening Items
 
@@ -100,3 +100,4 @@ Results:
 - Actionlint: passed across `.github/workflows`.
 - Kafka image portability: Confluent 7.6.1 Kafka/Zookeeper manifests include amd64 and arm64; custom Kafka image build passed on arm64 and the temporary image was removed.
 - Full Exchange E2E local arm64 run: passed with `tools/e2e/run_exchange_e2e.sh --package --build --reset`. It built and started the stack, passed broker readiness, topic creation, Vault/wallet/core readiness, consumer group checks, matching-engine/wallet/accountant/matching-gateway/core restart recovery, Kafka-down rejection/restart recovery, Postgres restart recovery, negative overreserve rejection checks, replay/idempotency checks, DLT poison-record handling, secondary-symbol routing, concurrency checks, and overfill protection. Temporary E2E containers and `:e2e` images were removed after verification.
+- PR-hosted Exchange E2E: passed on GitHub Actions in `39m15s` for `production-readiness-hardening` PR #1.
