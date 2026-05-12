@@ -118,7 +118,7 @@ jobs:
 
       - name: Trivy scan
         if: github.event_name == 'pull_request'
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/zkcex-${{ matrix.service }}:${{ github.sha }}
           severity: HIGH,CRITICAL

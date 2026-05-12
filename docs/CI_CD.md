@@ -29,8 +29,10 @@ Runs five independent jobs (parallel). Failures gate the merge:
 - **ruff**: blocking `ruff check tools/` + `ruff format --check tools/`.
   Pinned to `ruff==0.6.9`. The job also runs blocking Ruff security checks
   with `ruff check tools/ --select S --statistics`.
-- **shellcheck**: scans every `*.sh` file. `SC2086` is suppressed because
-  several of the deploy scripts intentionally word-split.
+- **shellcheck**: scans shell scripts at error severity. `SC2086` is
+  suppressed because several deploy scripts intentionally word-split; lower
+  severity warnings are kept out of the blocking PR gate until the legacy
+  scripts are cleaned up.
 - **actionlint**: validates GitHub Actions workflow syntax, expressions, and
   embedded shell fragments with `rhysd/actionlint:1.7.7`.
 - **yaml-lint**: lints `.github/`, `tools/observability/`, and `deploy/`.

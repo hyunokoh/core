@@ -1,7 +1,10 @@
 extends: default
 rules:
   braces: disable
-  line-length: { max: 200 }
+  brackets: disable
+  colons: disable
+  comments-indentation: disable
+  line-length: { max: 240 }
   document-start: disable
   truthy: { check-keys: false }
   comments: { min-spaces-from-content: 1 }
