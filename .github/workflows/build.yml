@@ -46,11 +46,13 @@ jobs:
       # images. Without this, --platform linux/arm64 fails with
       # "exec format error".
       - name: Set up QEMU
+        if: github.event_name == 'push'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
       - name: Set up Buildx
+        if: github.event_name == 'push'
         uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -60,23 +62,13 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Distroless service images FROM zkcex-base:latest. On the runner we
-      # need the base in the local daemon (single-arch) for PR builds, OR
-      # pushed to the registry-qualified ref for multi-arch push builds.
-      # For PRs (load=true) we build base single-arch only; for push builds
-      # we publish the base multi-arch first, then services FROM the
-      # registry-qualified ref.
-      - name: Build base (PR, host-arch only)
+      # Distroless service images FROM zkcex-base:latest. PR builds use
+      # plain docker build so the local daemon can resolve that base image.
+      # Push builds publish a multi-arch base first, then rewrite service
+      # Dockerfiles to pull the registry-qualified base tag.
+      - name: Build base (PR)
         if: github.event_name == 'pull_request'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./deploy/images/Dockerfile.base
-          platforms: linux/amd64
-          tags: zkcex-base:latest
-          load: true
-          cache-from: type=gha,scope=base
-          cache-to: type=gha,scope=base,mode=max
+        run: docker build -f ./deploy/images/Dockerfile.base -t zkcex-base:latest .
 
       - name: Build base (push, multi-arch)
         if: github.event_name == 'push'
@@ -100,19 +92,26 @@ jobs:
             "s|FROM zkcex-base:latest|FROM ghcr.io/${{ github.repository_owner }}/zkcex-base:${{ github.sha }}|" \
             ./deploy/images/Dockerfile.${{ matrix.service }}
 
-      - name: Build image
+      - name: Build image (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          docker build \
+            --build-arg SERVICE=${{ matrix.service }} \
+            -f ./deploy/images/Dockerfile.${{ matrix.service }} \
+            -t ghcr.io/${{ github.repository_owner }}/zkcex-${{ matrix.service }}:${{ github.sha }} \
+            .
+
+      - name: Build image (push)
+        if: github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./deploy/images/Dockerfile.${{ matrix.service }}
-          # PRs build host-arch only (faster, --load works). Pushes produce
-          # a multi-arch manifest list pushed to ghcr.
-          platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          platforms: linux/amd64,linux/arm64
           build-args: |
             SERVICE=${{ matrix.service }}
           tags: ghcr.io/${{ github.repository_owner }}/zkcex-${{ matrix.service }}:${{ github.sha }}
-          push: ${{ github.event_name == 'push' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          push: true
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
 

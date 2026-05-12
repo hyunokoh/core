@@ -78,10 +78,11 @@ services are included in `ps`, logs, and `down --volumes --remove-orphans`.
 
 ### `build.yml`
 
-A 24-service matrix that builds each Dockerfile in
-`deploy/images/`. On PRs, Trivy scans the built image for
-HIGH/CRITICAL findings (fails the job on any non-ignored hit). On
-`main` pushes the image gets pushed to `ghcr.io/<owner>/zkcex-<svc>:<sha>`.
+A 24-service matrix that builds each Dockerfile in `deploy/images/`. PRs use
+plain single-arch `docker build` so service Dockerfiles can resolve the local
+`zkcex-base:latest` image, then Trivy scans the built image for HIGH/CRITICAL
+findings. On `main` pushes, Buildx publishes multi-arch images to
+`ghcr.io/<owner>/zkcex-<svc>:<sha>`.
 
 To add a service to the matrix:
 
