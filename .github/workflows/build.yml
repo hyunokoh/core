@@ -40,7 +40,7 @@ jobs:
           - pol-feed
           - zkpol-bridge
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # QEMU is required so the amd64 GitHub runner can cross-compile arm64
       # images. Without this, --platform linux/arm64 fails with

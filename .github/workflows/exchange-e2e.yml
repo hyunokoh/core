@@ -55,7 +55,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify Docker
         run: docker info
