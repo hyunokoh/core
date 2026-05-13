@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>보유 자산과 고객 부채 / Proof of Reserves and Liabilities — zkCEX</title>
-  <meta name="description" content="zkCEX의 공개 투명성 페이지. 실시간 잔고 추적과 60초 공식 스냅샷으로 거래소가 자산을 충분히 보유하고 있는지 확인하세요." />
+  <meta name="description" content="zkCEX의 공개 투명성 페이지. 잔고 변화를 실시간으로, 그리고 60초마다 공식 스냅샷으로 수학적으로 증명합니다." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
@@ -354,8 +354,8 @@
         <span class="en">Reserves and Liabilities</span>
       </h1>
       <p class="sub">
-        거래소가 자산을 충분히 보유하고 있는지 직접 확인하세요. 잔고 변화는 실시간으로 추적되고, 공식 스냅샷은 60초마다 서명됩니다.
-        <span class="en">Verify directly that the exchange holds enough assets. Balance changes are tracked live, with an official signed snapshot every 60 seconds.</span>
+        거래소가 자산을 충분히 보유하고 있는지 직접 확인하세요. 잔고 변화를 실시간으로, 그리고 60초마다 공식 스냅샷으로 수학적으로 증명합니다.
+        <span class="en">Verify directly that the exchange holds enough assets. Balance changes are mathematically proven in real time and with an official signed snapshot every 60 seconds.</span>
       </p>
       <div class="last-line">
         <span class="lbl">최종 갱신 / Last refresh:</span>
@@ -377,8 +377,8 @@
       <span><span class="label-ko">실시간 모드</span><span class="label-en">/ Live mode</span></span>
     </label>
     <div class="explain">
-      거래소 보유고/부채가 변할 때마다 새 서명된 commit을 받습니다. OFF 상태에서는 60초 공식 스냅샷 기준으로 갱신됩니다.<br/>
-      Streams a new signed commit whenever reserves or liabilities move. Default mode follows the official 60-second snapshot cadence.
+      거래소 보유고/부채가 변할 때마다 새 서명된 증명 이벤트를 받습니다. OFF 상태에서는 60초 공식 스냅샷 기준으로 갱신됩니다.<br/>
+      Streams a new signed proof event whenever reserves or liabilities move. Default mode follows the official 60-second snapshot cadence.
     </div>
     <span class="live-pill off" id="live-pill"><span class="dot"></span><span id="live-pill-text">OFF</span></span>
     <span class="live-status" id="live-status"></span>
@@ -527,9 +527,9 @@
       <summary>왜 이 페이지가 중요한가요?<span class="en">Why does this matter?</span></summary>
       <div class="body">
         “고객 자산을 안전하게 보관합니다”는 모든 거래소가 하는 약속입니다. zkCEX는 그 약속이 사실인지
-        <strong>실시간 잔고 추적과 60초 공식 서명 스냅샷</strong>으로 직접 보여드립니다. 누구나 — 고객, 규제 당국, 기자, 의심 많은 트레이더 — 이 페이지를
+        <strong>실시간 수학적 증명과 60초 공식 서명 스냅샷</strong>으로 직접 보여드립니다. 누구나 — 고객, 규제 당국, 기자, 의심 많은 트레이더 — 이 페이지를
         열고 보유 자산이 고객 부채를 초과하는지 확인할 수 있습니다.<br/>
-        “Your funds are safe” is the easy promise. zkCEX shows it with live balance tracking and a fresh official signed snapshot every 60 seconds that anyone can verify directly.
+        “Your funds are safe” is the easy promise. zkCEX shows it with real-time mathematical proof and a fresh official signed snapshot every 60 seconds that anyone can verify directly.
       </div>
     </details>
 
@@ -563,24 +563,24 @@
     <details>
       <summary>실시간인가요?<span class="en">Is this real-time?</span></summary>
       <div class="body">
-        실시간 모드를 켜면 보유고/부채 변화마다 새 commit을 받습니다. 다만 외부 검증 기준이 되는 고객 부채 Merkle 트리와 공식 epoch 스냅샷은 60초 주기로 발행됩니다(아래 epoch_id 참조).<br/>
-        Live mode receives a new commit when reserves or liabilities move. The externally verifiable customer-balance Merkle tree and official epoch snapshot are still published on a 60-second cycle — see the linked <code>epoch_id</code>.
+        실시간 모드를 켜면 보유고/부채 변화마다 새 증명 이벤트를 받습니다. 다만 외부 검증 기준이 되는 고객 부채 Merkle 트리와 공식 epoch 스냅샷은 60초 주기로 발행됩니다(아래 epoch_id 참조).<br/>
+        Live mode receives a new proof event when reserves or liabilities move. The externally verifiable customer-balance Merkle tree and official epoch snapshot are still published on a 60-second cycle — see the linked <code>epoch_id</code>.
       </div>
     </details>
 
     <details>
       <summary>다른 거래소의 PoR과 무엇이 다른가요?<span class="en">How is this different from other exchanges?</span></summary>
       <div class="body">
-        많은 거래소가 분기별로 사진처럼 정적인 보고서를 발표합니다. zkCEX는 보유고와 부채 변화를 실시간으로 추적하고 60초마다 공식 스냅샷을 발행하며,
+        많은 거래소가 분기별로 사진처럼 정적인 보고서를 발표합니다. zkCEX는 보유고와 부채 변화를 실시간으로 수학적으로 증명하고 60초마다 공식 스냅샷을 발행하며,
         모든 스냅샷에 Ed25519 서명을 첨부하며, 보유고는 누구나 <code>eth_call balanceOf</code>로 직접 재계산할 수 있도록 주소를 공개합니다.<br/>
-        Where other exchanges publish quarterly snapshots, zkCEX tracks reserves and liabilities live, publishes an official snapshot every 60 seconds, signs each one with Ed25519, and lists the on-chain addresses so anyone can re-derive the reserves number with <code>eth_call balanceOf</code>.
+        Where other exchanges publish quarterly snapshots, zkCEX mathematically proves reserve and liability changes in real time, publishes an official snapshot every 60 seconds, signs each one with Ed25519, and lists the on-chain addresses so anyone can re-derive the reserves number with <code>eth_call balanceOf</code>.
       </div>
     </details>
   </section>
 
   <!-- ============== Section 7 — Trust footer ============== -->
   <section class="porl-trust">
-    <span class="pill">실시간 추적 + 60초 스냅샷<span class="en">Live tracking + 60s snapshots</span></span>
+    <span class="pill">실시간 + 60초 공식 증명<span class="en">Live + 60s official proofs</span></span>
     <span class="pill">Ed25519 서명<span class="en">Ed25519 signed</span></span>
     <span class="pill">오픈 검증 가능<span class="en">Open to verification</span></span>
     <span class="pill">독립 감사 가능<span class="en">Independently auditable</span></span>
