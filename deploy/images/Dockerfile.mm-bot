@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=mm-bot
+
+COPY --chown=65532:65532 tools/mm_bot.py /app/tools/mm_bot.py
+
+ENV PORT=5600
+EXPOSE 5600
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5600", "/mm/health"]
+CMD ["-u", "/app/tools/mm_bot.py", "5600"]

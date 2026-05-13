@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>지갑 / Wallet — zkCEX</title>
+  <meta name="description" content="zkCEX 지갑. 자산 잔고와 PoL 기반 잔고 검증을 한 곳에서." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <link rel="stylesheet" href="ramp.css" />
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>지갑<span class="en">Wallet</span><span class="wallet-display-name" id="wallet-name">@—</span></h1>
+  <p>자산 잔고, 입출금, 그리고 실시간 + 60초 공식 PoL 증명 / Assets, transfers, live + 60-second official PoL proofs</p>
+</section>
+
+<main id="main" class="wallet-shell">
+
+  <!-- ==========================================================
+       Multi-chain selector. Default is the exchange's internal
+       view (Demo Hardhat). Switching to a public testnet shows
+       live read-only balances at the user's address on that
+       chain.
+       ========================================================== -->
+  <section class="chain-picker-card" id="chain-picker-card" style="
+       margin: 0 0 18px;
+       padding: 14px 16px;
+       background: var(--surface, #11131a);
+       border: 1px solid var(--line, #1d2230);
+       border-radius: 12px;
+       display: flex; flex-direction: column; gap: 10px;">
+    <div id="chain-status-row" style="font-size:12px;color:var(--ink-mute,#8c93a8);font-family:'JetBrains Mono',monospace;">
+      <span id="chain-status-dot">⚪</span>
+      <span id="chain-status-text">체인 상태 확인 중… / Probing chain RPC…</span>
+    </div>
+    <div role="tablist" aria-label="Chain" id="chain-pill-row" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+  </section>
+
+  <section class="wallet-summary">
+    <div>
+      <div class="est-label">총 자산 추정가 / Total estimated value</div>
+      <div class="est-value" id="total-value">$ 0.00 USDT</div>
+      <div class="est-note" id="total-note">실시간 시세 기반 추정 / Live USDT estimate</div>
+      <div style="margin-top:6px;font-size:12px;">
+        <a href="proof-of-reserves.html" style="color:var(--ink-mute); border-bottom:1px dashed var(--ink-mute); text-decoration:none;">
+          → 거래소 전체 보유/부채 보기 / View total reserves &amp; liabilities
+        </a>
+      </div>
+      <!-- SAFU chip: tiny pill linking to the customer protection fund page. -->
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
+        <a href="safu.html" style="display:inline-flex;align-items:center;gap:6px;
+                                   padding:4px 10px;border-radius:99px;
+                                   background:rgba(46,229,155,0.08);
+                                   border:1px solid rgba(46,229,155,0.32);
+                                   color:#2ee59b;font-size:11px;font-weight:600;text-decoration:none;
+                                   font-family:'JetBrains Mono',monospace;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#2ee59b;box-shadow:0 0 6px rgba(46,229,155,0.55);"></span>
+          SAFU · 고객 자산 보호 펀드 / Customer Protection Fund
+        </a>
+        <a href="fees.html" style="display:inline-flex;align-items:center;gap:6px;
+                                   padding:4px 10px;border-radius:99px;
+                                   background:rgba(240,180,41,0.08);
+                                   border:1px solid rgba(240,180,41,0.32);
+                                   color:#f0b429;font-size:11px;font-weight:600;text-decoration:none;
+                                   font-family:'JetBrains Mono',monospace;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#f0b429;box-shadow:0 0 6px rgba(240,180,41,0.55);"></span>
+          VIP 등급 / VIP fee tier
+        </a>
+        <a href="staking.html" style="display:inline-flex;align-items:center;gap:6px;
+                                   padding:4px 10px;border-radius:99px;
+                                   background:rgba(11,58,255,0.10);
+                                   border:1px solid rgba(108,140,255,0.42);
+                                   color:#6c8cff;font-size:11px;font-weight:600;text-decoration:none;
+                                   font-family:'JetBrains Mono',monospace;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#6c8cff;box-shadow:0 0 6px rgba(108,140,255,0.55);"></span>
+          Earn · 스테이킹 / Staking — up to 8.5% APY
+        </a>
+        <a href="earn.html" style="display:inline-flex;align-items:center;gap:6px;
+                                   padding:4px 10px;border-radius:99px;
+                                   background:rgba(186,131,255,0.10);
+                                   border:1px solid rgba(186,131,255,0.42);
+                                   color:#ba83ff;font-size:11px;font-weight:600;text-decoration:none;
+                                   font-family:'JetBrains Mono',monospace;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#ba83ff;box-shadow:0 0 6px rgba(186,131,255,0.55);"></span>
+          Earn · 대출풀 / Earn &amp; Borrow — supply or borrow
+        </a>
+      </div>
+    </div>
+    <div class="summary-cta">
+      <a class="btn btn-ghost" href="trade.html?symbol=ETHUSDT">거래 시작 / Trade</a>
+      <a class="btn btn-primary" href="verify.html">잔고 검증 / Verify with PoL →</a>
+      <button class="btn btn-ghost demo-funds-cta" id="demo-funds-btn" style="display:none;">데모 자금 받기 / Get demo funds</button>
+    </div>
+  </section>
+
+  <div class="wallet-tabs">
+    <button class="wallet-tab active" data-wtab="all">전체 / All assets</button>
+    <button class="wallet-tab" data-wtab="spot">스팟 / Spot</button>
+    <a class="wallet-tab wallet-tab-link" href="deposit.html">입금 / Deposit</a>
+    <a class="wallet-tab wallet-tab-link" href="withdraw.html">출금 / Withdraw</a>
+    <span id="aml-review-badge" class="ramp-status warn" hidden style="margin-left:auto;align-self:center;"
+          title="" >AML 검토 <span class="dim">AML status</span></span>
+  </div>
+
+  <div class="wallet-table-wrap">
+    <table class="wallet-table" aria-label="자산 잔고 / Asset balances">
+      <thead>
+        <tr>
+          <th scope="col">자산 / Asset</th>
+          <th scope="col" class="r">사용 가능 / Available</th>
+          <th scope="col" class="r">예약 / In orders</th>
+          <th scope="col" class="r">합계 / Total</th>
+          <th scope="col" class="r">USDT 환산 / Est. USDT</th>
+          <th scope="col" class="r">동작 / Action</th>
+        </tr>
+      </thead>
+      <tbody id="wallet-body">
+        <tr class="wallet-empty-row"><td colspan="6">불러오는 중… / Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ==========================================================
+       Download history. CSV exports of trades, deposits, and
+       withdrawals — generated on demand by export_server.py and
+       streamed straight to the browser. The full reports page
+       (including tax / cost-basis CSV) lives at reports.html.
+       ========================================================== -->
+  <section class="pol-card report-panel" id="export-panel">
+    <h2>거래 기록 다운로드 / Download history</h2>
+    <p>
+      체결, 입금, 출금 내역을 CSV로 받아볼 수 있습니다. 세무 신고용 원가 기준 리포트는
+      <a href="reports.html" style="color:var(--ink);border-bottom:1px dashed currentColor;">리포트 페이지</a>에서 확인하세요.<br/>
+      <span class="muted">Download trade, deposit and withdrawal history as CSV. The full cost-basis tax report lives on the <a href="reports.html" style="color:var(--ink-mute);">reports page</a>.</span>
+    </p>
+    <div class="report-buttons">
+      <button class="btn btn-ghost" type="button" data-export="trades">
+        체결 내역 / Trade history
+      </button>
+      <button class="btn btn-ghost" type="button" data-export="deposits">
+        입금 내역 / Deposits
+      </button>
+      <button class="btn btn-ghost" type="button" data-export="withdraws">
+        출금 내역 / Withdrawals
+      </button>
+    </div>
+
+    <!-- Modal: optional date range + asset filter, fired on download click -->
+    <div role="dialog" aria-modal="true" aria-labelledby="export-modal-title" class="export-modal" id="export-modal" hidden>
+      <div class="export-modal-panel">
+        <h3 id="export-modal-title">거래 기록 다운로드 / Download history</h3>
+        <label for="export-symbol" class="report-row">
+          <span>심볼 / Symbol</span>
+          <input type="text" id="export-symbol" placeholder="ETH_USDT (선택 / optional)" />
+        </label>
+        <label for="export-from" class="report-row">
+          <span>시작일 / From</span>
+          <input type="date" id="export-from" />
+        </label>
+        <label for="export-to" class="report-row">
+          <span>종료일 / To</span>
+          <input type="date" id="export-to" />
+        </label>
+        <div class="export-modal-actions">
+          <button class="btn btn-ghost" type="button" data-act="cancel">취소 / Cancel</button>
+          <button class="btn btn-primary" type="button" data-act="download">다운로드 / Download</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="pol-card">
+    <h3>잔고를 직접 검증하세요 — Proof-of-Liabilities</h3>
+    <p>거래소가 보관하는 자산이 실제로 사용자 잔고를 충분히 커버한다는 사실을, 실시간 수학적 증명과 60초 공식 Merkle-sum 인증서로 직접 확인할 수 있습니다.<br/>Verify that the exchange holds enough assets to cover every user balance with real-time mathematical proof and an official Merkle-sum certificate every 60 seconds.</p>
+    <ol class="pol-steps">
+      <li class="pol-step">
+        <span class="num">STEP 01</span>
+        <strong>인증서 발급 / Get certificate</strong>
+        <span>로그인 상태에서 잔고 변화는 실시간으로 수학적 증명에 반영되고, 공식 잔고 스냅샷은 60초마다 자동으로 발급됩니다.</span>
+      </li>
+      <li class="pol-step">
+        <span class="num">STEP 02</span>
+        <strong>증명 다운로드 / Download proof</strong>
+        <span>본인의 inclusion proof를 브라우저에서 곧바로 받습니다.</span>
+      </li>
+      <li class="pol-step">
+        <span class="num">STEP 03</span>
+        <strong>로컬 검증 / Verify locally</strong>
+        <span>외부 의존 없이 본인의 잔고가 총 부채에 포함되어 있음을 직접 확인합니다.</span>
+      </li>
+    </ol>
+  </section>
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    api, poll, toast, escapeHtml,
+    fmtAmount, fmtPrice,
+    requireSession, getSession, seedDemoFunds, assetMeta,
+    chain,
+  } from "./app.js";
+  import {
+    KNOWN_CHAINS, listChains, walletFor,
+    getCurrentChainSlug, setCurrentChainSlug, isWritable, findChain,
+    chainStatusLine, CHAIN_CHANGE_EVENT,
+  } from "./chains.js";
+
+  // Gate the page on a session.
+  const session = requireSession({ redirectTo: "/app/signin.html" });
+  if (!session) {
+    // requireSession redirected; do nothing.
+  } else {
+    renderHeader("wallet");
+    renderFooter();
+
+    // Show user name in heading.
+    document.getElementById("wallet-name").textContent = session.user.name
+      ? `${session.user.name}` : session.user.opex_user;
+
+    const tbody = document.getElementById("wallet-body");
+    const totalValueEl = document.getElementById("total-value");
+    const demoBtn = document.getElementById("demo-funds-btn");
+    const KNOWN = ["BTC", "ETH", "USDT", "BUSD", "BNB", "SOL", "DOGE", "IRT"];
+    const tickerCache = new Map();   // asset -> lastPrice (USDT)
+
+    async function fetchPrice(asset) {
+      if (asset === "USDT") return 1;
+      if (tickerCache.has(asset)) return tickerCache.get(asset);
+      try {
+        const t = await api(`/v3/ticker/24h?symbol=${encodeURIComponent(asset + "USDT")}`);
+        const tk = Array.isArray(t) ? t[0] : t;
+        const px = Number(tk?.lastPrice || 0);
+        if (px > 0) tickerCache.set(asset, px);
+        return px;
+      } catch {
+        return 0;
+      }
+    }
+
+    async function loadWallets() {
+      try {
+        const wallets = await api(`/v1/owner/${encodeURIComponent(session.user.opex_user)}/wallets`);
+        const list = Array.isArray(wallets) ? wallets : [];
+
+        // Pull prices in parallel.
+        const prices = await Promise.all(list.map(w => fetchPrice(w.asset)));
+        let total = 0;
+        const rows = list.map((w, i) => {
+          const price = prices[i] || 0;
+          const total_asset = Number(w.balance || 0);
+          const locked     = Number(w.locked || 0);
+          const avail      = Math.max(0, total_asset - locked);
+          const usd        = total_asset * price;
+          if (Number.isFinite(usd)) total += usd;
+          const meta = assetMeta(w.asset);
+          const cls  = (w.asset || "").toLowerCase();
+          // Map internal wallet symbols (ETH/USDT) to the on-chain demo
+          // asset names the withdraw page understands (ZETH/ZUSDT).
+          const wdAsset = ({ ETH: "ZETH", USDT: "ZUSDT" })[w.asset] || w.asset;
+          const wdHref = `withdraw.html?asset=${encodeURIComponent(wdAsset)}&max=true`;
+          return `
+            <tr>
+              <td>
+                <span class="asset-cell">
+                  <span class="asset-icon ${escapeHtml(cls)}">${escapeHtml(w.asset.slice(0,3))}</span>
+                  <span>
+                    <div class="asset-name">${escapeHtml(meta.ko)} <span class="dim" style="font-weight:400">${escapeHtml(w.asset)}</span></div>
+                    <div class="asset-pair">${escapeHtml(meta.en)}</div>
+                  </span>
+                </span>
+              </td>
+              <td class="r mono">${fmtAmount(avail, w.asset)}</td>
+              <td class="r mono">${fmtAmount(locked, w.asset)}</td>
+              <td class="r mono">${fmtAmount(total_asset, w.asset)}</td>
+              <td class="r mono">${price ? fmtPrice(usd, "USDT", "USDT") : "—"}</td>
+              <td class="r">
+                <a class="btn-row-mini" href="deposit.html">입금 <span class="en-mini">Deposit</span></a>
+                <a class="btn-row-mini" href="${escapeHtml(wdHref)}">출금 <span class="en-mini">Withdraw</span></a>
+              </td>
+            </tr>`;
+        });
+
+        if (!rows.length) {
+          tbody.innerHTML = `<tr class="wallet-empty-row"><td colspan="6">
+            <strong style="display:block;color:var(--ink);margin-bottom:6px;">잔고가 없습니다 / No balances yet</strong>
+            <span class="muted">아래 "데모 자금 받기" 버튼으로 테스트 자산을 받아보세요.<br/>Use "Get demo funds" below to seed test assets.</span>
+          </td></tr>`;
+        } else {
+          tbody.innerHTML = rows.join("");
+        }
+        totalValueEl.textContent = `$ ${fmtPrice(total, "USDT", "USDT")} USDT`;
+
+        // Show demo-funds CTA if any tracked balance is < 1.
+        const lowOnFunds = !list.length || list.some(w => Number(w.balance || 0) < 1);
+        demoBtn.style.display = lowOnFunds ? "" : "none";
+      } catch (e) {
+        tbody.innerHTML = `<tr class="wallet-empty-row"><td colspan="6">
+          <strong style="display:block;color:var(--ink);margin-bottom:6px;">잔고를 불러오지 못했습니다 / Couldn't load balances</strong>
+          <span class="muted">${escapeHtml(e.message || String(e))}</span>
+        </td></tr>`;
+      }
+    }
+
+    // Wallet tabs are visual only for now (all assets shown in one table).
+    document.querySelectorAll(".wallet-tab").forEach(b => {
+      b.addEventListener("click", () => {
+        document.querySelectorAll(".wallet-tab").forEach(x => x.classList.toggle("active", x === b));
+      });
+    });
+
+    demoBtn.addEventListener("click", async () => {
+      demoBtn.disabled = true;
+      demoBtn.textContent = "발급 중… / Seeding…";
+      // Seed regardless of seeded flag (manual top-up). Use timestamped refs.
+      const ts = Date.now();
+      try {
+        await Promise.all([
+          fetch(`/deposit/10_test-ethereum_ETH/${encodeURIComponent(session.user.opex_user)}_MAIN?description=manual-seed&transferRef=manual-eth-${ts}`, { method: "POST" }),
+          fetch(`/deposit/10_test-ethereum_USDT/${encodeURIComponent(session.user.opex_user)}_MAIN?description=manual-seed&transferRef=manual-usd-${ts}`, { method: "POST" }),
+        ]);
+        toast("데모 자금이 입금되었습니다", "Demo funds deposited");
+        await loadWallets();
+      } catch (e) {
+        toast("입금 실패", "Deposit failed");
+      } finally {
+        demoBtn.disabled = false;
+        demoBtn.textContent = "데모 자금 받기 / Get demo funds";
+      }
+    });
+
+    // AML status badge: surface if any deposit is in `aml_status: review`.
+    // We pull /chain/deposits (same endpoint the Deposits page uses) and
+    // only render the badge if there's at least one review row.
+    async function refreshAmlBadge() {
+      const badge = document.getElementById("aml-review-badge");
+      if (!badge) return;
+      try {
+        const rows = await chain.deposits();
+        const review = (Array.isArray(rows) ? rows : []).filter(
+          r => (r.aml_status || "").toLowerCase() === "review"
+        );
+        if (review.length) {
+          badge.hidden = false;
+          badge.title = `${review.length} deposit(s) under AML review`;
+        } else {
+          badge.hidden = true;
+        }
+      } catch {
+        badge.hidden = true;
+      }
+    }
+
+    // =================================================================
+    // CHAIN SELECTOR
+    // Demo Hardhat (default) shows the exchange's internal ledger
+    // balances. Selecting a public testnet swaps the table for live
+    // read-only balances of the user's derived address on that chain.
+    // =================================================================
+    const chainPillRow = document.getElementById("chain-pill-row");
+    const chainStatusDot = document.getElementById("chain-status-dot");
+    const chainStatusText = document.getElementById("chain-status-text");
+    let chainList = [];
+
+    function renderChainPills() {
+      const current = getCurrentChainSlug();
+      const sourceList = (chainList && chainList.length) ? chainList : KNOWN_CHAINS;
+      chainPillRow.innerHTML = sourceList.map(c => {
+        const slug = c.slug;
+        const active = slug === current;
+        const dot = c.rpc_status === "ok" ? "🟢"
+                  : c.rpc_status === "degraded" ? "🟡" : "⚪";
+        const name = c.name || slug;
+        const label = c.is_demo ? `${dot} Demo Hardhat` : `${dot} ${escapeHtml(name)}`;
+        return `<button type="button" data-chain-pill="${escapeHtml(slug)}"
+            role="tab" aria-selected="${active ? "true" : "false"}"
+            style="
+              padding: 7px 14px; border-radius: 999px;
+              border: 1px solid ${active ? "var(--brand,#5471ff)" : "var(--line,#1d2230)"};
+              background: ${active ? "rgba(84,113,255,0.12)" : "transparent"};
+              color: ${active ? "var(--ink,#dfe2ee)" : "var(--ink-mute,#8c93a8)"};
+              font-size: 13px; font-weight: 500; cursor: pointer;">
+          ${label}
+        </button>`;
+      }).join("");
+      chainPillRow.querySelectorAll("[data-chain-pill]").forEach(b => {
+        b.addEventListener("click", () => setCurrentChainSlug(b.dataset.chainPill));
+      });
+    }
+
+    function renderChainStatus() {
+      const slug = getCurrentChainSlug();
+      const c = findChain(chainList, slug);
+      if (!c) {
+        chainStatusDot.textContent = "⚪";
+        chainStatusText.textContent = "체인 정보 없음 / Chain info pending";
+        return;
+      }
+      const line = chainStatusLine(c);
+      chainStatusDot.textContent = line.dot;
+      chainStatusText.textContent = line.text;
+    }
+
+    async function renderTestnetWalletTable(slug, chainCfg) {
+      // Replace the wallet table with on-chain balances at the user's
+      // derived address. Internal-ledger features (deposit/withdraw row
+      // actions, USDT estimates) are dimmed because they don't apply.
+      try {
+        const w = await walletFor(slug);
+        const native = chainCfg?.native || "ETH";
+        const tokens = chainCfg?.tokens || {};
+        const rows = [];
+        const allSyms = [native, ...Object.keys(tokens).filter(s => s !== native)];
+        for (const sym of allSyms) {
+          const v = w.balances?.[sym] ?? "0";
+          rows.push(`
+            <tr>
+              <td>
+                <span class="asset-cell">
+                  <span class="asset-icon">${escapeHtml(sym.slice(0,3))}</span>
+                  <span>
+                    <div class="asset-name">${escapeHtml(sym)}
+                      <span class="dim" style="font-weight:400">on ${escapeHtml(chainCfg?.name || slug)}</span>
+                    </div>
+                    <div class="asset-pair">${escapeHtml(sym === native ? "native" : "ERC20")}</div>
+                  </span>
+                </span>
+              </td>
+              <td class="r mono">${escapeHtml(String(v))}</td>
+              <td class="r mono dim">—</td>
+              <td class="r mono">${escapeHtml(String(v))}</td>
+              <td class="r mono dim">—</td>
+              <td class="r dim">읽기 전용 / read-only</td>
+            </tr>`);
+        }
+        tbody.innerHTML = rows.length
+          ? rows.join("")
+          : `<tr class="wallet-empty-row"><td colspan="6">잔고 없음 / No balance on this chain</td></tr>`;
+        totalValueEl.textContent = "— · read-only";
+        if (demoBtn) demoBtn.style.display = "none";
+      } catch (e) {
+        tbody.innerHTML = `<tr class="wallet-empty-row"><td colspan="6">
+          ${escapeHtml("이 체인의 잔고를 불러오지 못했습니다 / Failed to load on-chain balances")}
+        </td></tr>`;
+      }
+    }
+
+    function applyChainView() {
+      const slug = getCurrentChainSlug();
+      const c = findChain(chainList, slug);
+      if (slug === "hardhat" || isWritable(chainList, slug)) {
+        // Restore the internal-ledger wallet view.
+        loadWallets();
+      } else {
+        renderTestnetWalletTable(slug, c).catch(() => {});
+      }
+    }
+
+    async function refreshChainList() {
+      try {
+        const info = await listChains();
+        chainList = info?.chains || [];
+        renderChainPills();
+        renderChainStatus();
+        applyChainView();
+      } catch (e) {
+        console.warn("listChains failed", e);
+      }
+    }
+
+    window.addEventListener(CHAIN_CHANGE_EVENT, () => {
+      renderChainPills();
+      renderChainStatus();
+      applyChainView();
+    });
+
+    renderChainPills();
+    refreshChainList();
+    poll(refreshChainList, 30000, { immediate: false });
+
+    loadWallets();
+    refreshAmlBadge();
+    // Wallet table is refreshed by applyChainView() (chooses internal vs
+    // on-chain). Guard the polled loadWallets so it doesn't fight the
+    // testnet view.
+    poll(() => {
+      if (getCurrentChainSlug() === "hardhat") return loadWallets();
+    }, 5000, { immediate: false });
+    poll(refreshAmlBadge, 7000, { immediate: false });
+
+    // ----- /export/* download panel ----------------------------------------
+    // We can't trigger a download with `fetch + Bearer` and have the browser
+    // hand the file to the user (no <a download> on a fetch response without
+    // doing blob -> object URL gymnastics). Use exactly that gymnastic dance
+    // here so the bearer token never appears in the URL bar.
+    const expModal     = document.getElementById("export-modal");
+    const expModalTitle = document.getElementById("export-modal-title");
+    const expSymbol    = document.getElementById("export-symbol");
+    const expFrom      = document.getElementById("export-from");
+    const expTo        = document.getElementById("export-to");
+    let pendingKind = null;
+
+    const KIND_LABELS = {
+      trades:    "체결 내역 / Trade history",
+      deposits:  "입금 내역 / Deposits",
+      withdraws: "출금 내역 / Withdrawals",
+    };
+
+    function openExportModal(kind) {
+      pendingKind = kind;
+      expModalTitle.textContent = KIND_LABELS[kind] || "Download";
+      // Symbol filter only makes sense for trades.
+      const sf = expSymbol.closest(".report-row");
+      if (sf) sf.style.display = (kind === "trades") ? "" : "none";
+      expModal.hidden = false;
+    }
+    function closeExportModal() {
+      expModal.hidden = true;
+      pendingKind = null;
+    }
+
+    async function downloadExport(kind, params) {
+      const s = getSession();
+      if (!s) { toast("로그인이 필요합니다", "Sign in required"); return; }
+      const qs = new URLSearchParams();
+      if (params.symbol)  qs.set("symbol",  params.symbol);
+      if (params.from_ms) qs.set("from_ms", String(params.from_ms));
+      if (params.to_ms)   qs.set("to_ms",   String(params.to_ms));
+      const url = `/export/${kind}.csv${qs.toString() ? "?" + qs : ""}`;
+      try {
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error(`HTTP ${res.status}: ${t.slice(0, 160)}`);
+        }
+        const blob = await res.blob();
+        const cd = res.headers.get("Content-Disposition") || "";
+        const m = /filename="([^"]+)"/.exec(cd);
+        const fname = m ? m[1] : `zkcex-${kind}.csv`;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        toast("다운로드 시작", "Download started");
+      } catch (e) {
+        console.warn("export failed", e);
+        toast("다운로드 실패 / Download failed", String(e.message || e));
+      }
+    }
+
+    document.querySelectorAll('#export-panel [data-export]').forEach(b => {
+      b.addEventListener("click", () => openExportModal(b.dataset.export));
+    });
+    expModal.addEventListener("click", (e) => {
+      if (e.target === expModal) closeExportModal();
+      const act = e.target?.dataset?.act;
+      if (act === "cancel") closeExportModal();
+      if (act === "download") {
+        const sym = (expSymbol.value || "").trim().toUpperCase();
+        const f = expFrom.value ? Date.parse(expFrom.value + "T00:00:00Z") : 0;
+        const t = expTo.value   ? Date.parse(expTo.value   + "T23:59:59Z") : 0;
+        const k = pendingKind;
+        closeExportModal();
+        if (k) downloadExport(k, { symbol: sym, from_ms: f || 0, to_ms: t || 0 });
+      }
+    });
+  }
+</script>
+
+</body>
+</html>

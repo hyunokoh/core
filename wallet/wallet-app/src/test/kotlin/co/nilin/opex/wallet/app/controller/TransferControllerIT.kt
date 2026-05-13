@@ -2,6 +2,7 @@ package co.nilin.opex.wallet.app.controller
 
 import co.nilin.opex.wallet.app.KafkaEnabledTest
 import co.nilin.opex.wallet.app.dto.TransactionRequest
+import co.nilin.opex.wallet.app.dto.WalletData
 import co.nilin.opex.wallet.core.inout.TransferResult
 import co.nilin.opex.wallet.core.model.Amount
 import co.nilin.opex.wallet.core.model.TransactionWithDetailHistory
@@ -20,6 +21,9 @@ import org.springframework.http.MediaType
 import org.springframework.test.web.reactive.server.WebTestClient
 import java.math.BigDecimal
 import java.util.*
+import co.nilin.opex.wallet.ports.postgres.dao.WalletOwnerRepository
+import co.nilin.opex.wallet.ports.postgres.dao.WalletRepository
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 
 @AutoConfigureWebTestClient
 class TransferControllerIT : KafkaEnabledTest() {
@@ -35,6 +39,12 @@ class TransferControllerIT : KafkaEnabledTest() {
 
     @Autowired
     private lateinit var walletOwnerManager: WalletOwnerManager
+
+    @Autowired
+    private lateinit var walletOwnerRepository: WalletOwnerRepository
+
+    @Autowired
+    private lateinit var walletRepository: WalletRepository
 
     @BeforeEach
     fun setup() {
@@ -116,5 +126,78 @@ class TransferControllerIT : KafkaEnabledTest() {
         val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(sender, WalletType.EXCHANGE, srcCurrency)
         Assertions.assertEquals(BigDecimal.valueOf(100), sourceWallet!!.balance.amount)
         Assertions.assertEquals(BigDecimal.ZERO, receiverWallet!!.balance.amount)
+    }
+
+    @Test
+    fun givenSystemWalletMissingFunds_whenDepositRequested_thenReceiverStillCredited() = runBlocking {
+        val receiverUuid = UUID.randomUUID().toString()
+        val currency = currencyService.getCurrency("USDT")!!
+        val systemOwner = walletOwnerManager.findWalletOwner(walletOwnerManager.systemUuid)!!
+        walletManager.findWalletByOwnerAndCurrencyAndType(systemOwner, WalletType.MAIN, currency)?.let { systemWallet ->
+            if (systemWallet.balance.amount > BigDecimal.ZERO) {
+                walletManager.decreaseBalance(systemWallet, systemWallet.balance.amount)
+            }
+        }
+
+        webClient.post()
+            .uri("/deposit/1_test-ethereum_USDT/${receiverUuid}_MAIN?description=deposit-test&transferRef=deposit-${UUID.randomUUID()}")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus().isOk
+            .expectBody(TransferResult::class.java)
+            .returnResult()
+            .responseBody!!
+
+        val receiverOwner = walletOwnerManager.findWalletOwner(receiverUuid)!!
+        val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(receiverOwner, WalletType.MAIN, currency)!!
+        val systemWallet = walletManager.findWalletByOwnerAndCurrencyAndType(systemOwner, WalletType.MAIN, currency)!!
+
+        Assertions.assertEquals(BigDecimal.ONE, receiverWallet.balance.amount)
+        Assertions.assertEquals(BigDecimal.ZERO, systemWallet.balance.amount)
+    }
+
+    @Test
+    fun givenSystemOwnerMissing_whenDepositRequested_thenSystemOwnerIsRecreated() = runBlocking {
+        val receiverUuid = UUID.randomUUID().toString()
+        val currency = currencyService.getCurrency("USDT")!!
+        walletOwnerManager.findWalletOwner(walletOwnerManager.systemUuid)?.let { systemOwner ->
+            walletRepository.findAll()
+                .filter { it.owner == systemOwner.id }
+                .flatMap { walletRepository.delete(it) }
+                .then(walletOwnerRepository.deleteById(systemOwner.id!!))
+                .awaitSingleOrNull()
+        }
+
+        webClient.post()
+            .uri("/deposit/1_test-ethereum_USDT/${receiverUuid}_MAIN?description=deposit-test&transferRef=deposit-${UUID.randomUUID()}")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus().isOk
+            .expectBody(TransferResult::class.java)
+            .returnResult()
+            .responseBody!!
+
+        val systemOwner = walletOwnerManager.findWalletOwner(walletOwnerManager.systemUuid)!!
+        val systemWallet = walletManager.findWalletByOwnerAndCurrencyAndType(systemOwner, WalletType.MAIN, currency)!!
+        val receiverOwner = walletOwnerManager.findWalletOwner(receiverUuid)!!
+        val receiverWallet = walletManager.findWalletByOwnerAndCurrencyAndType(receiverOwner, WalletType.MAIN, currency)!!
+
+        Assertions.assertEquals(BigDecimal.ZERO, systemWallet.balance.amount)
+        Assertions.assertEquals(BigDecimal.ONE, receiverWallet.balance.amount)
+    }
+
+    @Test
+    fun givenUnknownOwner_whenWalletsRequested_thenOwnerIsCreatedAndEmptyWalletsReturned() = runBlocking {
+        val ownerUuid = UUID.randomUUID().toString()
+
+        webClient.get()
+            .uri("/v1/owner/${ownerUuid}/wallets")
+            .accept(MediaType.APPLICATION_JSON)
+            .exchange()
+            .expectStatus().isOk
+            .expectBodyList(WalletData::class.java)
+            .hasSize(0)
+
+        Assertions.assertNotNull(walletOwnerManager.findWalletOwner(ownerUuid))
     }
 }

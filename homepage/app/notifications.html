@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>푸시 알림 / Notifications — zkCEX</title>
+  <meta name="description" content="zkCEX 푸시 알림 설정: 입금, 주문 체결, KYC 알림을 받습니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    .notif-page { max-width: 720px; margin: 0 auto; padding: 24px 18px 40px; }
+    .notif-row { display: flex; align-items: center; justify-content: space-between;
+                 padding: 14px 16px; background: var(--panel, #11131a);
+                 border: 1px solid var(--line, #1d2230); border-radius: 12px; margin-bottom: 10px; }
+    .notif-row .label { display: flex; flex-direction: column; gap: 2px; }
+    .notif-row .label strong { font-size: 14px; }
+    .notif-row .label .en { font-size: 12px; color: var(--ink-dim, #7e8ba2); }
+    .switch { position: relative; width: 44px; height: 24px; flex: 0 0 auto; }
+    .switch input { display: none; }
+    .switch span { position: absolute; inset: 0; border-radius: 999px;
+                    background: rgba(255,255,255,0.14); cursor: pointer;
+                    transition: background 160ms ease; }
+    .switch span::after { content: ""; position: absolute; top: 2px; left: 2px;
+      width: 20px; height: 20px; background: #fff; border-radius: 50%;
+      transition: transform 160ms ease; }
+    .switch input:checked + span { background: var(--accent-bright, #0b3aff); }
+    .switch input:checked + span::after { transform: translateX(20px); }
+    .switch input:disabled + span { opacity: 0.5; cursor: not-allowed; }
+    .status-banner { padding: 14px 16px; border-radius: 12px; margin-bottom: 18px;
+                      background: rgba(11,58,255,0.10); border: 1px solid rgba(11,58,255,0.45);
+                      color: var(--ink, #e6ecf5); font-size: 13px; }
+    .status-banner.error { background: rgba(255,77,77,0.10); border-color: rgba(255,77,77,0.45); }
+    .device-list { margin-top: 16px; }
+    .device { display: flex; align-items: center; justify-content: space-between;
+              padding: 12px 14px; background: var(--panel, #11131a);
+              border: 1px solid var(--line, #1d2230); border-radius: 10px; margin-bottom: 8px;
+              font-size: 13px; }
+    .device .meta { font-family: monospace; color: var(--ink-dim, #7e8ba2); font-size: 11px; }
+    .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase;
+                     letter-spacing: 0.08em; color: var(--ink-dim, #7e8ba2);
+                     margin: 22px 0 10px; }
+  </style>
+</head>
+<body>
+
+<div id="app-header"></div>
+
+<main class="notif-page">
+  <section class="page-heading">
+    <h1>푸시 알림<span class="en">Push Notifications</span></h1>
+    <p>주요 이벤트(입금 완료, 주문 체결, 본인인증 완료, 보안 알림)를 푸시 알림으로 받습니다. / Get pushed when important things happen.</p>
+  </section>
+
+  <div id="banner" class="status-banner" hidden></div>
+
+  <div class="notif-row">
+    <div class="label">
+      <strong>이 기기에서 푸시 알림 받기</strong>
+      <span class="en">Receive push notifications on this device</span>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="push-toggle" />
+      <span></span>
+    </label>
+  </div>
+
+  <div class="section-title">알림 종류 / Notification types</div>
+  <div class="notif-row">
+    <div class="label"><strong>주문 체결 / Order fills</strong><span class="en">When a limit order fills</span></div>
+    <label class="switch"><input type="checkbox" id="t-fills" checked /><span></span></label>
+  </div>
+  <div class="notif-row">
+    <div class="label"><strong>입금 완료 / Deposit credited</strong><span class="en">When an on-chain deposit lands</span></div>
+    <label class="switch"><input type="checkbox" id="t-deposits" checked /><span></span></label>
+  </div>
+  <div class="notif-row">
+    <div class="label"><strong>출금 알림 / Withdrawal alerts</strong><span class="en">When a withdrawal is submitted or confirmed</span></div>
+    <label class="switch"><input type="checkbox" id="t-withdrawals" checked /><span></span></label>
+  </div>
+  <div class="notif-row">
+    <div class="label"><strong>KYC 인증 / KYC events</strong><span class="en">When KYC verification completes</span></div>
+    <label class="switch"><input type="checkbox" id="t-kyc" checked /><span></span></label>
+  </div>
+  <div class="notif-row">
+    <div class="label"><strong>보안 알림 / Security alerts</strong><span class="en">Sign-ins from new devices, API-key changes</span></div>
+    <label class="switch"><input type="checkbox" id="t-security" checked /><span></span></label>
+  </div>
+
+  <div class="section-title">연결된 기기 / Active devices</div>
+  <div class="device-list" id="device-list">
+    <div class="device"><span>불러오는 중… / Loading…</span></div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="send-test" type="button">테스트 알림 보내기 / Send test notification</button>
+    <button class="btn btn-ghost" id="refresh" type="button">새로고침 / Refresh</button>
+  </div>
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter, requireSession, authedFetch, getSession,
+    ensurePushSubscription, dropPushSubscription, escapeHtml, toast,
+  } from "./app.js";
+
+  renderHeader("more");
+  renderFooter();
+  const session = requireSession();
+  if (!session) { /* requireSession redirects */ }
+
+  const PREFS_KEY = "zkcex_push_prefs";
+  const TYPE_IDS = ["fills", "deposits", "withdrawals", "kyc", "security"];
+  const banner = document.getElementById("banner");
+  const toggle = document.getElementById("push-toggle");
+  const deviceList = document.getElementById("device-list");
+
+  function showBanner(text, isError) {
+    banner.textContent = text;
+    banner.classList.toggle("error", !!isError);
+    banner.hidden = false;
+  }
+  function hideBanner() { banner.hidden = true; }
+
+  function loadPrefs() {
+    try { return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") || {}; }
+    catch { return {}; }
+  }
+  function savePrefs(p) {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch {}
+  }
+  function applyPrefsToUI() {
+    const p = loadPrefs();
+    for (const k of TYPE_IDS) {
+      const el = document.getElementById("t-" + k);
+      if (!el) continue;
+      el.checked = p[k] !== false;  // default ON
+      el.addEventListener("change", () => {
+        const np = loadPrefs();
+        np[k] = el.checked;
+        savePrefs(np);
+      });
+    }
+  }
+  applyPrefsToUI();
+
+  async function refreshDevices() {
+    try {
+      const r = await authedFetch("/push/subscriptions");
+      const subs = Array.isArray(r.subscriptions) ? r.subscriptions : [];
+      if (!subs.length) {
+        deviceList.innerHTML = `<div class="device"><span>아직 연결된 기기가 없습니다. / No devices yet.</span></div>`;
+        return;
+      }
+      deviceList.innerHTML = subs.map(s => `
+        <div class="device" data-id="${escapeHtml(s.id)}">
+          <div>
+            <strong>${escapeHtml(s.ua_brief || "기기 / Device")}</strong>
+            <div class="meta">${escapeHtml(s.endpoint_brief || "")} · ${escapeHtml(s.created_at || "")}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" data-action="remove" data-id="${escapeHtml(s.id)}">제거 / Remove</button>
+        </div>
+      `).join("");
+      deviceList.querySelectorAll('[data-action="remove"]').forEach(b => {
+        b.addEventListener("click", async () => {
+          try {
+            await authedFetch("/push/unsubscribe", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: b.dataset.id }),
+            });
+            await refreshDevices();
+          } catch (e) {
+            showBanner("기기를 제거하지 못했습니다. / Failed to remove device.", true);
+          }
+        });
+      });
+    } catch (e) {
+      deviceList.innerHTML = `<div class="device"><span>기기 목록을 불러오지 못했습니다. / Failed to load.</span></div>`;
+    }
+  }
+
+  async function initToggleState() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      toggle.disabled = true;
+      showBanner("이 브라우저는 푸시 알림을 지원하지 않습니다. / This browser does not support push notifications.", true);
+      return;
+    }
+    if (Notification.permission === "denied") {
+      toggle.disabled = true;
+      toggle.checked = false;
+      showBanner("브라우저 알림 권한이 차단되어 있습니다. / Notifications are blocked in your browser settings.", true);
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    toggle.checked = !!existing && Notification.permission === "granted";
+  }
+
+  async function enablePush() {
+    try {
+      hideBanner();
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        toggle.checked = false;
+        showBanner("권한이 거부되었습니다. / Permission denied.", true);
+        return;
+      }
+      const keyResp = await fetch("/push/vapid-public-key");
+      const keyJson = await keyResp.json();
+      if (!keyJson.publicKey) throw new Error("no vapid key");
+      const sub = await ensurePushSubscription(keyJson.publicKey);
+      await authedFetch("/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...sub.toJSON(),
+          ua: navigator.userAgent || "",
+          prefs: loadPrefs(),
+        }),
+      });
+      showBanner("이 기기에서 푸시 알림을 받습니다. / Push enabled on this device.");
+      await refreshDevices();
+    } catch (err) {
+      console.error("enablePush failed", err);
+      toggle.checked = false;
+      showBanner("푸시를 활성화하지 못했습니다: " + (err && err.message ? err.message : "unknown"), true);
+    }
+  }
+
+  async function disablePush() {
+    try {
+      hideBanner();
+      // Drop on the server first (so the row goes away even if unsubscribe
+      // fails locally), then on the browser.
+      await authedFetch("/push/unsubscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ this_device: true }),
+      });
+      await dropPushSubscription();
+      showBanner("이 기기의 푸시를 해제했습니다. / Push disabled on this device.");
+      await refreshDevices();
+    } catch (err) {
+      console.warn("disablePush failed", err);
+    }
+  }
+
+  toggle.addEventListener("change", () => {
+    if (toggle.checked) enablePush();
+    else disablePush();
+  });
+
+  document.getElementById("send-test").addEventListener("click", async () => {
+    try {
+      hideBanner();
+      await authedFetch("/push/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "테스트 알림 / Test notification",
+          body: "푸시가 정상적으로 동작합니다. / Push is working.",
+          tag: "test",
+        }),
+      });
+      showBanner("테스트 알림을 보냈습니다. / Test notification queued.");
+    } catch (e) {
+      showBanner("테스트 알림 전송 실패: " + (e?.message || "unknown"), true);
+    }
+  });
+
+  document.getElementById("refresh").addEventListener("click", refreshDevices);
+
+  initToggleState();
+  refreshDevices();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=pagerduty-webhook
+
+# COPY of a file at /app/tools/observability/pagerduty_webhook.py implicitly
+# creates the parent dir. The old `RUN mkdir -p ...` would not work here
+# (distroless has no shell to run it).
+COPY --chown=65532:65532 tools/observability/pagerduty_webhook.py /app/tools/observability/pagerduty_webhook.py
+
+ENV PORT=5641
+EXPOSE 5641
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5641", "/health"]
+CMD ["-u", "/app/tools/observability/pagerduty_webhook.py", "5641"]

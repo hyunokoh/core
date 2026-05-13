@@ -1,0 +1,46 @@
+# ws-feed authorization.
+# WebSocket clients land here via the proxy. Internal fan-in comes from the
+# orderbook + perp services pushing tick + trade events.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: ws-feed-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ws-feed
+  action: ALLOW
+  rules:
+    # Public ws upgrade goes through the proxy.
+    - to:
+        - operation:
+            paths:
+              - /ws
+              - /ws/*
+              - /stream
+              - /stream/*
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/proxy
+    # Internal publish channels.
+    - to:
+        - operation:
+            paths:
+              - /publish/*
+              - /broadcast
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/zk-orderbook
+              - cluster.local/ns/zkcex/sa/order-engine
+              - cluster.local/ns/zkcex/sa/perp
+              - cluster.local/ns/zkcex/sa/chain
+              - cluster.local/ns/zkcex/sa/push
+    - to:
+        - operation:
+            paths: ["/ws/health"]
+      from:
+        - source:
+            namespaces: ["istio-system", "monitoring", "zkcex"]

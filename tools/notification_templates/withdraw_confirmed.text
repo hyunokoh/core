@@ -1,0 +1,10 @@
+{title}
+
+{body}
+
+Asset:       {asset}
+Amount:      {amount}
+Destination: {destination}
+TX:          {tx}
+
+— zkCEX

@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=pol-feed
+
+COPY --chown=65532:65532 tools/pol_snapshot_feed.py /app/tools/pol_snapshot_feed.py
+
+ENV PORT=5505
+EXPOSE 5505
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5505", "/health"]
+CMD ["-u", "/app/tools/pol_snapshot_feed.py", "5505"]

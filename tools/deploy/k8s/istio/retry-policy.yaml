@@ -1,0 +1,22 @@
+# Default retry + timeout policy for all in-mesh service-to-service calls in the
+# zkcex namespace. Acts as a safety net for the apps that don't already retry
+# in their own HTTP clients.
+#
+# - 3 attempts, 5s per try, 30s overall timeout.
+# - Retries only on idempotent failure modes: connect-failure, refused-stream,
+#   reset, unavailable (503). We deliberately *don't* retry on 5xx generically
+#   because POSTs to /chain/* and /auth/* are not all idempotent.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: zkcex-default-retries
+  namespace: zkcex
+spec:
+  hosts:
+    - "*.zkcex.svc.cluster.local"
+  http:
+    - retries:
+        attempts: 3
+        perTryTimeout: 5s
+        retryOn: connect-failure,refused-stream,reset,unavailable
+      timeout: 30s

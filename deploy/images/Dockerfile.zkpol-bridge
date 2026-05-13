@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=zkpol-bridge
+
+COPY --chown=65532:65532 tools/zkpol_bridge.py /app/tools/zkpol_bridge.py
+
+ENV PORT=5504
+EXPOSE 5504
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5504", "/bridge/health"]
+CMD ["-u", "/app/tools/zkpol_bridge.py", "5504"]

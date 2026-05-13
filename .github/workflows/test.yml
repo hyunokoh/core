@@ -1,43 +1,52 @@
-name: Push images for test env
-
+name: test
 on:
-  #  push:
-  #    branches:
-  #      - dev
-  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        java: [ 17 ]
-    name: Build OPEX and run tests with java ${{ matrix.java }}
+  unit:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v2
-      - name: Setup Java
-        uses: actions/setup-java@v2
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
         with:
-          distribution: 'adopt'
-          java-package: jdk
-          java-version: ${{ matrix.java }}
-      #          cache: maven
-      - name: Build
-        run: mvn -B -T 1C clean install
-      - name: Run Tests
-        run: mvn -B -T 1C -Dskip.unit.tests=false surefire:test
-      - name: Build Docker images
-        env:
-          TAG: test
-        run: docker compose -f docker-compose.build.yml build
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
+          python-version: '3.12'
+          cache: 'pip'
+      - run: pip install pytest pytest-cov pg8000
+      - run: pytest tools/ -v -m "not integration and not live" --cov=tools --cov-report=xml --cov-report=term
+      - uses: codecov/codecov-action@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push images to GitHub Container Registry
+          files: ./coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
         env:
-          TAG: test
-        run: docker compose -f docker-compose.build.yml push
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app-password
+          POSTGRES_DB: zkcex_auth
+        ports:
+          - '5433:5432'
+        options: >-
+          --health-cmd "pg_isready -U app"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - run: pip install pytest pg8000
+      - run: bash tools/run_integration_tests.sh
+      - name: Print auth integration log
+        if: failure()
+        run: |
+          if test -f /tmp/it-auth.log; then
+            cat /tmp/it-auth.log
+          fi

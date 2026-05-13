@@ -230,10 +230,12 @@ So the OPEX-side implementation should be:
 
 Current implementation note:
 
-- the OPEX-side bridge lives at `core/tools/zkpol_bridge/zkpol_bridge.py`
-- it reads Postgres `zkpol_liability_outbox`
-- it writes deterministic ids into `zkPoL.ledger_change_event`
-- it tracks progress in Postgres `zkpol_bridge_state`
+- the OPEX-side bridge lives at `core/tools/zkpol_bridge.py`
+- it polls known OPEX users from `tools/.local/auth.db`
+- it diffs wallet balances from `/v1/owner/<opex_user>/wallets`
+- it writes normalized rows into `zkPoL.ledger_change_event`
+- it tracks bridge state in `tools/.local/zkpol_bridge.db`
+- it is covered by the manual `zkpol-live-e2e.yml` workflow when a provisioned zkPoL/BulletinBoard environment is available
 
 ### Canonical zkPoL event mapping
 

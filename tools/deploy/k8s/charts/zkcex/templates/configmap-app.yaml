@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zkcex-app-config
+  labels:
+    app.kubernetes.io/part-of: zkcex
+data:
+  REGION: {{ .Values.region | quote }}
+  IS_PRIMARY: {{ .Values.isPrimary | quote }}
+  PEER_REGION: {{ .Values.crossRegion.peerRegion | quote }}
+  PEER_PROXY_URL: {{ .Values.crossRegion.peerProxyUrl | quote }}
+  LEASE_NAMESPACE: {{ .Values.crossRegion.leaseNamespace | quote }}
+  LEASE_DURATION_SECONDS: {{ .Values.crossRegion.leaseDurationSeconds | quote }}
+  CLUSTER_DOMAIN: {{ .Values.clusterDomain | quote }}
+  {{- if .Values.patroni.enabled }}
+  # When Patroni is enabled, services that talk to Postgres should use the
+  # primary Service for writes and the replica Service for read-only fanout.
+  # auth_db.PostgresAuthDB reads POSTGRES_READ_DSN to do the split.
+  POSTGRES_HOST: "patroni-primary"
+  POSTGRES_READ_HOST: "patroni-replica"
+  {{- end }}
+  AUTH_BASE: "http://auth:5501"
+  CHAIN_BASE: "http://chain:5502"
+  POL_BASE: "http://pol:5503"
+  ZKPOL_BRIDGE_BASE: "http://zkpol-bridge:5504"
+  POL_FEED_BASE: "http://pol-feed:5505"
+  API_KEY_BASE: "http://api-key:5550"
+  MCP_BASE: "http://mcp:5560"
+  PUSH_BASE: "http://push:5580"
+  MM_BOT_BASE: "http://mm-bot:5600"
+  SAFU_BASE: "http://safu:5601"
+  OPS_BASE: "http://ops:5620"
+  TRAVEL_RULE_BASE: "http://travel-rule:5630"
+  METRICS_AGG_BASE: "http://metrics-aggregator:5640"
+  ZK_ORDERBOOK_BASE: "http://zk-orderbook:5660"
+  WS_FEED_BASE: "http://ws-feed:6455"
+  PERP_BASE: "http://perp:8091"
+  ORDER_ENGINE_BASE: "http://order-engine:8093"
+  EXPORT_BASE: "http://export:8096"
+  CUSTODY_BASE: "http://custody-coordinator:8700"
+  PROXY_BASE: "http://proxy:5500"

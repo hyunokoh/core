@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#0f172a"/><circle cx="174" cy="249" r="4" fill="#facc15"/>
+<line x1="174" y1="249" x2="339" y2="400" stroke="#06b6d4" stroke-width="1.42" opacity="0.6"/>
+<line x1="174" y1="249" x2="94" y2="351" stroke="#06b6d4" stroke-width="1.50" opacity="0.6"/>
+<line x1="174" y1="249" x2="153" y2="253" stroke="#06b6d4" stroke-width="1.58" opacity="0.6"/>
+<line x1="174" y1="249" x2="207" y2="380" stroke="#06b6d4" stroke-width="0.84" opacity="0.6"/>
+<line x1="174" y1="249" x2="59" y2="269" stroke="#06b6d4" stroke-width="1.04" opacity="0.6"/>
+<line x1="174" y1="249" x2="227" y2="451" stroke="#06b6d4" stroke-width="1.07" opacity="0.6"/>
+<line x1="174" y1="249" x2="67" y2="226" stroke="#06b6d4" stroke-width="1.24" opacity="0.6"/>
+<circle cx="451" cy="209" r="5" fill="#facc15"/>
+<line x1="451" y1="209" x2="357" y2="441" stroke="#06b6d4" stroke-width="1.24" opacity="0.6"/>
+<line x1="451" y1="209" x2="345" y2="43" stroke="#06b6d4" stroke-width="1.00" opacity="0.6"/>
+<line x1="451" y1="209" x2="94" y2="351" stroke="#06b6d4" stroke-width="1.41" opacity="0.6"/>
+<line x1="451" y1="209" x2="153" y2="253" stroke="#06b6d4" stroke-width="1.18" opacity="0.6"/>
+<line x1="451" y1="209" x2="133" y2="43" stroke="#06b6d4" stroke-width="1.50" opacity="0.6"/>
+<circle cx="339" cy="400" r="5" fill="#facc15"/>
+<line x1="339" y1="400" x2="133" y2="43" stroke="#06b6d4" stroke-width="1.40" opacity="0.6"/>
+<line x1="339" y1="400" x2="156" y2="407" stroke="#06b6d4" stroke-width="1.19" opacity="0.6"/>
+<circle cx="357" cy="441" r="7" fill="#facc15"/>
+<line x1="357" y1="441" x2="94" y2="351" stroke="#06b6d4" stroke-width="0.72" opacity="0.6"/>
+<line x1="357" y1="441" x2="153" y2="253" stroke="#06b6d4" stroke-width="0.67" opacity="0.6"/>
+<line x1="357" y1="441" x2="227" y2="451" stroke="#06b6d4" stroke-width="1.11" opacity="0.6"/>
+<circle cx="345" cy="43" r="6" fill="#facc15"/>
+<line x1="345" y1="43" x2="328" y2="60" stroke="#06b6d4" stroke-width="1.27" opacity="0.6"/>
+<line x1="345" y1="43" x2="162" y2="94" stroke="#06b6d4" stroke-width="0.99" opacity="0.6"/>
+<line x1="345" y1="43" x2="207" y2="380" stroke="#06b6d4" stroke-width="0.78" opacity="0.6"/>
+<line x1="345" y1="43" x2="133" y2="43" stroke="#06b6d4" stroke-width="1.46" opacity="0.6"/>
+<circle cx="94" cy="351" r="6" fill="#facc15"/>
+<line x1="94" y1="351" x2="153" y2="253" stroke="#06b6d4" stroke-width="0.93" opacity="0.6"/>
+<line x1="94" y1="351" x2="227" y2="451" stroke="#06b6d4" stroke-width="1.59" opacity="0.6"/>
+<line x1="94" y1="351" x2="156" y2="407" stroke="#06b6d4" stroke-width="1.02" opacity="0.6"/>
+<circle cx="153" cy="253" r="4" fill="#facc15"/>
+<line x1="153" y1="253" x2="328" y2="60" stroke="#06b6d4" stroke-width="1.47" opacity="0.6"/>
+<line x1="153" y1="253" x2="67" y2="226" stroke="#06b6d4" stroke-width="1.16" opacity="0.6"/>
+<line x1="153" y1="253" x2="156" y2="407" stroke="#06b6d4" stroke-width="1.30" opacity="0.6"/>
+<circle cx="328" cy="60" r="7" fill="#facc15"/>
+<line x1="328" y1="60" x2="156" y2="407" stroke="#06b6d4" stroke-width="0.91" opacity="0.6"/>
+<circle cx="162" cy="94" r="7" fill="#facc15"/>
+<line x1="162" y1="94" x2="133" y2="43" stroke="#06b6d4" stroke-width="0.90" opacity="0.6"/>
+<circle cx="207" cy="380" r="7" fill="#facc15"/>
+<circle cx="59" cy="269" r="3" fill="#facc15"/>
+<line x1="59" y1="269" x2="67" y2="226" stroke="#06b6d4" stroke-width="0.78" opacity="0.6"/>
+<line x1="59" y1="269" x2="287" y2="399" stroke="#06b6d4" stroke-width="1.26" opacity="0.6"/>
+<line x1="59" y1="269" x2="156" y2="407" stroke="#06b6d4" stroke-width="1.19" opacity="0.6"/>
+<circle cx="133" cy="43" r="5" fill="#facc15"/>
+<line x1="133" y1="43" x2="227" y2="451" stroke="#06b6d4" stroke-width="1.15" opacity="0.6"/>
+<circle cx="227" cy="451" r="8" fill="#facc15"/>
+<circle cx="67" cy="226" r="7" fill="#facc15"/>
+<circle cx="287" cy="399" r="8" fill="#facc15"/>
+<circle cx="156" cy="407" r="3" fill="#facc15"/><text x="480" y="490" font-family="JetBrains Mono, monospace" font-size="22" fill="#facc15" text-anchor="end" opacity="0.9">#90</text><text x="20" y="490" font-family="JetBrains Mono, monospace" font-size="14" fill="#a855f7" opacity="0.8">zkCEX</text></svg>

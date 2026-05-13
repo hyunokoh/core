@@ -1,0 +1,114 @@
+{{- $svc := index .Values.services "mm-bot" }}
+{{- if $svc.enabled }}
+# Singleton service. Both regions deploy a 1-replica Deployment; only the leader
+# (holding the Lease "zkcex-mm-bot-leader") accepts work. ACTIVE_ROLE is set by
+# region values and is overridden at runtime by the leader-election sidecar.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mm-bot
+  labels:
+    {{- include "zkcex.labels" (dict "name" "mm-bot" "Values" .Values "Release" .Release "Chart" .Chart) | nindent 4 }}
+  annotations:
+    zkcex.io/singleton: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate           # avoid two leaders during rollout
+  selector:
+    matchLabels:
+      {{- include "zkcex.selectorLabels" (dict "name" "mm-bot") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zkcex.selectorLabels" (dict "name" "mm-bot") | nindent 8 }}
+        zkcex.io/region: {{ .Values.region | quote }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $svc.port | quote }}
+    spec:
+      serviceAccountName: mm-bot
+      terminationGracePeriodSeconds: 60
+      # Distroless image runs as uid 65532 (nonroot).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ default 65532 .Values.image.runAsUser }}
+        runAsGroup: {{ default 65532 .Values.image.runAsGroup }}
+        fsGroup: {{ default 65532 .Values.image.fsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mm-bot
+          image: "{{ include "zkcex.image" (dict "name" "mm-bot" "Values" .Values) }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $svc.port }}
+          env:
+            - name: SERVICE_NAME
+              value: "mm-bot"
+            - name: LEADER_ELECT
+              value: "true"
+            - name: LEADER_LEASE_NAME
+              value: "zkcex-mm-bot-leader"
+            - name: ACTIVE_ROLE
+              value: {{ if hasKey $svc "active" }}{{ $svc.active | quote }}{{ else }}"true"{{ end }}
+            - name: REGION
+              value: {{ .Values.region | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: zkcex-app-config
+          readinessProbe:
+            httpGet:
+              path: {{ $svc.healthPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: {{ $svc.healthPath }}
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mm-bot
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "zkcex.selectorLabels" (dict "name" "mm-bot") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $svc.port }}
+      targetPort: http
+---
+# Lease for cross-region active/passive coordination.
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: zkcex-mm-bot-leader
+  labels:
+    app.kubernetes.io/name: mm-bot
+    app.kubernetes.io/part-of: zkcex
+spec:
+  leaseDurationSeconds: {{ .Values.crossRegion.leaseDurationSeconds }}
+  holderIdentity: ""
+{{- end }}

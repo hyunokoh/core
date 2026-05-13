@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Incidents — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>Incidents</h1>
+    <div class="split">
+      <div>
+        <div class="panel">
+          <h3>All incidents</h3>
+          <table class="dense" id="t">
+            <thead><tr><th>#</th><th>category</th><th>title</th><th>severity</th><th>status</th><th>opened</th></tr></thead>
+            <tbody><tr><td colspan="6" class="loading">loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <h3>New incident</h3>
+          <div class="field"><label>Category</label>
+            <select id="cat"><option value="security">security</option><option value="liquidity">liquidity</option><option value="compliance">compliance</option><option value="support">support</option></select></div>
+          <div class="field"><label>Severity</label>
+            <select id="sev"><option value="low">low</option><option value="medium" selected>medium</option><option value="high">high</option><option value="critical">critical</option></select></div>
+          <div class="field"><label>Title</label><input id="t-title" placeholder="short summary"></div>
+          <div class="field"><label>Description</label><textarea id="t-desc" rows="4"></textarea></div>
+          <button class="btn primary" id="createBtn">Open incident</button>
+          <div id="detail" style="margin-top:18px;"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requireOpsSession, opsFetch, renderChrome, renderActionToast,
+             fmtTs, escapeHtml, statusBadge } from "/ops/ops.js";
+    if (!requireOpsSession()) {} else {
+      renderChrome("incidents");
+
+      async function load() {
+        const r = await opsFetch("/incidents");
+        const tbody = document.querySelector("#t tbody");
+        if (!r || !r.ok) { tbody.innerHTML = `<tr><td colspan="6" class="empty">failed</td></tr>`; return; }
+        const rows = r.body.incidents || [];
+        if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">no incidents</td></tr>`; return; }
+        tbody.innerHTML = rows.map(i => `
+          <tr class="selectable" data-row='${escapeHtml(JSON.stringify(i))}'>
+            <td>${i.id}</td><td>${escapeHtml(i.category)}</td>
+            <td>${escapeHtml(i.title)}</td><td>${escapeHtml(i.severity)}</td>
+            <td>${statusBadge(i.status)}</td><td>${fmtTs(i.opened_at)}</td>
+          </tr>`).join("");
+        tbody.querySelectorAll("tr.selectable").forEach(tr => {
+          tr.addEventListener("click", () => select(JSON.parse(tr.dataset.row)));
+        });
+      }
+
+      function select(i) {
+        const det = document.getElementById("detail");
+        det.innerHTML = `<h3>Incident #${i.id}</h3>
+          <dl class="kv">
+            <dt>category</dt><dd>${escapeHtml(i.category)}</dd>
+            <dt>title</dt><dd>${escapeHtml(i.title)}</dd>
+            <dt>severity</dt><dd>${escapeHtml(i.severity)}</dd>
+            <dt>status</dt><dd>${statusBadge(i.status)}</dd>
+            <dt>opened</dt><dd>${fmtTs(i.opened_at)}</dd>
+            <dt>resolved</dt><dd>${fmtTs(i.resolved_at)}</dd>
+          </dl>
+          <div class="row" style="margin-top:10px;">
+            ${i.status !== "resolved" ? `<button class="btn ok" id="closeBtn">Mark resolved</button>` : ""}
+            <button class="btn danger" id="escBtn">Bump severity</button>
+          </div>`;
+        document.getElementById("closeBtn")?.addEventListener("click", async () => {
+          const r = await opsFetch("/incidents/" + i.id + "/close",
+                                   { method: "POST", body: JSON.stringify({ reason: "ops-close" }) });
+          renderActionToast(r && r.ok ? "closed" : "failed", r && r.ok ? "ok" : "err");
+          await load(); det.innerHTML = "";
+        });
+        document.getElementById("escBtn")?.addEventListener("click", async () => {
+          const next = i.severity === "low" ? "medium"
+                     : i.severity === "medium" ? "high" : "critical";
+          const r = await opsFetch("/incidents/" + i.id + "/update",
+                                   { method: "POST", body: JSON.stringify({ severity: next }) });
+          renderActionToast(r && r.ok ? "bumped to " + next : "failed", r && r.ok ? "ok" : "err");
+          await load();
+        });
+      }
+
+      document.getElementById("createBtn").addEventListener("click", async () => {
+        const body = {
+          category: document.getElementById("cat").value,
+          severity: document.getElementById("sev").value,
+          title: document.getElementById("t-title").value.trim(),
+          description: document.getElementById("t-desc").value.trim(),
+        };
+        if (!body.title) { renderActionToast("title required", "warn"); return; }
+        const r = await opsFetch("/incidents", { method: "POST", body: JSON.stringify(body) });
+        if (!r || !r.ok) { renderActionToast("create failed", "err"); return; }
+        renderActionToast("incident opened", "ok");
+        document.getElementById("t-title").value = "";
+        document.getElementById("t-desc").value = "";
+        await load();
+      });
+
+      load();
+    }
+  </script>
+</body>
+</html>

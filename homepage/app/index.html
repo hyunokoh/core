@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>시장 / Markets — zkCEX</title>
+  <meta name="description" content="zkCEX의 실시간 거래 시장. 24시간 가격 변동, 거래량, 차트를 한눈에 확인하세요." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+</head>
+<body>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>시장<span class="en">Markets</span></h1>
+  <p>실시간 거래 가능 자산 / All assets you can trade right now</p>
+</section>
+
+<section class="filter-row">
+  <div class="search-box">
+    <input id="search" type="text" placeholder="자산 검색 / Search asset (e.g. BTC)" autocomplete="off" />
+  </div>
+  <div class="chip-group" id="quote-chips">
+    <button class="chip active" data-quote="ALL">모두 / All</button>
+    <button class="chip" data-quote="USDT">USDT</button>
+    <button class="chip" data-quote="BUSD">BUSD</button>
+    <button class="chip" data-quote="IRT">IRT</button>
+  </div>
+  <span id="update-tick" class="update-tick">불러오는 중… / Loading…</span>
+</section>
+
+<section class="markets-shell">
+  <table class="markets-table" id="markets-table">
+    <thead>
+      <tr>
+        <th>자산 / Asset</th>
+        <th class="r">최근가 / Last</th>
+        <th class="r">24h 변동 / 24h Change</th>
+        <th class="r col-vol">24h 거래량 / 24h Volume</th>
+        <th class="r col-spark">차트 / Chart</th>
+        <th class="r"></th>
+      </tr>
+    </thead>
+    <tbody id="markets-body">
+      <tr><td colspan="6" class="empty-state"><strong>시장 데이터 불러오는 중…</strong>Loading market data…</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<div id="app-footer"></div>
+
+<!-- PWA install prompt (Android: beforeinstallprompt, iOS: Share-to-Home hint). -->
+<script type="module" src="./install-prompt.js"></script>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    api, poll, assetMeta,
+    fmtPrice, fmtVolume, fmtPct, makeUpdateTick, renderSparkline, escapeHtml,
+  } from "./app.js";
+
+  renderHeader("markets");
+  renderFooter();
+
+  const tbody = document.getElementById("markets-body");
+  const tickEl = document.getElementById("update-tick");
+  const tick = makeUpdateTick(tickEl);
+  const searchEl = document.getElementById("search");
+  const chips = document.getElementById("quote-chips");
+
+  // Filter state
+  const state = {
+    quote: "ALL",
+    search: "",
+    symbols: [],          // [{symbol, baseAsset, quoteAsset}, …]
+    tickers: new Map(),   // symbol -> ticker
+    klines:  new Map(),   // symbol -> klines array
+  };
+
+  chips.addEventListener("click", (e) => {
+    const b = e.target.closest(".chip");
+    if (!b) return;
+    state.quote = b.dataset.quote;
+    chips.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c === b));
+    renderTable();
+  });
+  searchEl.addEventListener("input", () => {
+    state.search = searchEl.value.trim().toUpperCase();
+    renderTable();
+  });
+
+  // 1) Load symbol universe once.
+  async function loadSymbols() {
+    const info = await api("/v3/exchangeInfo");
+    state.symbols = (info.symbols || [])
+      .filter(s => s.status === "TRADING")
+      .map(s => ({ symbol: s.symbol, baseAsset: s.baseAsset, quoteAsset: s.quoteAsset }));
+  }
+
+  // 2) Load tickers (one request per symbol; the API accepts no-symbol form
+  //    but returns whichever symbols it has, so we batch with Promise.all).
+  async function refreshTickers() {
+    const tasks = state.symbols.map(async s => {
+      try {
+        const r = await api(`/v3/ticker/24h?symbol=${encodeURIComponent(s.symbol)}`);
+        const arr = Array.isArray(r) ? r : [r];
+        if (arr[0]) state.tickers.set(s.symbol, arr[0]);
+      } catch { /* ignore single failure, others may succeed */ }
+    });
+    await Promise.all(tasks);
+  }
+
+  // 3) Sparkline klines — only refresh occasionally (slower cadence than ticker).
+  async function refreshKlines() {
+    const tasks = state.symbols.map(async s => {
+      try {
+        const k = await api(`/v3/klines?symbol=${encodeURIComponent(s.symbol)}&interval=15m&limit=48`);
+        if (Array.isArray(k)) state.klines.set(s.symbol, k);
+      } catch { /* ignore */ }
+    });
+    await Promise.all(tasks);
+  }
+
+  function renderTable() {
+    const rows = state.symbols
+      .filter(s => state.quote === "ALL" || s.quoteAsset === state.quote)
+      .filter(s => !state.search || s.baseAsset.includes(state.search) || s.symbol.includes(state.search))
+      .map(s => {
+        const t = state.tickers.get(s.symbol) || {};
+        const lastPrice = Number(t.lastPrice ?? 0);
+        const pct = Number(t.priceChangePercent ?? 0);
+        const vol = Number(t.volume ?? 0);
+        const meta = assetMeta(s.baseAsset);
+        const dir = pct > 0 ? "up" : pct < 0 ? "down" : "muted";
+        const arrow = pct > 0 ? "▲" : pct < 0 ? "▼" : "·";
+        return `
+          <tr data-symbol="${s.symbol}">
+            <td>
+              <span class="asset-cell">
+                <span class="asset-icon ${meta.iconClass}">${escapeHtml(s.baseAsset.slice(0,3))}</span>
+                <span>
+                  <div class="asset-name">${escapeHtml(meta.ko)} <span class="dim" style="font-weight:400">${escapeHtml(meta.en)}</span></div>
+                  <div class="asset-pair">${escapeHtml(s.baseAsset)}/${escapeHtml(s.quoteAsset)}</div>
+                </span>
+              </span>
+            </td>
+            <td class="r mono">${lastPrice ? fmtPrice(lastPrice, s.baseAsset, s.quoteAsset) : "—"}</td>
+            <td class="r mono ${dir}">${arrow} ${fmtPct(pct)}</td>
+            <td class="r mono col-vol">${fmtVolume(vol)} ${escapeHtml(s.baseAsset)}</td>
+            <td class="r col-spark">
+              <svg class="spark" data-spark="${s.symbol}" viewBox="0 0 110 36" preserveAspectRatio="none"></svg>
+            </td>
+            <td class="r"><a class="btn btn-primary" href="trade.html?symbol=${encodeURIComponent(s.symbol)}">거래 / Trade</a></td>
+          </tr>
+        `;
+      });
+
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state"><strong>일치하는 시장이 없습니다 / No matching markets</strong>다른 키워드로 검색해 보세요. / Try a different search term.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.join("");
+
+    // delegate row clicks
+    tbody.querySelectorAll("tr[data-symbol]").forEach(tr => {
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("a")) return; // let the inline button handle its own click
+        location.href = `trade.html?symbol=${encodeURIComponent(tr.dataset.symbol)}`;
+      });
+    });
+
+    // sparklines
+    tbody.querySelectorAll("svg.spark").forEach(svg => {
+      const sym = svg.dataset.spark;
+      renderSparkline(svg, state.klines.get(sym));
+    });
+  }
+
+  // boot
+  (async () => {
+    try {
+      await loadSymbols();
+      // first ticker load + first kline load in parallel
+      await Promise.all([refreshTickers(), refreshKlines()]);
+      tick.ok();
+      renderTable();
+    } catch (e) {
+      tick.fail();
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state"><strong>시장 데이터를 불러오지 못했습니다 / Couldn't load markets</strong>잠시 후 다시 시도합니다. / Retrying shortly.</td></tr>`;
+    }
+
+    // ticker refresh every 5s
+    poll(async () => {
+      await refreshTickers();
+      tick.ok();
+      renderTable();
+    }, 5000, {
+      immediate: false,
+      onError: () => tick.fail(),
+    });
+
+    // kline refresh every 60s (sparklines change slowly)
+    poll(async () => {
+      await refreshKlines();
+      // re-render only the sparkline cells; if rows changed, full render covers it
+      renderTable();
+    }, 60_000, { immediate: false });
+
+    // tick the "x seconds ago" label every second
+    setInterval(() => tick.refresh(), 1000);
+  })();
+</script>
+
+</body>
+</html>

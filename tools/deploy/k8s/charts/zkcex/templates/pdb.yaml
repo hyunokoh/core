@@ -1,0 +1,17 @@
+{{- range $name, $cfg := .Values.services }}
+{{- if and $cfg.enabled (gt (int (default 1 $cfg.replicas)) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}-pdb
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: zkcex
+spec:
+  minAvailable: {{ sub (int $cfg.replicas) 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+---
+{{- end }}
+{{- end }}

@@ -1,0 +1,61 @@
+# chain service authorization.
+#
+# chain owns withdraw/deposit lifecycle. We restrict who may instruct it to
+# move funds vs who may merely *observe* state.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: chain-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chain
+  action: ALLOW
+  rules:
+    # User-facing flows go through the proxy.
+    - to:
+        - operation:
+            paths:
+              - /chain/deposit/*
+              - /chain/withdraw/*
+              - /chain/address/*
+              - /chain/balances
+              - /chain/tx/*
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/proxy
+    # Custody coordinator orchestrates broadcasts.
+    - to:
+        - operation:
+            paths:
+              - /chain/broadcast
+              - /chain/sign-withdraw
+              - /chain/confirm-withdraw
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/custody-coordinator
+              - cluster.local/ns/zkcex/sa/safu
+    # Read-only views for travel-rule and metrics.
+    - to:
+        - operation:
+            methods: ["GET"]
+            paths:
+              - /chain/tx/*
+              - /chain/balances
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/travel-rule
+              - cluster.local/ns/zkcex/sa/metrics-aggregator
+              - cluster.local/ns/zkcex/sa/ops
+              - cluster.local/ns/zkcex/sa/export
+    # Health.
+    - to:
+        - operation:
+            paths: ["/chain/health"]
+      from:
+        - source:
+            namespaces: ["istio-system", "monitoring", "zkcex"]

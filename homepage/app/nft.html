@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NFT 마켓플레이스 / NFT Marketplace — zkCEX</title>
+  <meta name="description" content="ERC721 + ERC1155 NFTs on the zkCEX hardhat demo chain. Mint, list, browse, and buy NFTs with on-chain ownership transfer and an internal USDT settlement." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    body.nft { background: #060810; }
+
+    .nft-shell {
+      max-width: 1240px; margin: 0 auto; padding: 8px 28px 80px;
+      display: flex; flex-direction: column; gap: 22px;
+    }
+
+    /* --- Hero ---------------------------------------------------- */
+    .nft-hero {
+      padding: 28px 34px 28px; border-radius: var(--radius-lg);
+      background:
+        radial-gradient(1100px 360px at 100% 0%, rgba(168,85,247,0.14), transparent 60%),
+        radial-gradient(800px 320px at 0% 100%, rgba(34,211,238,0.10), transparent 60%),
+        linear-gradient(180deg, rgba(124,77,255,0.05), rgba(11,58,255,0.01));
+      border: 1px solid var(--line-strong);
+      position: relative; overflow: hidden;
+    }
+    .nft-hero .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: #9aa3b3; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      font-weight: 600;
+    }
+    .nft-hero .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #a855f7;
+      box-shadow: 0 0 0 4px rgba(168,85,247,0.18);
+    }
+    .nft-hero h1 {
+      margin: 10px 0 4px; font-size: 28px; font-weight: 800; letter-spacing: -0.02em;
+      color: #fff;
+    }
+    .nft-hero h1 .en {
+      display: block; color: var(--ink-mute); font-weight: 500; font-size: 14px; margin-top: 4px;
+    }
+    .nft-hero .lede { color: var(--ink-mute); font-size: 13px; max-width: 760px; margin: 0; line-height: 1.55; }
+
+    .hero-stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px; margin-top: 18px;
+    }
+    .hero-stat {
+      padding: 14px 16px; border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.02);
+    }
+    .hero-stat .l { font-size: 11px; color: var(--ink-dim); letter-spacing: 0.06em; text-transform: uppercase; }
+    .hero-stat .v { font-family: var(--font-mono); font-size: 20px; color: #fff; margin-top: 4px; font-weight: 600; }
+    .hero-stat .v .small { font-size: 12px; color: var(--ink-mute); margin-left: 6px; }
+
+    /* --- Tabs ---------------------------------------------------- */
+    .nft-tabs {
+      display: flex; gap: 4px; padding: 4px;
+      border-radius: 12px; background: rgba(255,255,255,0.03);
+      border: 1px solid var(--line); width: fit-content;
+    }
+    .nft-tab {
+      padding: 8px 16px; border-radius: 8px; cursor: pointer;
+      font-size: 13px; color: var(--ink-mute); background: transparent;
+      border: 0; font-weight: 500;
+    }
+    .nft-tab.active { background: rgba(124,77,255,0.18); color: #fff; }
+    .nft-tab:hover:not(.active) { color: var(--ink); }
+
+    /* --- Filters ------------------------------------------------- */
+    .nft-filters {
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+      padding: 12px 14px; border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.02);
+    }
+    .nft-filters select, .nft-filters input {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+      color: var(--ink); padding: 6px 10px; border-radius: 8px;
+      font-size: 13px; font-family: inherit;
+    }
+    .nft-filters .label { font-size: 12px; color: var(--ink-dim); }
+
+    /* --- Grid view ----------------------------------------------- */
+    .nft-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .nft-card {
+      border-radius: 14px; overflow: hidden;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--line);
+      transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s;
+      cursor: pointer; display: flex; flex-direction: column;
+    }
+    .nft-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(168,85,247,0.5);
+      box-shadow: 0 12px 28px -8px rgba(168,85,247,0.25);
+    }
+    .nft-thumb {
+      aspect-ratio: 1; background: #0b1020; position: relative; overflow: hidden;
+    }
+    .nft-thumb img, .nft-thumb svg { width: 100%; height: 100%; display: block; object-fit: cover; }
+    .nft-thumb .badge {
+      position: absolute; top: 8px; left: 8px;
+      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.18);
+      backdrop-filter: blur(6px);
+      color: #fff; font-family: var(--font-mono); font-size: 10px;
+      padding: 3px 7px; border-radius: 6px; letter-spacing: 0.04em;
+    }
+    .nft-thumb .badge.escrow { background: rgba(245,158,11,0.32); border-color: rgba(245,158,11,0.55); }
+    .nft-card .meta {
+      padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .nft-card .name {
+      font-weight: 600; font-size: 13px; color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .nft-card .col { font-size: 11px; color: var(--ink-dim); }
+    .nft-card .price {
+      margin-top: 6px; font-family: var(--font-mono); font-size: 13px; color: #fff;
+    }
+    .nft-card .price .l { color: var(--ink-mute); font-size: 11px; margin-right: 4px; }
+    .nft-card .lastsale { font-size: 11px; color: var(--ink-dim); }
+
+    .nft-empty {
+      padding: 36px; text-align: center; color: var(--ink-mute);
+      border: 1px dashed var(--line); border-radius: 12px;
+    }
+
+    /* --- Detail modal ------------------------------------------- */
+    .nft-modal-backdrop {
+      position: fixed; inset: 0; z-index: 60;
+      background: rgba(0,0,0,0.72); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .nft-modal-backdrop[hidden] { display: none; }
+    .nft-modal {
+      max-width: 980px; width: 100%; max-height: 90vh; overflow: auto;
+      background: #0a0d18; border: 1px solid var(--line-strong);
+      border-radius: 16px;
+      display: grid; grid-template-columns: 1fr 1fr;
+    }
+    .nft-modal-img { background: #06080f; padding: 24px; display: flex; align-items: center; justify-content: center; }
+    .nft-modal-img img, .nft-modal-img svg { max-width: 100%; max-height: 480px; border-radius: 8px; }
+    .nft-modal-body {
+      padding: 24px 26px; display: flex; flex-direction: column; gap: 16px;
+    }
+    .nft-modal h2 { color: #fff; font-size: 22px; margin: 0; }
+    .nft-modal h2 .id { font-family: var(--font-mono); color: var(--ink-mute); font-size: 14px; margin-left: 6px; }
+    .nft-modal .col-label { color: var(--ink-mute); font-size: 12px; }
+    .nft-modal .attr-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+    }
+    .nft-modal .attr {
+      padding: 8px 10px; border-radius: 8px;
+      background: rgba(124,77,255,0.10); border: 1px solid rgba(124,77,255,0.25);
+    }
+    .nft-modal .attr .t { font-size: 10px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+    .nft-modal .attr .v { font-size: 13px; color: #fff; font-weight: 500; }
+    .nft-modal .pricerow {
+      display: flex; align-items: baseline; gap: 12px; padding: 12px 14px;
+      border-radius: 12px; background: rgba(255,255,255,0.04);
+      border: 1px solid var(--line);
+    }
+    .nft-modal .pricerow .price {
+      font-family: var(--font-mono); font-size: 22px; color: #fff; font-weight: 600;
+    }
+    .nft-modal .pricerow .small { color: var(--ink-mute); font-size: 12px; }
+    .nft-modal button.action {
+      padding: 12px 18px; border-radius: 10px; font-size: 14px; font-weight: 600;
+      background: linear-gradient(180deg, #a855f7, #7c3aed);
+      color: #fff; border: 0; cursor: pointer;
+      transition: transform 0.12s;
+    }
+    .nft-modal button.action:hover { transform: translateY(-1px); }
+    .nft-modal button.action.alt {
+      background: rgba(255,255,255,0.06); color: #fff;
+      border: 1px solid var(--line-strong);
+    }
+    .nft-modal button.action:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .nft-history {
+      border-top: 1px solid var(--line); padding-top: 12px; font-size: 12px;
+    }
+    .nft-history-row {
+      display: grid; grid-template-columns: 80px 90px 1fr auto; gap: 8px;
+      padding: 6px 0; color: var(--ink-mute); border-bottom: 1px dashed rgba(255,255,255,0.04);
+    }
+    .nft-history-row:last-child { border-bottom: 0; }
+    .nft-history-row .ev {
+      padding: 1px 6px; border-radius: 4px; font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--font-mono);
+    }
+    .ev.sale { color: #2ee59b; background: rgba(46,229,155,0.10); }
+    .ev.list { color: #60a5fa; background: rgba(96,165,250,0.10); }
+    .ev.cancel { color: #f87171; background: rgba(248,113,113,0.10); }
+    .ev.bid { color: #fbbf24; background: rgba(251,191,36,0.10); }
+    .ev.mint { color: #a855f7; background: rgba(168,85,247,0.10); }
+    .ev.transfer { color: var(--ink-mute); background: rgba(255,255,255,0.05); }
+
+    .nft-modal .close-btn {
+      position: absolute; top: 12px; right: 14px;
+      background: rgba(0,0,0,0.4); border: 1px solid var(--line);
+      color: #fff; border-radius: 50%; width: 32px; height: 32px;
+      cursor: pointer; font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nft-modal-backdrop { position: fixed; }
+    .nft-modal { position: relative; }
+
+    /* --- Mint demo button --------------------------------------- */
+    .mint-cta {
+      padding: 9px 16px; border-radius: 10px;
+      background: linear-gradient(180deg, #34d399, #10b981);
+      border: 0; color: #04130c; font-weight: 600; cursor: pointer; font-size: 13px;
+    }
+    .mint-cta:hover { transform: translateY(-1px); }
+
+    /* --- List form ---------------------------------------------- */
+    .nft-list-form {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center;
+    }
+    .nft-list-form label { font-size: 12px; color: var(--ink-mute); }
+    .nft-list-form input, .nft-list-form select {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+      color: var(--ink); padding: 8px 10px; border-radius: 8px;
+    }
+
+    @media (max-width: 800px) {
+      .nft-modal { grid-template-columns: 1fr; }
+      .nft-modal-img { padding: 12px; }
+      .nft-modal-img img, .nft-modal-img svg { max-height: 280px; }
+    }
+  </style>
+</head>
+<body class="nft">
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main id="main" class="nft-shell">
+
+  <!-- HERO -->
+  <div class="nft-hero">
+    <span class="eyebrow"><span class="dot"></span>NFT 마켓플레이스 / NFT Marketplace</span>
+    <h1>
+      ERC721 &amp; ERC1155 거래
+      <span class="en">List, browse, and buy on-chain art with USDT</span>
+    </h1>
+    <p class="lede">
+      zkCEX 하드햇 데모 체인 위에 배포된 ZkNFT 컬렉션. 샘플 NFT를 민팅하고, 가격을 매겨 판매하고, 다른 사용자의 NFT를 USDT로 구매하세요. 모든 소유권 이전은 온체인에서 발생하며, 정산은 zkCEX 내부 잔고로 즉시 처리됩니다.
+      <span class="en">Sample ZkNFT collection deployed on the zkCEX hardhat demo chain. Mint a sample, list it for USDT, watch ownership move on-chain when another user buys. Platform fee is 2.5%.</span>
+    </p>
+
+    <div class="hero-stats" id="hero-stats">
+      <div class="hero-stat"><div class="l">컬렉션 / Collections</div><div class="v" id="stat-collections">…</div></div>
+      <div class="hero-stat"><div class="l">활성 매물 / Active listings</div><div class="v" id="stat-listings">…</div></div>
+      <div class="hero-stat"><div class="l">바닥가 / Floor price</div><div class="v" id="stat-floor">…</div></div>
+      <div class="hero-stat"><div class="l">총 거래량 / Total volume</div><div class="v" id="stat-volume">…</div></div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div class="nft-tabs">
+      <button class="nft-tab active" data-tab="browse">탐색 / Browse</button>
+      <button class="nft-tab" data-tab="mine">내 NFT / My NFTs</button>
+      <button class="nft-tab" data-tab="listings">내 매물 / My listings</button>
+    </div>
+
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button class="mint-cta" id="mint-btn">샘플 민팅 / Mint a sample NFT</button>
+    </div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="nft-filters" id="filters">
+    <label class="label" for="f-collection">컬렉션 / Collection</label>
+    <select id="f-collection" aria-label="컬렉션 필터 / Collection filter">
+      <option value="">전체 / All</option>
+    </select>
+    <label class="label" for="f-sort">정렬 / Sort</label>
+    <select id="f-sort" aria-label="정렬 / Sort order">
+      <option value="recent">최신순 / Recent</option>
+      <option value="price_asc">가격 낮은순 / Price ↑</option>
+      <option value="price_desc">가격 높은순 / Price ↓</option>
+      <option value="oldest">오래된순 / Oldest</option>
+    </select>
+    <label class="label" for="f-standard">표준 / Standard</label>
+    <select id="f-standard" aria-label="토큰 표준 / Token standard">
+      <option value="">전체 / All</option>
+      <option value="erc721">ERC721</option>
+      <option value="erc1155">ERC1155</option>
+    </select>
+    <label class="label" for="f-asset">자산 / Asset</label>
+    <select id="f-asset" aria-label="결제 자산 / Payment asset">
+      <option value="">전체 / All</option>
+      <option value="USDT">USDT</option>
+      <option value="ETH">ETH</option>
+    </select>
+    <label class="label" for="f-min">최소가격 / Min</label>
+    <input id="f-min" type="number" min="0" step="1" style="width:90px;" aria-label="최소 가격 / Minimum price" />
+    <label class="label" for="f-max">최대가격 / Max</label>
+    <input id="f-max" type="number" min="0" step="1" style="width:90px;" aria-label="최대 가격 / Maximum price" />
+    <button class="nft-tab" id="apply-filters">적용 / Apply</button>
+  </div>
+
+  <!-- GRID -->
+  <div id="grid-host"></div>
+
+</main>
+
+<!-- DETAIL MODAL -->
+<div role="dialog" aria-modal="true" class="nft-modal-backdrop" id="modal-backdrop" hidden>
+  <div role="dialog" aria-modal="true" class="nft-modal" id="modal">
+    <button class="close-btn" id="modal-close" aria-label="Close">×</button>
+    <div class="nft-modal-img" id="modal-img"></div>
+    <div class="nft-modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<div id="app-footer"></div>
+
+<script type="module" src="./install-prompt.js"></script>
+<script type="module">
+  import {
+    renderHeader, renderFooter, api, authedFetch, toast, getSession,
+    escapeHtml, fmtRelative,
+  } from "./app.js";
+
+  renderHeader("nft");
+  renderFooter();
+
+  // -------- state ----------------------------------------------------------
+  const state = {
+    tab: "browse",
+    collections: [],
+    listings: [],
+    mine: [],
+    myListings: [],
+    detailToken: null,    // {contract, token_id}
+    detailData: null,
+  };
+
+  // -------- helpers --------------------------------------------------------
+  function fmtUsdt(v) {
+    if (v === null || v === undefined || v === "") return "—";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return String(v);
+    if (n >= 1e6) return (n/1e6).toFixed(2) + "M USDT";
+    if (n >= 1e3) return (n/1e3).toFixed(2) + "K USDT";
+    return n.toFixed(2) + " USDT";
+  }
+  function fmtPrice(price, asset) {
+    if (price === null || price === undefined) return "—";
+    const n = Number(price);
+    if (!Number.isFinite(n)) return `${price} ${asset || ""}`;
+    return `${n.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${asset || ""}`;
+  }
+  function isoFromUnix(t) {
+    if (!t) return "";
+    return new Date(t * 1000).toLocaleString();
+  }
+
+  function thumbHtml(image, idText, escrow=false) {
+    const safe = image ? escapeHtml(image) : "";
+    return `
+      <div class="nft-thumb">
+        ${safe ? `<img loading="lazy" src="${safe}" alt="" />` : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#475569;">no image</div>`}
+        ${escrow ? `<span class="badge escrow">에스크로 / Escrow</span>` : ""}
+        <span class="badge">#${escapeHtml(String(idText))}</span>
+      </div>
+    `;
+  }
+
+  function eventBadge(ev) {
+    const cls = ev || "transfer";
+    return `<span class="ev ${escapeHtml(cls)}">${escapeHtml(ev || "transfer")}</span>`;
+  }
+
+  // -------- collections ----------------------------------------------------
+  async function loadCollections() {
+    const j = await api("/nft/collections");
+    state.collections = j.collections || [];
+    const f = document.getElementById("f-collection");
+    f.innerHTML = `<option value="">전체 / All (${state.collections.length})</option>` +
+      state.collections.map(c =>
+        `<option value="${escapeHtml(c.contract_address)}">${escapeHtml(c.name)} (${escapeHtml(c.standard.toUpperCase())})</option>`
+      ).join("");
+    // Hero stats
+    const totalListings = state.collections.reduce((s, c) => s + (Number(c.active_listings) || 0), 0);
+    const floors = state.collections.map(c => c.floor_price_usdt).filter(x => x !== null && x !== undefined);
+    const floor = floors.length ? Math.min(...floors.map(Number)) : null;
+    const vol = state.collections.reduce((s, c) => s + (Number(c.total_volume_usdt) || 0), 0);
+    document.getElementById("stat-collections").textContent = state.collections.length;
+    document.getElementById("stat-listings").textContent = totalListings;
+    document.getElementById("stat-floor").textContent = floor !== null ? fmtUsdt(floor) : "—";
+    document.getElementById("stat-volume").textContent = fmtUsdt(vol);
+  }
+
+  // -------- browse view ----------------------------------------------------
+  async function loadListings() {
+    const params = new URLSearchParams();
+    const collection = document.getElementById("f-collection").value;
+    const sort = document.getElementById("f-sort").value;
+    const standard = document.getElementById("f-standard").value;
+    const asset = document.getElementById("f-asset").value;
+    const min_ = document.getElementById("f-min").value;
+    const max_ = document.getElementById("f-max").value;
+    if (collection) params.set("collection", collection);
+    if (sort) params.set("sort", sort);
+    if (standard) params.set("standard", standard);
+    if (asset) params.set("asset", asset);
+    if (min_) params.set("min_price", min_);
+    if (max_) params.set("max_price", max_);
+    const j = await api(`/nft/listings?${params.toString()}`);
+    state.listings = j.listings || [];
+    renderGrid("browse");
+  }
+
+  async function loadMine() {
+    const s = getSession();
+    if (!s) {
+      state.mine = [];
+      renderGrid("mine");
+      return;
+    }
+    try {
+      const j = await authedFetch("/nft/my-nfts");
+      state.mine = j.owned || [];
+    } catch (e) {
+      console.warn("my-nfts failed", e);
+      state.mine = [];
+    }
+    renderGrid("mine");
+  }
+
+  async function loadMyListings() {
+    const s = getSession();
+    if (!s) {
+      state.myListings = [];
+      renderGrid("listings");
+      return;
+    }
+    try {
+      const j = await authedFetch("/nft/my-listings");
+      state.myListings = j.listings || [];
+    } catch (e) {
+      console.warn("my-listings failed", e);
+      state.myListings = [];
+    }
+    renderGrid("listings");
+  }
+
+  function renderGrid(tab) {
+    state.tab = tab;
+    document.querySelectorAll(".nft-tab[data-tab]").forEach(b => {
+      b.classList.toggle("active", b.dataset.tab === tab);
+    });
+    document.getElementById("filters").style.display = tab === "browse" ? "" : "none";
+
+    const host = document.getElementById("grid-host");
+    let items = [];
+    if (tab === "browse") items = state.listings;
+    else if (tab === "mine") items = state.mine;
+    else if (tab === "listings") items = state.myListings;
+
+    if (!items.length) {
+      let msg;
+      if (tab === "browse") msg = "현재 등록된 매물이 없습니다 / No active listings right now.";
+      else if (tab === "mine") msg = "보유한 NFT가 없습니다. '샘플 민팅'을 눌러 받아보세요 / You don't own any NFTs yet — try the mint button.";
+      else msg = "판매 중인 NFT가 없습니다 / You haven't listed anything yet.";
+      host.innerHTML = `<div class="nft-empty">${escapeHtml(msg)}</div>`;
+      return;
+    }
+
+    host.innerHTML = `<div class="nft-grid">${items.map(it => cardHtml(it, tab)).join("")}</div>`;
+    host.querySelectorAll(".nft-card").forEach((el) => {
+      el.addEventListener("click", () => {
+        const c = el.dataset.contract;
+        const t = el.dataset.tokenId;
+        openDetail(c, t);
+      });
+    });
+  }
+
+  function cardHtml(it, tab) {
+    const contract = it.contract_address;
+    const tokenId = it.token_id;
+    const image = it.image;
+    const collection = it.collection_name || "";
+    const standard = (it.collection_standard || it.standard || "").toUpperCase();
+    let priceBlock = "";
+    let lastsale = "";
+    if (tab === "browse" || tab === "listings") {
+      const status = it.status ? ` · ${escapeHtml(it.status)}` : "";
+      priceBlock = `<div class="price"><span class="l">가격</span>${fmtPrice(it.list_price, it.list_asset)}</div>`;
+      if (it.sold_at) {
+        lastsale = `<div class="lastsale">판매 완료 · ${escapeHtml(isoFromUnix(it.sold_at))}</div>`;
+      } else if (it.expires_at) {
+        lastsale = `<div class="lastsale">만료 / Expires ${escapeHtml(isoFromUnix(it.expires_at))}${status}</div>`;
+      }
+    } else if (tab === "mine") {
+      priceBlock = it.quantity && Number(it.quantity) > 1
+        ? `<div class="price"><span class="l">보유</span>×${escapeHtml(it.quantity)}</div>`
+        : "";
+    }
+    return `
+      <div class="nft-card" data-contract="${escapeHtml(contract)}" data-token-id="${escapeHtml(tokenId)}">
+        ${thumbHtml(image, tokenId)}
+        <div class="meta">
+          <div class="name">${escapeHtml(it.name || `Token #${tokenId}`)}</div>
+          <div class="col">${escapeHtml(collection)} · ${escapeHtml(standard)}</div>
+          ${priceBlock}
+          ${lastsale}
+        </div>
+      </div>
+    `;
+  }
+
+  // -------- detail modal ---------------------------------------------------
+  async function openDetail(contract, tokenId) {
+    state.detailToken = { contract, tokenId };
+    document.getElementById("modal-backdrop").hidden = false;
+    document.getElementById("modal-img").innerHTML = `<div style="color:#475569">불러오는 중… / loading…</div>`;
+    document.getElementById("modal-body").innerHTML = `<div style="color:#94a3b8">…</div>`;
+    try {
+      const j = await api(`/nft/tokens/${encodeURIComponent(contract)}/${encodeURIComponent(tokenId)}`);
+      state.detailData = j;
+      renderDetail(j);
+    } catch (e) {
+      document.getElementById("modal-body").innerHTML = `<div style="color:#f87171">로드 실패 / failed: ${escapeHtml(String(e))}</div>`;
+    }
+  }
+
+  function closeDetail() {
+    document.getElementById("modal-backdrop").hidden = true;
+    state.detailToken = null;
+    state.detailData = null;
+  }
+
+  function renderDetail(j) {
+    const meta = j.metadata || {};
+    const image = meta.image || "";
+    document.getElementById("modal-img").innerHTML =
+      image
+        ? `<img src="${escapeHtml(image)}" alt="" />`
+        : `<div style="color:#475569">no image</div>`;
+    const attrs = meta.attributes || [];
+    const attrsHtml = attrs.length
+      ? `<div class="attr-grid">${attrs.map(a =>
+          `<div class="attr">
+            <div class="t">${escapeHtml(a.trait_type)}</div>
+            <div class="v">${escapeHtml(String(a.value))}</div>
+          </div>`).join("")}</div>`
+      : "";
+
+    const session = getSession();
+    const me = session?.user?.opex_user || null;
+    const listing = j.current_listing;
+
+    let actionBlock = "";
+    if (listing) {
+      const isMine = listing.seller_opex_user === me;
+      actionBlock = `
+        <div class="pricerow">
+          <div class="price">${fmtPrice(listing.list_price, listing.list_asset)}</div>
+          <span class="small">listed by <span class="mono">${escapeHtml(listing.seller_opex_user)}</span></span>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          ${isMine
+            ? `<button class="action alt" data-action="cancel" data-id="${listing.id}">매물 취소 / Cancel listing</button>`
+            : `<button class="action" data-action="buy" data-id="${listing.id}">${escapeHtml("지금 구매 / Buy now")}</button>
+               <button class="action alt" data-action="bid" data-id="${listing.id}">입찰 / Place bid</button>`}
+        </div>
+      `;
+    } else {
+      // No active listing — show "List for sale" if the user owns it.
+      const custody = j.is_in_escrow;
+      // For ERC721, owner_addr matches user; for ERC1155 we can't tell from here
+      // but the API will block self-bids/lists on the server side.
+      actionBlock = me
+        ? `<div class="nft-list-form">
+            <label for="list-price">가격 / Price</label>
+            <input type="number" id="list-price" min="0" step="1" placeholder="100" />
+            <label for="list-asset">자산 / Asset</label>
+            <select id="list-asset"><option>USDT</option><option>ETH</option></select>
+            <label for="list-qty">수량 / Quantity (1155)</label>
+            <input type="number" id="list-qty" min="1" value="1" />
+            <label for="list-days">유효기간 / Expires</label>
+            <select id="list-days">
+              <option value="1">1 day</option>
+              <option value="7" selected>7 days</option>
+              <option value="30">30 days</option>
+            </select>
+          </div>
+          <button class="action" data-action="list">판매 등록 / List for sale</button>
+          <div class="col-label">판매 등록 시 NFT는 zkCEX 에스크로 주소로 이동합니다 — 매물을 취소하면 다시 돌려받습니다. / Listing moves the NFT into custodial escrow; cancelling returns it to your wallet.</div>`
+        : `<div class="col-label">로그인 후 판매 / Sign in to list this NFT.</div>`;
+    }
+
+    const histHtml = (j.history || []).slice(0, 30).map(h => `
+      <div class="nft-history-row">
+        <span>${eventBadge(h.event)}</span>
+        <span>${escapeHtml(fmtRelative(Number(h.ts) * 1000))}</span>
+        <span style="color:var(--ink);">${h.price ? escapeHtml(`${h.price} ${h.asset || ""}`) : ""}</span>
+        <span class="mono" style="font-size:11px;">${escapeHtml(h.from_user || "")} → ${escapeHtml(h.to_user || "")}</span>
+      </div>
+    `).join("");
+
+    const bidsHtml = (j.bids || []).length
+      ? `<div class="nft-history" style="margin-top:8px;">
+          <div class="col-label" style="margin-bottom:6px;">활성 입찰 / Active bids (${j.bids.length})</div>
+          ${j.bids.map(b => `
+            <div class="nft-history-row">
+              <span style="color:#fbbf24">${escapeHtml(b.bid_price)} ${escapeHtml(b.bid_asset)}</span>
+              <span>${escapeHtml(fmtRelative(Number(b.placed_at) * 1000))}</span>
+              <span class="mono">${escapeHtml(b.bidder_opex_user)}</span>
+              ${listing && listing.seller_opex_user === me
+                ? `<button class="action alt" style="padding:4px 10px;font-size:11px;" data-action="accept-bid" data-id="${b.id}">수락</button>`
+                : `<span></span>`}
+            </div>
+          `).join("")}
+        </div>`
+      : "";
+
+    document.getElementById("modal-body").innerHTML = `
+      <div>
+        <h2>${escapeHtml(meta.name || `Token #${j.token_id}`)}<span class="id">#${escapeHtml(j.token_id)}</span></h2>
+        <div class="col-label">${escapeHtml(j.collection_name || "")} · ${escapeHtml((j.standard || "").toUpperCase())}</div>
+      </div>
+      <div class="col-label">${escapeHtml(meta.description || "")}</div>
+      ${attrsHtml}
+      ${actionBlock}
+      ${bidsHtml}
+      <div class="col-label" style="margin-top:8px;">소유자 / Owner: <span class="mono">${escapeHtml(j.owner_addr || "—")}</span>${j.is_in_escrow ? ` <span class="ev list">escrow</span>` : ""}</div>
+      <div class="nft-history">
+        <div class="col-label" style="margin-bottom:6px;">활동 / Activity</div>
+        ${histHtml || `<div class="col-label">아직 거래 내역이 없습니다 / no activity yet</div>`}
+      </div>
+    `;
+
+    document.getElementById("modal-body").querySelectorAll("button[data-action]").forEach(btn => {
+      btn.addEventListener("click", () => handleAction(btn.dataset.action, btn.dataset.id));
+    });
+  }
+
+  async function handleAction(action, id) {
+    const session = getSession();
+    if (!session) {
+      toast("로그인이 필요합니다", "Sign in first");
+      window.location.href = "/app/signin.html?next=" + encodeURIComponent(location.pathname);
+      return;
+    }
+    try {
+      if (action === "buy") {
+        const j = await authedFetch(`/nft/buy/${id}`, { method: "POST" });
+        toast("구매 완료!", `Bought (tx ${(j.trade_tx || "").slice(0,10)}…)`);
+        await refreshAll();
+        closeDetail();
+      } else if (action === "cancel") {
+        const j = await authedFetch(`/nft/cancel-listing/${id}`, { method: "POST" });
+        toast("매물 취소", "Listing cancelled");
+        await refreshAll();
+        closeDetail();
+      } else if (action === "list") {
+        const price = document.getElementById("list-price").value;
+        const asset = document.getElementById("list-asset").value;
+        const qty = document.getElementById("list-qty").value || "1";
+        const days = document.getElementById("list-days").value || "7";
+        if (!price || Number(price) <= 0) { toast("가격을 입력하세요", "Enter a price"); return; }
+        const contract = state.detailToken.contract;
+        const tokenId = state.detailToken.tokenId;
+        const j = await authedFetch("/nft/list", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contract_address: contract,
+            token_id: tokenId,
+            quantity: String(qty),
+            list_price: String(price),
+            list_asset: asset,
+            expires_in_days: Number(days),
+          }),
+        });
+        toast("판매 등록 완료!", `Listed (id ${j.listing_id})`);
+        await refreshAll();
+        await openDetail(contract, tokenId);
+      } else if (action === "bid") {
+        const price = prompt("입찰 금액을 입력하세요 (USDT) / Enter bid price in USDT:");
+        if (!price || Number(price) <= 0) return;
+        const j = await authedFetch("/nft/bid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            listing_id: Number(id),
+            bid_price: String(price),
+            bid_asset: "USDT",
+          }),
+        });
+        toast("입찰 제출!", `Bid placed (id ${j.bid_id})`);
+        const t = state.detailToken;
+        if (t) await openDetail(t.contract, t.tokenId);
+      } else if (action === "accept-bid") {
+        const j = await authedFetch(`/nft/accept-bid/${id}`, { method: "POST" });
+        toast("입찰 수락!", `Bid accepted (tx ${(j.trade_tx || "").slice(0,10)}…)`);
+        await refreshAll();
+        closeDetail();
+      }
+    } catch (e) {
+      console.warn(action, "failed", e);
+      toast("실패", `${action} failed: ${String(e).slice(0, 120)}`);
+    }
+  }
+
+  // -------- mint button ----------------------------------------------------
+  document.getElementById("mint-btn").addEventListener("click", async () => {
+    const s = getSession();
+    if (!s) {
+      window.location.href = "/app/signin.html?next=" + encodeURIComponent(location.pathname);
+      return;
+    }
+    try {
+      const j = await authedFetch("/nft/mint-sample", { method: "POST" });
+      const tid = j.token_id;
+      const tx = (j.tx || "").slice(0, 10);
+      toast(`샘플 NFT 받음 #${tid}`, `Minted token #${tid} (tx ${tx}…)`);
+      await loadMine();
+      // Switch to mine tab so user sees their new token.
+      state.tab = "mine";
+      renderGrid("mine");
+      if (j.contract_address && j.token_id) {
+        setTimeout(() => openDetail(j.contract_address, j.token_id), 220);
+      }
+    } catch (e) {
+      console.warn("mint failed", e);
+      toast("민팅 실패", `Mint failed: ${String(e).slice(0,160)}`);
+    }
+  });
+
+  // -------- tabs -----------------------------------------------------------
+  document.querySelectorAll(".nft-tab[data-tab]").forEach(b => {
+    b.addEventListener("click", async () => {
+      const t = b.dataset.tab;
+      if (t === "browse") await loadListings();
+      else if (t === "mine") await loadMine();
+      else if (t === "listings") await loadMyListings();
+      renderGrid(t);
+    });
+  });
+
+  document.getElementById("apply-filters").addEventListener("click", () => loadListings());
+  document.getElementById("f-collection").addEventListener("change", () => loadListings());
+  document.getElementById("f-sort").addEventListener("change", () => loadListings());
+
+  document.getElementById("modal-close").addEventListener("click", closeDetail);
+  document.getElementById("modal-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "modal-backdrop") closeDetail();
+  });
+
+  async function refreshAll() {
+    await loadCollections();
+    await loadListings();
+    if (getSession()) {
+      await loadMine();
+      await loadMyListings();
+    }
+  }
+
+  // -------- init -----------------------------------------------------------
+  (async () => {
+    await loadCollections();
+    await loadListings();
+    if (getSession()) {
+      // Pre-warm. Don't await — keep TTFB snappy.
+      loadMine();
+      loadMyListings();
+    }
+    // Deep-link: ?contract=0x..&token=ID opens the detail modal directly.
+    const url = new URL(location.href);
+    const c = url.searchParams.get("contract");
+    const t = url.searchParams.get("token");
+    if (c && t) openDetail(c, t);
+  })();
+</script>
+
+</body>
+</html>

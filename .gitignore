@@ -47,6 +47,50 @@ build/
 
 .DS_Store
 .local-tools/
+**/.local/
 .m2/
 .zkcoder/
 tools/zkpol_bridge/.venv/
+
+# Local state
+*.db
+*.db-journal
+core/tools/.local/
+tools/.local/
+deploy/postgres-cluster/*-data/
+deploy/backup/minio-data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Node (mobile + e2e)
+node_modules/
+tests/e2e/playwright-report/
+tests/e2e/test-results/
+tools/tests/e2e/playwright-report/
+tools/tests/e2e/test-results/
+tools/tests/e2e/reports/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/ios/build/
+
+# Logs
+*.log
+/tmp/zkcex-*
+
+# Builds
+dist/
+build/
+*.egg-info/

@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ZK 거래 / ZK Trade — zkCEX</title>
+  <meta name="description" content="zkCEX의 프라이버시 거래 모드. 커밋-리빌과 동시간 일괄경매(FBA)로 주문 정보를 매칭 직전까지 숨깁니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#07090f" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    body.zkt { background: #07090f; }
+
+    .zkt-shell {
+      max-width: 1240px; margin: 0 auto; padding: 8px 24px 96px;
+      display: flex; flex-direction: column; gap: 18px;
+    }
+
+    /* ---------- Hero ---------- */
+    .zkt-hero {
+      padding: 28px 32px 24px;
+      border-radius: var(--radius-lg);
+      background:
+        radial-gradient(900px 320px at 100% 0%, rgba(139, 92, 246, 0.14), transparent 60%),
+        radial-gradient(700px 280px at 0% 100%, rgba(46,229,155,0.06), transparent 60%),
+        linear-gradient(180deg, rgba(139,92,246,0.05), rgba(11,58,255,0.01));
+      border: 1px solid var(--line-strong);
+      position: relative; overflow: hidden;
+    }
+    .zkt-hero .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: #c4b8ee; font-size: 11px; letter-spacing: 0.18em;
+      text-transform: uppercase; font-weight: 700;
+    }
+    .zkt-hero .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #b78bff;
+      box-shadow: 0 0 0 4px rgba(183,139,255,0.18);
+      animation: zkt-pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes zkt-pulse {
+      0%,100% { box-shadow: 0 0 0 4px rgba(183,139,255,0.20); }
+      50%     { box-shadow: 0 0 0 8px rgba(183,139,255,0.06); }
+    }
+    .zkt-hero h1 {
+      margin: 12px 0 6px; font-size: 28px; font-weight: 800;
+      color: #fff; line-height: 1.16; letter-spacing: -0.02em;
+    }
+    .zkt-hero h1 .en {
+      display: block; color: var(--ink-mute); font-weight: 500;
+      font-size: 14px; margin-top: 3px;
+    }
+    .zkt-hero .lede {
+      color: var(--ink-mute); font-size: 13px; max-width: 760px;
+      line-height: 1.55; margin: 0;
+    }
+    .zkt-hero .lede .en {
+      color: var(--ink-dim); font-size: 11.5px; display: block; margin-top: 4px;
+    }
+
+    /* ---------- Phase indicator ---------- */
+    .phase-bar {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border-radius: var(--radius);
+      background: rgba(7,9,15,0.6);
+      border: 1px solid var(--line);
+      display: flex; gap: 22px; align-items: center; flex-wrap: wrap;
+    }
+    .phase-bar .pl {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--ink-mute);
+    }
+    .phase-bar .pl .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px; border-radius: 999px;
+      background: rgba(139,92,246,0.08);
+      border: 1px solid rgba(139,92,246,0.35);
+      color: #d2c5ff; font-weight: 700; font-size: 11px;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .phase-bar .pl .badge.reveal {
+      background: rgba(46,229,155,0.06);
+      border-color: rgba(46,229,155,0.32); color: #b4f0d3;
+    }
+    .phase-bar .pl .v { color: #fff; font-weight: 600; }
+    .phase-progress {
+      flex: 1 1 240px;
+      height: 6px; border-radius: 99px;
+      background: rgba(255,255,255,0.04); overflow: hidden;
+      position: relative;
+    }
+    .phase-progress .fill {
+      position: absolute; top: 0; left: 0; bottom: 0;
+      background: linear-gradient(90deg, #8b5cf6, #b78bff);
+      width: 0%;
+      transition: width 0.5s linear;
+    }
+    .phase-progress .fill.reveal {
+      background: linear-gradient(90deg, #2ee59b, #5dffc1);
+    }
+
+    /* ---------- Grid: form | book/history ---------- */
+    .zkt-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 18px;
+    }
+    @media (max-width: 980px) { .zkt-grid { grid-template-columns: 1fr; } }
+
+    .zkt-panel {
+      padding: 18px 20px;
+      border-radius: var(--radius);
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+    .zkt-panel h2 {
+      margin: 0 0 12px; font-size: 14px; font-weight: 700; color: #fff;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .zkt-panel h2 .en {
+      color: var(--ink-mute); font-weight: 500; font-size: 12px;
+    }
+    .zkt-panel .sub {
+      color: var(--ink-dim); font-size: 11.5px; margin: -6px 0 12px;
+    }
+
+    /* ---------- Order form ---------- */
+    .of-row {
+      display: grid; grid-template-columns: 80px 1fr; gap: 8px;
+      align-items: center; margin-bottom: 10px;
+    }
+    .of-row label {
+      font-size: 11px; color: var(--ink-mute); font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .of-row input, .of-row select {
+      width: 100%; padding: 8px 10px;
+      background: rgba(7,9,15,0.8);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: #fff; font-family: var(--font-mono); font-size: 13px;
+    }
+    .of-row input:focus, .of-row select:focus {
+      outline: none; border-color: rgba(139,92,246,0.55);
+      box-shadow: 0 0 0 3px rgba(139,92,246,0.12);
+    }
+    .of-side {
+      display: flex; gap: 6px; margin: 8px 0 12px;
+    }
+    .of-side button {
+      flex: 1; padding: 8px 0;
+      background: rgba(255,255,255,0.02);
+      color: var(--ink-mute);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-weight: 700; cursor: pointer;
+      font-size: 12px; letter-spacing: 0.08em;
+    }
+    .of-side button.active.buy {
+      background: rgba(46,229,155,0.10);
+      border-color: rgba(46,229,155,0.4); color: #5dffc1;
+    }
+    .of-side button.active.sell {
+      background: rgba(255,77,99,0.10);
+      border-color: rgba(255,77,99,0.4); color: #ffabb6;
+    }
+    .of-commit-btn {
+      width: 100%; padding: 11px 0;
+      background: linear-gradient(180deg, #8b5cf6, #6d28d9);
+      color: #fff; border: 0; border-radius: 10px;
+      font-size: 13px; font-weight: 700; cursor: pointer;
+      letter-spacing: 0.04em;
+      transition: filter 120ms;
+    }
+    .of-commit-btn:hover { filter: brightness(1.1); }
+    .of-commit-btn:disabled {
+      filter: grayscale(0.5) brightness(0.55); cursor: not-allowed;
+    }
+    .of-help {
+      margin-top: 10px;
+      font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-dim);
+      line-height: 1.5;
+    }
+
+    /* ---------- Pending commits ---------- */
+    .pc-list { display: flex; flex-direction: column; gap: 8px; }
+    .pc-item {
+      padding: 10px 12px; border-radius: 8px;
+      background: rgba(7,9,15,0.65); border: 1px solid var(--line);
+      font-family: var(--font-mono); font-size: 11.5px;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .pc-item .top {
+      display: flex; justify-content: space-between; gap: 6px;
+      align-items: center;
+    }
+    .pc-item .hash {
+      color: var(--ink-mute); overflow: hidden; text-overflow: ellipsis;
+      max-width: 220px; white-space: nowrap;
+    }
+    .pc-item .st {
+      padding: 1px 8px; border-radius: 99px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .pc-item .st.committed {
+      background: rgba(139,92,246,0.10); color: #d2c5ff;
+      border: 1px solid rgba(139,92,246,0.32);
+    }
+    .pc-item .st.revealed {
+      background: rgba(46,229,155,0.10); color: #b4f0d3;
+      border: 1px solid rgba(46,229,155,0.32);
+    }
+    .pc-item .st.matched {
+      background: rgba(11,58,255,0.10); color: #b3d0ff;
+      border: 1px solid rgba(11,58,255,0.32);
+    }
+    .pc-item .st.unfilled, .pc-item .st.expired {
+      background: rgba(154,163,179,0.06); color: var(--ink-mute);
+      border: 1px solid rgba(154,163,179,0.18);
+    }
+    .pc-item .detail { color: var(--ink-dim); font-size: 10.5px; }
+
+    /* ---------- Public commitment book ---------- */
+    .cb-row {
+      display: flex; gap: 8px; align-items: baseline;
+      padding: 5px 0; border-bottom: 1px dashed rgba(255,255,255,0.04);
+      font-family: var(--font-mono); font-size: 11px;
+    }
+    .cb-row:last-child { border-bottom: 0; }
+    .cb-row .h {
+      color: var(--ink-mute); overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+      flex: 1; min-width: 0;
+    }
+    .cb-row .s.committed { color: #d2c5ff; }
+    .cb-row .s.revealed  { color: #b4f0d3; }
+    .cb-row .s.matched   { color: #b3d0ff; }
+    .cb-row .s.unfilled, .cb-row .s.expired { color: var(--ink-dim); }
+    .cb-row .ts { color: var(--ink-dim); font-size: 10.5px; }
+
+    /* ---------- Batches table ---------- */
+    .batches { width: 100%; border-collapse: collapse; }
+    .batches th, .batches td {
+      text-align: left; padding: 8px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-family: var(--font-mono); font-size: 11.5px;
+      color: var(--ink-mute);
+    }
+    .batches th {
+      color: var(--ink-dim); font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px;
+    }
+    .batches td.v { color: #fff; }
+    .batches td.cp { color: #d2c5ff; font-weight: 600; }
+    .batches td.rh {
+      max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; color: var(--ink-dim);
+    }
+
+    /* ---------- My match history ---------- */
+    .mh-row {
+      padding: 8px 10px; border-radius: 6px;
+      background: rgba(7,9,15,0.6);
+      border: 1px solid var(--line);
+      margin-bottom: 6px;
+      font-family: var(--font-mono); font-size: 11.5px;
+      display: flex; justify-content: space-between; gap: 8px;
+      flex-wrap: wrap;
+    }
+    .mh-row .role.buy { color: #5dffc1; }
+    .mh-row .role.sell { color: #ffabb6; }
+    .mh-row .px { color: #d2c5ff; font-weight: 600; }
+    .mh-row .qty { color: var(--ink-mute); }
+    .mh-row .bid { color: var(--ink-dim); }
+
+    /* ---------- Education panel ---------- */
+    .edu {
+      margin-top: 18px; padding: 22px 24px;
+      border-radius: var(--radius);
+      background: rgba(7,9,15,0.55);
+      border: 1px solid var(--line);
+    }
+    .edu h2 {
+      margin: 0 0 14px; font-size: 15px; font-weight: 700; color: #fff;
+    }
+    .edu h2 .en { color: var(--ink-mute); font-weight: 500; font-size: 13px; }
+    .edu-grid {
+      display: grid; gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .edu-card {
+      padding: 14px 16px; border-radius: 8px;
+      background: rgba(11,16,28,0.5);
+      border: 1px solid var(--line);
+    }
+    .edu-card .t {
+      font-size: 12px; font-weight: 700; color: #d2c5ff;
+      margin-bottom: 5px; letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .edu-card .b {
+      font-size: 12px; color: var(--ink-mute); line-height: 1.55;
+    }
+    .edu-card .b .en { color: var(--ink-dim); font-size: 11px; display: block; margin-top: 5px; }
+
+    .caveats {
+      margin-top: 14px; padding: 12px 14px;
+      border-radius: 8px;
+      background: rgba(255,179,71,0.04);
+      border: 1px solid rgba(255,179,71,0.18);
+      font-family: var(--font-mono);
+      color: #f0d2a8; font-size: 11px; line-height: 1.6;
+    }
+    .caveats .t { color: #ffb347; font-weight: 700; margin-bottom: 4px; }
+
+    .empty {
+      padding: 18px 12px; text-align: center;
+      color: var(--ink-dim); font-size: 12px;
+    }
+
+    .sign-in-prompt {
+      padding: 14px;
+      background: rgba(139,92,246,0.06);
+      border: 1px solid rgba(139,92,246,0.30);
+      border-radius: 8px;
+      color: var(--ink-mute); font-size: 12px;
+      text-align: center;
+    }
+    .sign-in-prompt a {
+      color: #d2c5ff; font-weight: 600;
+    }
+  </style>
+</head>
+<body class="zkt">
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main id="main" class="zkt-shell">
+
+  <!-- Hero -->
+  <section class="zkt-hero">
+    <div class="eyebrow"><span class="dot"></span> 프라이버시 거래 모드 / Privacy trading mode</div>
+    <h1>
+      ZK 거래
+      <span class="en">Commit-reveal trading with frequent batch auctions</span>
+    </h1>
+    <p class="lede">
+      가격·수량·매수/매도 방향을 SHA-256 커밋으로 숨긴 채 주문을 제출합니다. 매 30초마다 일괄경매(FBA)가
+      진행되어 모든 참가자가 동일한 청산가에 체결됩니다. MEV·선행매매·레이턴시 차익을 구조적으로 차단합니다.
+      <span class="en">
+        Order details are hidden until reveal. A frequent-batch-auction matches every 30s at a
+        uniform clearing price — eliminating MEV, front-running, and latency arbitrage by design.
+      </span>
+    </p>
+
+    <!-- Phase indicator -->
+    <div class="phase-bar" id="phase-bar">
+      <div class="pl">
+        <span>현재 단계 / Phase</span>
+        <span class="badge" id="phase-badge">COMMIT</span>
+      </div>
+      <div class="pl">
+        <span>배치 / Batch</span>
+        <span class="v" id="phase-batch">—</span>
+      </div>
+      <div class="pl">
+        <span>남은 시간 / Remaining</span>
+        <span class="v" id="phase-left">—</span>
+      </div>
+      <div class="phase-progress"><div class="fill" id="phase-fill"></div></div>
+      <div class="pl">
+        <span>커밋 / Reveal</span>
+        <span class="v" id="phase-counts">0 / 0</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Form + book/history -->
+  <div class="zkt-grid">
+
+    <!-- Order form -->
+    <section class="zkt-panel">
+      <h2>주문 커밋 <span class="en">/ Commit order</span></h2>
+      <div class="sub">
+        가격·수량은 브라우저에서만 보입니다. 서버는 SHA-256 해시만 받습니다.
+        <span class="en">Server only sees the hash; salt + plaintext stay in your browser.</span>
+      </div>
+
+      <div id="auth-gate" class="sign-in-prompt" style="display:none;">
+        로그인 후 ZK 모드를 사용할 수 있습니다. <a href="signin.html?next=/app/zk-trade.html">로그인</a>
+        <div class="en" style="font-size:11px;margin-top:4px;color:var(--ink-dim);">
+          Sign in to use the ZK trading mode.
+        </div>
+      </div>
+
+      <div id="form-host">
+        <div class="of-row">
+          <label for="of-symbol">심볼 / Symbol</label>
+          <select id="of-symbol">
+            <option value="ETHUSDT">ETH / USDT</option>
+            <option value="BTCUSDT">BTC / USDT</option>
+          </select>
+        </div>
+        <div class="of-side">
+          <button type="button" data-side="BUY" class="active buy">매수 / BUY</button>
+          <button type="button" data-side="SELL">매도 / SELL</button>
+        </div>
+        <div class="of-row">
+          <label for="of-price">가격 / Price</label>
+          <input id="of-price" type="text" inputmode="decimal" placeholder="100.0" />
+        </div>
+        <div class="of-row">
+          <label for="of-qty">수량 / Qty</label>
+          <input id="of-qty" type="text" inputmode="decimal" placeholder="0.1" />
+        </div>
+        <button id="of-commit" class="of-commit-btn" type="button">
+          커밋 제출 / Submit commitment
+        </button>
+        <div class="of-help" id="of-help">
+          매칭은 배치 종료 직후 자동으로 진행됩니다. <br/>
+          Reveal happens automatically; matching runs at window_end.
+        </div>
+      </div>
+    </section>
+
+    <!-- Public commitment book + my commits + history -->
+    <div style="display:flex; flex-direction:column; gap:18px;">
+
+      <section class="zkt-panel">
+        <h2>내 커밋 <span class="en">/ My pending commits</span></h2>
+        <div class="sub">자동 리빌은 reveal 단계가 시작되면 즉시 실행됩니다.</div>
+        <div id="my-commits" class="pc-list">
+          <div class="empty">아직 커밋이 없습니다. <span class="en">No commits yet.</span></div>
+        </div>
+      </section>
+
+      <section class="zkt-panel">
+        <h2>공개 커밋 북 <span class="en">/ Public commitment book</span></h2>
+        <div class="sub">
+          현재 배치에 누구나 볼 수 있는 해시 목록입니다. 가격·수량·방향은 노출되지 않습니다.
+          <span class="en">Public list of commitments in the current batch — hashes only.</span>
+        </div>
+        <div id="public-book"><div class="empty">로딩 중… / Loading…</div></div>
+      </section>
+
+      <section class="zkt-panel">
+        <h2>최근 배치 <span class="en">/ Recent batches</span></h2>
+        <div class="sub">청산가·체결량·서명된 머클 루트.</div>
+        <div id="batches-host"><div class="empty">로딩 중…</div></div>
+      </section>
+
+      <section class="zkt-panel">
+        <h2>내 체결 내역 <span class="en">/ My matches</span></h2>
+        <div id="my-matches"><div class="empty">아직 체결이 없습니다.</div></div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- Education panel -->
+  <section class="edu">
+    <h2>ZK 거래란? <span class="en">/ What is ZK trade?</span></h2>
+    <div class="edu-grid">
+      <div class="edu-card">
+        <div class="t">1. Commit-Reveal</div>
+        <div class="b">
+          가격·수량·방향을 32-byte 랜덤 salt와 함께 SHA-256으로 해시한 커밋만 제출합니다.
+          매칭 직전까지 그 누구도(서버 포함) 주문을 복원할 수 없습니다.
+          <span class="en">
+            Commit a SHA-256 hash of (salt || price || qty || side || …). Until reveal, the
+            server itself can't recover your order.
+          </span>
+        </div>
+      </div>
+      <div class="edu-card">
+        <div class="t">2. Frequent batch auction</div>
+        <div class="b">
+          매 30초마다 모든 reveal된 주문이 하나의 경매로 묶여 매칭됩니다. 1-tick 빠른
+          봇이 가지는 레이턴시 우위가 무효화됩니다.
+          <span class="en">
+            All reveals in a 30s window are matched together. Latency-arbitrage bots get no
+            edge by being 1ms faster.
+          </span>
+        </div>
+      </div>
+      <div class="edu-card">
+        <div class="t">3. Uniform clearing price</div>
+        <div class="b">
+          체결되는 모든 주문은 같은 가격(왈라스 균형가)으로 청산됩니다. 호가 끌어올리기·찍기
+          전략의 기대값이 0이 됩니다.
+          <span class="en">
+            Every fill in a batch clears at the same Walrasian price. Front-running becomes
+            unprofitable in expectation.
+          </span>
+        </div>
+      </div>
+      <div class="edu-card">
+        <div class="t">4. Auditable matching</div>
+        <div class="b">
+          배치마다 Ed25519로 서명된 머클 루트가 공개됩니다. 외부 감사자는 reveal 데이터를
+          내려받아 동일한 알고리즘으로 청산가·체결을 재계산해 일치 여부를 검증할 수 있습니다.
+          <span class="en">
+            Each batch publishes an Ed25519-signed Merkle root over its reveals. Anyone can
+            re-run the matcher offline and verify nothing was censored.
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="caveats">
+      <div class="t">정직한 한계 / Honest caveats</div>
+      (a) 커밋은 주문 내용은 숨기지만 “시각 T에 사용자 X가 커밋했다”는 사실 자체는 공개됩니다.
+      완전 익명성은 믹서나 영지식 셸터 풀이 필요합니다. <br/>
+      (b) 타이밍 분석으로 사용자의 선호(매수/매도 빈도, 활성 시간대)는 여전히 누출될 수 있습니다. <br/>
+      (c) “잔고 안에서 주문했다”는 사실까지 영지식으로 증명하려면 SNARK 회로 설계(Plonk/Groth16)가 필요하며,
+      이 데모는 거기까진 다루지 않습니다. <br/>
+      <span style="color:var(--ink-dim);font-size:10.5px;">
+        (a) Commitments hide order details but not the fact that user X committed at time T —
+        full anonymity requires shielded pools.
+        (b) Timing analysis can still leak preferences.
+        (c) Proving "your order respects your balance" in ZK requires a Plonk/Groth16 circuit,
+        which this demo does not ship.
+      </span>
+    </div>
+  </section>
+
+</main>
+
+<script type="module">
+  import { renderHeader, renderFooter, getSession, requireSession, escapeHtml, toast } from "./app.js";
+
+  renderHeader("trade");
+  renderFooter();
+
+  // -----------------------------------------------------------------
+  // Local storage for pending preimages. Browser stores the salt +
+  // plaintext so we can auto-reveal once the reveal phase starts.
+  // -----------------------------------------------------------------
+  const STORE_KEY = "zkcex_pending_commits";
+
+  function loadPending() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  }
+  function savePending(arr) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(arr));
+  }
+  function addPending(rec) {
+    const arr = loadPending();
+    arr.unshift(rec);
+    if (arr.length > 50) arr.length = 50;
+    savePending(arr);
+  }
+  function markPending(commitment_hex, patch) {
+    const arr = loadPending();
+    const i = arr.findIndex(r => r.commitment_hex === commitment_hex);
+    if (i >= 0) { arr[i] = { ...arr[i], ...patch }; savePending(arr); }
+  }
+  function findPending(commitment_hex) {
+    return loadPending().find(r => r.commitment_hex === commitment_hex);
+  }
+
+  // -----------------------------------------------------------------
+  // Crypto helpers (must mirror python compute_commitment_hex exactly).
+  // -----------------------------------------------------------------
+  function randSalt() {
+    const buf = new Uint8Array(32);
+    crypto.getRandomValues(buf);
+    return Array.from(buf, b => b.toString(16).padStart(2, "0")).join("");
+  }
+  function hexToBytes(hex) {
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) {
+      out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    return out;
+  }
+  function u8(n) { return new Uint8Array([n & 0xff]); }
+  function u16(n) {
+    const b = new Uint8Array(2);
+    b[0] = (n >> 8) & 0xff; b[1] = n & 0xff;
+    return b;
+  }
+  function u64(n) {
+    // Accept BigInt or Number; encode big-endian 8 bytes.
+    let v = (typeof n === "bigint") ? n : BigInt(Math.max(0, Math.floor(Number(n))));
+    if (v < 0n) v = 0n;
+    if (v >= (1n << 64n)) v = (1n << 64n) - 1n;
+    const b = new Uint8Array(8);
+    for (let i = 7; i >= 0; i--) { b[i] = Number(v & 0xffn); v >>= 8n; }
+    return b;
+  }
+  function lp(str) {
+    const enc = new TextEncoder();
+    const data = enc.encode(str);
+    const len = u16(data.length);
+    const out = new Uint8Array(2 + data.length);
+    out.set(len, 0); out.set(data, 2);
+    return out;
+  }
+  // Scale a decimal string by 1e8 to BigInt. Hand-rolled to avoid float
+  // precision loss.
+  function scale8dp(s) {
+    s = String(s).trim();
+    if (!s) return 0n;
+    if (s.startsWith("+")) s = s.slice(1);
+    const neg = s.startsWith("-");
+    if (neg) return 0n;
+    const dot = s.indexOf(".");
+    let intPart, fracPart;
+    if (dot === -1) { intPart = s; fracPart = ""; }
+    else { intPart = s.slice(0, dot); fracPart = s.slice(dot + 1); }
+    fracPart = (fracPart + "00000000").slice(0, 8);  // pad/truncate to 8 dp
+    intPart = intPart.replace(/^0+(?=\d)/, "") || "0";
+    if (!/^\d+$/.test(intPart) || !/^\d+$/.test(fracPart)) return 0n;
+    return BigInt(intPart) * 100000000n + BigInt(fracPart);
+  }
+
+  function concatBytes(parts) {
+    let total = 0;
+    for (const p of parts) total += p.length;
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) { out.set(p, off); off += p.length; }
+    return out;
+  }
+  async function computeCommitment({ salt_hex, price, quantity, side, symbol,
+                                      user_id, expires_at }) {
+    const msg = concatBytes([
+      hexToBytes(salt_hex),
+      u64(scale8dp(price)),
+      u64(scale8dp(quantity)),
+      u8(side.toUpperCase() === "BUY" ? 0 : 1),
+      lp(symbol),
+      lp(user_id),
+      u64(expires_at),
+    ]);
+    const digest = await crypto.subtle.digest("SHA-256", msg);
+    return Array.from(new Uint8Array(digest),
+      b => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  // -----------------------------------------------------------------
+  // Auth gate.
+  // -----------------------------------------------------------------
+  function ensureSignedIn() {
+    const s = getSession();
+    const gate = document.getElementById("auth-gate");
+    const host = document.getElementById("form-host");
+    if (!s) {
+      gate.style.display = "block";
+      host.style.opacity = "0.45";
+      host.style.pointerEvents = "none";
+      return null;
+    }
+    gate.style.display = "none";
+    host.style.opacity = "";
+    host.style.pointerEvents = "";
+    return s;
+  }
+
+  // -----------------------------------------------------------------
+  // API wrappers.
+  // -----------------------------------------------------------------
+  async function api(method, path, body) {
+    const s = getSession();
+    const headers = { "Accept": "application/json" };
+    if (s) headers["Authorization"] = `Bearer ${s.token}`;
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const res = await fetch(path, {
+      method, headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    let payload = null;
+    try { payload = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}: ${payload?.error || res.statusText}`);
+      err.body = payload; err.status = res.status;
+      throw err;
+    }
+    return payload;
+  }
+
+  // -----------------------------------------------------------------
+  // Side toggle.
+  // -----------------------------------------------------------------
+  let activeSide = "BUY";
+  document.querySelectorAll(".of-side button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      activeSide = btn.dataset.side;
+      document.querySelectorAll(".of-side button").forEach(b => {
+        b.classList.remove("active", "buy", "sell");
+      });
+      btn.classList.add("active");
+      btn.classList.add(activeSide.toLowerCase());
+    });
+  });
+
+  // -----------------------------------------------------------------
+  // Submit commit.
+  // -----------------------------------------------------------------
+  document.getElementById("of-commit").addEventListener("click", async () => {
+    const s = ensureSignedIn();
+    if (!s) return;
+    const symbol = document.getElementById("of-symbol").value.toUpperCase();
+    const price = document.getElementById("of-price").value.trim();
+    const qty = document.getElementById("of-qty").value.trim();
+    if (!price || !qty || !(Number(price) > 0) || !(Number(qty) > 0)) {
+      toast && toast("가격·수량을 입력하세요. / Enter price and quantity.", "error");
+      return;
+    }
+    let info;
+    try { info = await api("GET", "/zk-trade/info?symbol=" + symbol); }
+    catch (e) {
+      toast && toast(`Failed to read phase: ${e.message}`, "error");
+      return;
+    }
+    if (info.phase !== "commit") {
+      toast && toast(
+        `현재 ${info.phase.toUpperCase()} 단계입니다. 다음 commit 윈도우까지 ${info.time_left_in_phase}s 대기. `
+        + `Wait ${info.time_left_in_phase}s for the next commit window.`,
+        "warning");
+      return;
+    }
+    const expires_at = info.window_end - 1;
+    const salt_hex = randSalt();
+    const commitment_hex = await computeCommitment({
+      salt_hex, price, quantity: qty, side: activeSide, symbol,
+      user_id: s.user.opex_user, expires_at,
+    });
+    // Persist preimage locally BEFORE sending to server. Worst case the
+    // commit succeeds but the page reloads — we still have the salt to
+    // reveal with.
+    addPending({
+      commitment_hex, salt_hex, price, quantity: qty,
+      side: activeSide, symbol, expires_at,
+      batch_id: info.current_batch_id, submitted_at: Date.now(),
+      status: "committed",
+    });
+    let res;
+    try {
+      res = await api("POST", "/zk-trade/commit", {
+        commitment_hex, symbol, expires_at,
+      });
+    } catch (e) {
+      markPending(commitment_hex, { status: "rejected", error: e.message });
+      toast && toast(`커밋 실패: ${e.message}`, "error");
+      refreshAll();
+      return;
+    }
+    toast && toast(
+      `커밋 완료 — batch #${res.batch_id} — reveal까지 ${res.time_to_reveal}s. `
+      + `Committed; reveal in ${res.time_to_reveal}s.`,
+      "ok");
+    document.getElementById("of-price").value = "";
+    document.getElementById("of-qty").value = "";
+    refreshAll();
+  });
+
+  // -----------------------------------------------------------------
+  // Auto-reveal scheduler. We reveal during reveal phase, for any
+  // commitment whose batch_id is the current batch. The server accepts
+  // reveals during both commit and reveal phases of the same batch, but
+  // we wait for reveal phase to keep the timing intuitive.
+  // -----------------------------------------------------------------
+  async function tryAutoReveal(info) {
+    const s = getSession();
+    if (!s) return;
+    const arr = loadPending();
+    for (const rec of arr) {
+      if (rec.status !== "committed") continue;
+      if (rec.batch_id !== info.current_batch_id) continue;
+      // Reveal during the reveal phase OR right at the tail of commit
+      // (still same batch).
+      if (info.phase !== "reveal") continue;
+      try {
+        await api("POST", "/zk-trade/reveal", {
+          commitment_hex: rec.commitment_hex,
+          salt_hex: rec.salt_hex,
+          price: rec.price, quantity: rec.quantity,
+          side: rec.side, symbol: rec.symbol,
+          expires_at: rec.expires_at,
+        });
+        markPending(rec.commitment_hex, { status: "revealed" });
+      } catch (e) {
+        markPending(rec.commitment_hex,
+          { status: "reveal_failed", error: e.message });
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Renderers.
+  // -----------------------------------------------------------------
+  function fmtTs(unix) {
+    if (!unix) return "—";
+    try { return new Date(unix * 1000).toLocaleTimeString(); }
+    catch { return "—"; }
+  }
+
+  async function refreshPhase() {
+    let info;
+    try {
+      info = await fetch("/zk-trade/info").then(r => r.json());
+    } catch { return null; }
+    if (!info || info.error) return null;
+    const badge = document.getElementById("phase-badge");
+    badge.textContent = (info.phase || "—").toUpperCase();
+    badge.classList.toggle("reveal", info.phase === "reveal");
+    document.getElementById("phase-batch").textContent = "#" + info.current_batch_id;
+    document.getElementById("phase-left").textContent = info.time_left_in_phase + "s";
+    document.getElementById("phase-counts").textContent =
+      `${info.n_committed} / ${info.n_revealed}`;
+    // Progress bar. Width = elapsed in current batch / total batch length.
+    const total = info.batch_interval_seconds || 30;
+    const phaseLen = info.phase === "commit"
+      ? info.commit_phase_seconds : info.reveal_phase_seconds;
+    const elapsedInPhase = phaseLen - info.time_left_in_phase;
+    const pct = Math.min(100, Math.max(0, (elapsedInPhase / phaseLen) * 100));
+    const fill = document.getElementById("phase-fill");
+    fill.style.width = pct + "%";
+    fill.classList.toggle("reveal", info.phase === "reveal");
+    return info;
+  }
+
+  async function refreshPublicBook(symbol) {
+    const host = document.getElementById("public-book");
+    let data;
+    try {
+      data = await fetch(`/zk-trade/commits?symbol=${symbol}&limit=50`).then(r => r.json());
+    } catch { return; }
+    const rows = data.commits || [];
+    if (rows.length === 0) {
+      host.innerHTML = `<div class="empty">아직 공개된 커밋이 없습니다. / No commits yet.</div>`;
+      return;
+    }
+    host.innerHTML = rows.slice(0, 30).map(r =>
+      `<div class="cb-row">
+        <span class="h" title="${escapeHtml(r.commitment_hex)}">${escapeHtml(r.commitment_hex)}</span>
+        <span class="s ${escapeHtml(r.status)}">${escapeHtml(r.status)}</span>
+        <span class="ts">batch #${r.batch_id}</span>
+        <span class="ts">${fmtTs(r.submitted_at)}</span>
+      </div>`
+    ).join("");
+  }
+
+  async function refreshBatches(symbol) {
+    const host = document.getElementById("batches-host");
+    let data;
+    try {
+      data = await fetch(`/zk-trade/batches?symbol=${symbol}&limit=10`).then(r => r.json());
+    } catch { return; }
+    const rows = data.batches || [];
+    if (rows.length === 0) {
+      host.innerHTML = `<div class="empty">아직 완료된 배치가 없습니다. / No batches sealed yet.</div>`;
+      return;
+    }
+    host.innerHTML = `<table class="batches">
+      <thead><tr>
+        <th scope="col">BATCH</th><th scope="col">CLEARING</th><th scope="col">VOLUME</th><th scope="col">MATCHES</th><th scope="col">ROOT</th>
+      </tr></thead>
+      <tbody>${rows.map(b => `<tr>
+        <td class="v">#${b.batch_id}</td>
+        <td class="cp">${escapeHtml(b.clearing_price || "—")}</td>
+        <td>${escapeHtml(b.total_volume || "0")}</td>
+        <td>${b.n_matches} / ${b.n_reveals}</td>
+        <td class="rh" title="${escapeHtml(b.root_hash)}">${escapeHtml(b.root_hash)}</td>
+      </tr>`).join("")}</tbody></table>`;
+  }
+
+  async function refreshMine() {
+    const s = getSession();
+    if (!s) {
+      document.getElementById("my-commits").innerHTML =
+        `<div class="empty">로그인 후 표시됩니다.</div>`;
+      document.getElementById("my-matches").innerHTML =
+        `<div class="empty">로그인 후 표시됩니다.</div>`;
+      return;
+    }
+    let data;
+    try { data = await api("GET", "/zk-trade/my-commits"); }
+    catch { return; }
+    const commits = data.commits || [];
+    const trades = (data.trades_as_buyer || []).map(t => ({ ...t, _role: "BUY" }))
+      .concat((data.trades_as_seller || []).map(t => ({ ...t, _role: "SELL" })))
+      .sort((a, b) => (b.matched_at || 0) - (a.matched_at || 0));
+    // Pending commits: enrich with local preimage so we can show price/qty.
+    const myHost = document.getElementById("my-commits");
+    if (commits.length === 0) {
+      myHost.innerHTML = `<div class="empty">아직 커밋이 없습니다. / No commits yet.</div>`;
+    } else {
+      myHost.innerHTML = commits.slice(0, 12).map(c => {
+        const local = findPending(c.commitment_hex);
+        const detail = local
+          ? `${escapeHtml(local.side)} ${escapeHtml(local.quantity)} @ ${escapeHtml(local.price)}`
+          : `(preimage on another device)`;
+        return `<div class="pc-item">
+          <div class="top">
+            <span class="hash" title="${escapeHtml(c.commitment_hex)}">${escapeHtml(c.commitment_hex.slice(0,24))}…</span>
+            <span class="st ${escapeHtml(c.status)}">${escapeHtml(c.status)}</span>
+          </div>
+          <div class="detail">${detail} · ${escapeHtml(c.symbol)} · batch #${c.batch_id}</div>
+        </div>`;
+      }).join("");
+    }
+    const matchHost = document.getElementById("my-matches");
+    if (trades.length === 0) {
+      matchHost.innerHTML = `<div class="empty">아직 체결이 없습니다. / No matches yet.</div>`;
+    } else {
+      matchHost.innerHTML = trades.slice(0, 12).map(t => `<div class="mh-row">
+        <span class="role ${t._role.toLowerCase()}">${t._role}</span>
+        <span class="px">@ ${escapeHtml(t.clearing_price)}</span>
+        <span class="qty">qty ${escapeHtml(t.quantity)}</span>
+        <span class="bid">${escapeHtml(t.symbol)} · batch #${t.batch_id}</span>
+      </div>`).join("");
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Tick loop.
+  // -----------------------------------------------------------------
+  let lastBatchId = null;
+  async function refreshAll() {
+    ensureSignedIn();
+    const symbol = document.getElementById("of-symbol").value.toUpperCase();
+    const info = await refreshPhase();
+    if (!info) return;
+    if (info.phase === "reveal") {
+      tryAutoReveal(info);
+    }
+    await Promise.all([
+      refreshPublicBook(symbol),
+      refreshMine(),
+      info.current_batch_id !== lastBatchId ? refreshBatches(symbol) : Promise.resolve(),
+    ]);
+    if (info.current_batch_id !== lastBatchId) {
+      // Batch flipped — re-pull batches once more after a beat so we get
+      // the just-sealed row.
+      lastBatchId = info.current_batch_id;
+      setTimeout(() => refreshBatches(symbol), 1500);
+    }
+  }
+
+  // Initial.
+  ensureSignedIn();
+  refreshAll();
+  refreshBatches(document.getElementById("of-symbol").value.toUpperCase());
+  setInterval(refreshAll, 2000);
+
+  document.getElementById("of-symbol").addEventListener("change", refreshAll);
+
+</script>
+
+</body>
+</html>

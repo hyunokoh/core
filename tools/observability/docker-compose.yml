@@ -1,0 +1,82 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: zkcex-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prom-data:/prometheus
+    extra_hosts:
+      # host.docker.internal -> the host on Linux so prometheus can scrape
+      # the metrics_aggregator running on :5640 on the host network.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.2.0
+    container_name: zkcex-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/config.yml
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    container_name: zkcex-promtail
+    depends_on:
+      - loki
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+      # Tail Python service logs that the demo launcher writes to /tmp/*.log
+      - /tmp:/var/log/zkcex:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: zkcex-grafana
+    depends_on:
+      - prometheus
+      - loki
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SECURITY_ADMIN_PASSWORD=zkcex
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+  alertmanager:
+    # Optional: forwards firing alerts to our pagerduty_webhook.py on the host.
+    # Disabled by default in the demo to keep the surface small; uncomment to enable.
+    image: prom/alertmanager:v0.27.0
+    container_name: zkcex-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - am-data:/alertmanager
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    restart: unless-stopped
+
+volumes:
+  prom-data:
+  loki-data:
+  grafana-data:
+  am-data:

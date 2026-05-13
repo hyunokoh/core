@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>WAF — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+  <style>
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .stat { padding:10px 14px; border-radius:8px; background:#11162b; }
+    .stat .v { font-size:24px; font-weight:600; color:#e6ecff; }
+    .stat .l { font-size:11px; color:#9aa6c7; text-transform:uppercase; letter-spacing:.04em; }
+    .bar { height:10px; background:#1d2444; border-radius:4px; overflow:hidden; }
+    .bar > div { height:100%; background:#7c9cff; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:9px;
+            font-size:11px; background:#1d2444; color:#cfd6f3; margin-right:4px; }
+    .pill.high { background:#5a1f24; color:#ffd1d4; }
+    .pill.medium { background:#5a4a1f; color:#ffe7a5; }
+    .pill.low { background:#1f3a5a; color:#a5cdff; }
+    .pill.critical { background:#7a1a1a; color:#fff; }
+    table.dense td.small { color:#9aa6c7; font-size:11px; }
+    .blockform { display:flex; gap:8px; align-items:flex-end; }
+    .blockform input { padding:6px; background:#0f1429; color:#e6ecff;
+                       border:1px solid #2a3258; border-radius:4px; }
+  </style>
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>Web Application Firewall</h1>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <div class="grid2">
+        <div class="stat"><div class="l">WAF status</div>
+          <div class="v" id="s-status">—</div>
+          <div class="hint" id="s-uptime">uptime —</div></div>
+        <div class="stat"><div class="l">Blocked (last hour)</div>
+          <div class="v" id="s-blocked">—</div>
+          <div class="hint">requests stopped at the edge</div></div>
+        <div class="stat"><div class="l">Rate-limit hits / h</div>
+          <div class="v" id="s-rl">—</div>
+          <div class="hint">429s issued</div></div>
+        <div class="stat"><div class="l">Total requests seen</div>
+          <div class="v" id="s-total">—</div>
+          <div class="hint">since process start</div></div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Per-rule breakdown</h2>
+      <div id="byrule"><div class="loading">loading…</div></div>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Per-tier hits</h2>
+      <div id="bytier"><div class="loading">loading…</div></div>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Top attacker IPs (last hour)</h2>
+      <table class="dense" id="t-ips">
+        <thead><tr><th>ip (redacted)</th><th>blocks</th></tr></thead>
+        <tbody><tr><td colspan="2" class="loading">loading…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Blocked country distribution</h2>
+      <div id="bycountry"><div class="loading">loading…</div></div>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Manual IP blocklist</h2>
+      <div class="blockform" style="margin-bottom:10px;">
+        <div class="field" style="flex:1;">
+          <label>IP</label><input id="b-ip" placeholder="1.2.3.4">
+        </div>
+        <div class="field" style="width:140px;">
+          <label>Duration (s)</label><input id="b-dur" type="number" value="3600">
+        </div>
+        <div class="field" style="flex:2;">
+          <label>Reason</label><input id="b-reason" placeholder="abuse / scraping">
+        </div>
+        <button class="btn primary" id="b-add">Block IP</button>
+      </div>
+      <table class="dense" id="t-manual">
+        <thead><tr><th>ip</th><th>since</th><th>until</th><th>reason</th><th></th></tr></thead>
+        <tbody><tr><td colspan="5" class="loading">loading…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2 style="margin-top:0;">Recent blocks</h2>
+      <table class="dense" id="t-blocks">
+        <thead><tr><th>when</th><th>ip</th><th>rule</th><th>severity</th>
+                   <th>decision</th><th>path</th><th>ua</th></tr></thead>
+        <tbody><tr><td colspan="7" class="loading">loading…</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script type="module">
+    import { requireOpsSession, opsFetch, renderChrome,
+             fmtTs, fmtRelative, escapeHtml } from "/ops/ops.js";
+
+    // WAF runs on :5499. The ops console is served at :5500. For convenience
+    // we hit the WAF over a same-origin path if available, else fall back to
+    // explicit host. We expect the ops session token to ALSO be a valid
+    // WAF_ADMIN_TOKEN (operator-issued). Real production wires this through
+    // the ops_server.
+    const WAF_BASE = (window.WAF_BASE || (location.protocol + "//" + location.hostname + ":5499"));
+
+    async function wafFetch(path, opts = {}) {
+      // Prefer the operator's WAF admin token from localStorage; fall back to
+      // the ops session bearer (works when the operator has set the same
+      // token for both).
+      const wafTok = localStorage.getItem("zkcex.waf.admin_token") || "";
+      const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+      if (wafTok) headers["Authorization"] = "Bearer " + wafTok;
+      try {
+        const res = await fetch(WAF_BASE + path, { ...opts, headers });
+        let body = null; try { body = await res.json(); } catch {}
+        return { ok: res.ok, status: res.status, body };
+      } catch (e) {
+        return { ok: false, status: 0, body: { error: String(e) } };
+      }
+    }
+
+    function renderRuleBars(byRule) {
+      const el = document.getElementById("byrule");
+      const entries = Object.entries(byRule).sort((a,b)=>b[1]-a[1]);
+      if (!entries.length) { el.innerHTML = '<div class="empty">no blocks yet</div>'; return; }
+      const max = Math.max(...entries.map(e=>e[1]));
+      el.innerHTML = entries.map(([rule, n]) => `
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:#cfd6f3;">
+            <span>${escapeHtml(rule)}</span><span>${n}</span></div>
+          <div class="bar"><div style="width:${Math.round(100*n/max)}%"></div></div>
+        </div>`).join("");
+    }
+
+    function renderTierBars(byTier) {
+      const el = document.getElementById("bytier");
+      const entries = Object.entries(byTier).sort((a,b)=>b[1]-a[1]);
+      if (!entries.length) { el.innerHTML = '<div class="empty">no traffic yet</div>'; return; }
+      const max = Math.max(...entries.map(e=>e[1]));
+      el.innerHTML = entries.map(([tier, n]) => `
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:#cfd6f3;">
+            <span>${escapeHtml(tier)}</span><span>${n}</span></div>
+          <div class="bar"><div style="width:${Math.round(100*n/max)}%"></div></div>
+        </div>`).join("");
+    }
+
+    function renderCountries(byCountry) {
+      const el = document.getElementById("bycountry");
+      const entries = Object.entries(byCountry).sort((a,b)=>b[1]-a[1]);
+      if (!entries.length) { el.innerHTML = '<div class="empty">no geo-blocks yet</div>'; return; }
+      el.innerHTML = entries.map(([c, n]) => `
+        <span class="pill medium">${escapeHtml(c)} · ${n}</span>`).join("");
+    }
+
+    async function loadStats() {
+      const r = await wafFetch("/waf/stats");
+      if (!r || !r.ok) {
+        document.getElementById("s-status").textContent = "unreachable";
+        document.getElementById("byrule").innerHTML = '<div class="empty">WAF unreachable. Is it running on :5499?</div>';
+        return;
+      }
+      document.getElementById("s-status").textContent = "OK";
+      document.getElementById("s-uptime").textContent =
+        "uptime " + Math.round(r.body.uptime_s/60) + "m";
+      document.getElementById("s-blocked").textContent = r.body.req_blocked;
+      document.getElementById("s-total").textContent = r.body.req_total;
+      document.getElementById("s-rl").textContent =
+        (r.body.by_rule || {}).rate_limit || 0;
+      renderRuleBars(r.body.by_rule || {});
+      renderTierBars(r.body.by_tier || {});
+      renderCountries(r.body.by_country || {});
+      // Top IPs
+      const tb = document.querySelector("#t-ips tbody");
+      const ips = r.body.top_attacker_ips_last_hour || [];
+      tb.innerHTML = ips.length
+        ? ips.map(o => `<tr><td class="mono">${escapeHtml(o.ip)}</td><td>${o.blocks}</td></tr>`).join("")
+        : `<tr><td colspan="2" class="empty">no attacker IPs in the last hour</td></tr>`;
+    }
+
+    async function loadManual() {
+      const r = await wafFetch("/waf/_admin/blocked");
+      const tb = document.querySelector("#t-manual tbody");
+      if (!r || !r.ok) { tb.innerHTML = `<tr><td colspan="5" class="empty">failed</td></tr>`; return; }
+      const rows = r.body.blocks || [];
+      if (!rows.length) { tb.innerHTML = `<tr><td colspan="5" class="empty">no manual blocks</td></tr>`; return; }
+      tb.innerHTML = rows.map(b => `
+        <tr>
+          <td class="mono">${escapeHtml(b.ip)}</td>
+          <td>${fmtTs(b.blocked_at)}</td>
+          <td>${b.blocked_until ? fmtTs(b.blocked_until) : "(permanent)"}</td>
+          <td>${escapeHtml(b.reason || "")}</td>
+          <td><button class="btn" data-rm="${escapeHtml(b.ip)}">remove</button></td>
+        </tr>`).join("");
+      tb.querySelectorAll("button[data-rm]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const ip = btn.getAttribute("data-rm");
+          await wafFetch("/waf/_admin/block-ip/" + encodeURIComponent(ip), { method: "DELETE" });
+          loadManual();
+        });
+      });
+    }
+
+    async function loadHealth() {
+      const r = await wafFetch("/waf/health");
+      if (r && r.ok) {
+        document.getElementById("s-blocked").textContent = r.body.blocked_last_hour;
+        document.getElementById("s-rl").textContent = r.body.rate_limit_hits_last_hour;
+      }
+    }
+
+    function tick() { loadStats(); loadHealth(); loadManual(); }
+
+    if (!requireOpsSession()) {} else {
+      renderChrome("waf");
+      // Prompt for WAF admin token once and cache.
+      if (!localStorage.getItem("zkcex.waf.admin_token")) {
+        const t = prompt("WAF admin token (printed on WAF startup as WAF_ADMIN_TOKEN):");
+        if (t) localStorage.setItem("zkcex.waf.admin_token", t.trim());
+      }
+      document.getElementById("b-add").addEventListener("click", async () => {
+        const ip = document.getElementById("b-ip").value.trim();
+        const dur = parseInt(document.getElementById("b-dur").value, 10) || 0;
+        const reason = document.getElementById("b-reason").value.trim();
+        if (!ip) return;
+        const r = await wafFetch("/waf/_admin/block-ip", {
+          method: "POST",
+          body: JSON.stringify({ ip, duration_seconds: dur, reason }),
+        });
+        if (r && r.ok) {
+          document.getElementById("b-ip").value = "";
+          document.getElementById("b-reason").value = "";
+          loadManual();
+        } else {
+          alert("Block failed: " + (r && r.body && r.body.error || "unknown"));
+        }
+      });
+      tick();
+      setInterval(tick, 5000);
+    }
+  </script>
+</body>
+</html>

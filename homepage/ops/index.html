@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Operator Console — zkCEX</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>Overview</h1>
+    <div class="cards" id="cards">
+      <div class="card warn"><div class="label">KYC pending</div><div class="value" id="c-kyc">—</div><div class="hint">awaiting review</div></div>
+      <div class="card warn"><div class="label">Withdraws held</div><div class="value" id="c-wd">—</div><div class="hint">large-withdraw review</div></div>
+      <div class="card err"><div class="label">AML open</div><div class="value" id="c-aml">—</div><div class="hint">REVIEW decisions</div></div>
+      <div class="card info"><div class="label">Incidents open</div><div class="value" id="c-inc">—</div><div class="hint">not-yet-resolved</div></div>
+    </div>
+
+    <h2>Activity — last 24h</h2>
+    <div class="panel">
+      <div class="timeline" id="timeline"><div class="loading">loading…</div></div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requireOpsSession, opsFetch, renderChrome, fmtRelative, escapeHtml } from "/ops/ops.js";
+    if (!requireOpsSession()) { /* redirected */ } else {
+      renderChrome("overview");
+      const r = await opsFetch("/overview");
+      if (r && r.ok) {
+        document.getElementById("c-kyc").textContent = r.body.counts.kyc_pending;
+        document.getElementById("c-wd").textContent  = r.body.counts.withdraws_pending;
+        document.getElementById("c-aml").textContent = r.body.counts.aml_open;
+        document.getElementById("c-inc").textContent = r.body.counts.incidents_open;
+        const tl = document.getElementById("timeline");
+        if (!r.body.timeline_24h.length) {
+          tl.innerHTML = `<div class="empty">No actions yet in the last 24 hours.</div>`;
+        } else {
+          tl.innerHTML = r.body.timeline_24h.map(e => `
+            <div class="event">
+              <span class="when">${fmtRelative(e.ts)}</span>
+              <span class="what"><b>${escapeHtml(e.action)}</b> · ${escapeHtml(e.target_kind)}/${escapeHtml(e.target_id)}</span>
+              <span class="who">${escapeHtml(e.display_name || "—")}</span>
+            </div>`).join("");
+        }
+      }
+    }
+  </script>
+</body>
+</html>

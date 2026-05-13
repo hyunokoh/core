@@ -21,6 +21,9 @@ class WalletOwnerController(
     private val walletManager: WalletManager
 ) {
 
+    private suspend fun getOrCreateOwner(uuid: String) =
+        walletOwnerManager.findWalletOwner(uuid) ?: walletOwnerManager.createWalletOwner(uuid, "not set", "1")
+
     @GetMapping("/{uuid}/wallets")
     @ApiResponse(
         message = "OK",
@@ -33,7 +36,7 @@ class WalletOwnerController(
         )
     )
     suspend fun getAllWallets(@PathVariable uuid: String): List<WalletData> {
-        val owner = walletOwnerManager.findWalletOwner(uuid) ?: throw OpexError.WalletOwnerNotFound.exception()
+        val owner = getOrCreateOwner(uuid)
         val wallets = walletManager.findWalletsByOwner(owner)
         return BalanceParser.parse(wallets)
     }
@@ -50,7 +53,7 @@ class WalletOwnerController(
         )
     )
     suspend fun getWallet(@PathVariable uuid: String, @PathVariable symbol: String): WalletData {
-        val owner = walletOwnerManager.findWalletOwner(uuid) ?: throw OpexError.WalletOwnerNotFound.exception()
+        val owner = getOrCreateOwner(uuid)
         val wallets = walletManager.findWalletByOwnerAndSymbol(owner, symbol)
         return BalanceParser.parseSingleCurrency(wallets) ?: throw OpexError.WalletNotFound.exception()
     }
@@ -67,7 +70,7 @@ class WalletOwnerController(
         )
     )
     suspend fun getWalletOwnerLimits(@PathVariable uuid: String): OwnerLimitsResponse {
-        val owner = walletOwnerManager.findWalletOwner(uuid) ?: throw OpexError.WalletOwnerNotFound.exception()
+        val owner = getOrCreateOwner(uuid)
         return OwnerLimitsResponse(owner.isTradeAllowed, owner.isWithdrawAllowed, owner.isDepositAllowed)
     }
 }

@@ -1,0 +1,16 @@
+# Namespace-wide default-deny.
+#
+# An AuthorizationPolicy with action=ALLOW and an empty rules list matches no
+# requests; once at least one ALLOW policy selects a workload, traffic that
+# isn't explicitly allowed is rejected. Combined with per-service ALLOW lists
+# above, we get zero-trust east-west authorization.
+#
+# Note: this policy intentionally has no `selector`, so it applies to every
+# workload in zkcex.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: zkcex-default-deny
+  namespace: zkcex
+spec:
+  {}

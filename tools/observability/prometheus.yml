@@ -1,0 +1,45 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    environment: zkcex-demo
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+scrape_configs:
+  - job_name: zkcex-aggregator
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:5640']
+        labels:
+          source: aggregator
+
+  - job_name: zkcex-docker-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - 'host.docker.internal:8094'   # api
+          - 'host.docker.internal:8091'   # wallet
+          - 'host.docker.internal:8093'   # matching gateway
+          - 'host.docker.internal:8096'   # accountant / market
+        labels:
+          source: spring-actuator
+
+  - job_name: prometheus-self
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: zkcex-pagerduty-webhook
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:5641']
+        labels:
+          source: pagerduty-webhook

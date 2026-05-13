@@ -1,0 +1,78 @@
+{{- if .Values.istio.enabled }}
+# PeerAuthentication: enforce mTLS namespace-wide.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+spec:
+  mtls:
+    mode: {{ .Values.istio.mtlsMode }}
+---
+# Per-service DestinationRule with outlier detection (circuit breaker)
+# and canary subsets.
+{{- range $name, $cfg := .Values.services }}
+{{- if $cfg.enabled }}
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: {{ $name }}
+spec:
+  host: {{ $name }}
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 200
+      http:
+        http1MaxPendingRequests: 100
+        maxRequestsPerConnection: 10
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+    - name: stable
+      labels:
+        track: stable
+    - name: canary
+      labels:
+        track: canary
+---
+{{- end }}
+{{- end }}
+# VirtualService demonstrating header-pinned and percentage-based canary.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: zkcex-canary
+spec:
+  hosts: [{{ .Values.ingress.host | quote }}]
+  http:
+    - match:
+        - headers:
+            x-canary:
+              exact: "true"
+      route:
+        - destination:
+            host: proxy
+            subset: canary
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx,reset,connect-failure
+      timeout: 10s
+    - route:
+        - destination:
+            host: proxy
+            subset: stable
+          weight: 95
+        - destination:
+            host: proxy
+            subset: canary
+          weight: 5
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx,reset,connect-failure
+      timeout: 10s
+{{- end }}

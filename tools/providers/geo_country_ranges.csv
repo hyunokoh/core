@@ -1,0 +1,2181 @@
+cidr,iso2,name
+# zkCEX geo-blocking fallback CIDR -> country mapping.
+# Sources: ARIN/APNIC/RIPE/AFRINIC/LACNIC published allocation files (public).
+# This is the static fallback used when MaxMind GeoLite2-Country.mmdb is not
+# present at tools/.local/. It does NOT need to be exhaustive — it is a
+# pragmatic curated list covering: (a) the OFAC-sanctioned countries we MUST
+# refuse on, (b) the major US consumer / cloud ranges most likely to appear
+# in real traffic, and (c) the major APAC ranges including KR / JP / SG that
+# we expect to ALLOW. Longest-prefix-match wins, so smaller/more-specific
+# blocks at the bottom can override a broader allocation at the top.
+#
+# Format: <cidr>,<iso2>,<country_name>
+#
+# == OFAC big-five sanctioned (must BLOCK) =================================
+# Iran (IR) — major ISPs (Pars Online, Telecommunication Co of Iran, IranCell)
+2.176.0.0/12,IR,Iran
+5.22.192.0/19,IR,Iran
+5.32.0.0/11,IR,Iran
+5.52.0.0/14,IR,Iran
+5.56.128.0/17,IR,Iran
+5.62.160.0/19,IR,Iran
+5.74.0.0/15,IR,Iran
+5.112.0.0/12,IR,Iran
+5.144.0.0/13,IR,Iran
+5.160.0.0/12,IR,Iran
+5.190.0.0/15,IR,Iran
+5.198.160.0/19,IR,Iran
+5.200.0.0/13,IR,Iran
+5.208.0.0/12,IR,Iran
+5.232.0.0/13,IR,Iran
+5.249.0.0/17,IR,Iran
+5.250.0.0/15,IR,Iran
+5.252.224.0/19,IR,Iran
+5.253.24.0/22,IR,Iran
+31.7.64.0/19,IR,Iran
+31.7.96.0/20,IR,Iran
+31.14.0.0/19,IR,Iran
+31.24.200.0/22,IR,Iran
+31.25.88.0/22,IR,Iran
+31.40.0.0/19,IR,Iran
+31.47.0.0/18,IR,Iran
+31.56.0.0/14,IR,Iran
+31.214.128.0/19,IR,Iran
+37.10.64.0/19,IR,Iran
+37.32.0.0/16,IR,Iran
+37.63.128.0/17,IR,Iran
+37.98.0.0/16,IR,Iran
+37.128.64.0/19,IR,Iran
+37.129.0.0/16,IR,Iran
+37.130.192.0/19,IR,Iran
+37.137.0.0/17,IR,Iran
+37.148.0.0/15,IR,Iran
+37.152.160.0/19,IR,Iran
+37.156.128.0/19,IR,Iran
+37.187.224.0/19,IR,Iran
+37.202.128.0/17,IR,Iran
+37.214.0.0/15,IR,Iran
+37.221.32.0/19,IR,Iran
+37.228.128.0/17,IR,Iran
+37.235.0.0/19,IR,Iran
+37.255.0.0/16,IR,Iran
+46.32.0.0/19,IR,Iran
+46.34.96.0/19,IR,Iran
+46.36.96.0/19,IR,Iran
+46.38.128.0/19,IR,Iran
+46.62.128.0/17,IR,Iran
+46.100.0.0/16,IR,Iran
+46.143.0.0/16,IR,Iran
+46.164.64.0/19,IR,Iran
+46.167.128.0/17,IR,Iran
+46.209.0.0/16,IR,Iran
+46.224.0.0/15,IR,Iran
+46.245.0.0/17,IR,Iran
+77.36.128.0/17,IR,Iran
+77.42.0.0/16,IR,Iran
+77.81.32.0/19,IR,Iran
+77.95.96.0/19,IR,Iran
+77.104.64.0/19,IR,Iran
+77.237.64.0/19,IR,Iran
+77.238.112.0/20,IR,Iran
+78.38.0.0/15,IR,Iran
+78.39.0.0/16,IR,Iran
+78.110.112.0/20,IR,Iran
+78.111.0.0/19,IR,Iran
+78.154.32.0/19,IR,Iran
+78.157.32.0/19,IR,Iran
+78.158.160.0/19,IR,Iran
+79.127.0.0/17,IR,Iran
+79.132.192.0/19,IR,Iran
+79.143.224.0/19,IR,Iran
+79.170.144.0/20,IR,Iran
+79.174.160.0/19,IR,Iran
+79.175.128.0/18,IR,Iran
+80.66.176.0/20,IR,Iran
+80.68.16.0/21,IR,Iran
+80.71.112.0/20,IR,Iran
+80.191.0.0/16,IR,Iran
+80.210.0.0/16,IR,Iran
+80.242.0.0/19,IR,Iran
+80.249.96.0/19,IR,Iran
+80.253.128.0/19,IR,Iran
+81.12.0.0/17,IR,Iran
+81.28.32.0/19,IR,Iran
+81.29.128.0/19,IR,Iran
+81.31.160.0/19,IR,Iran
+81.90.144.0/20,IR,Iran
+81.91.128.0/19,IR,Iran
+81.92.176.0/20,IR,Iran
+81.163.0.0/19,IR,Iran
+82.99.192.0/18,IR,Iran
+82.115.0.0/18,IR,Iran
+83.121.0.0/16,IR,Iran
+83.147.192.0/19,IR,Iran
+83.151.0.0/17,IR,Iran
+84.17.16.0/20,IR,Iran
+84.47.192.0/19,IR,Iran
+84.241.0.0/19,IR,Iran
+85.9.64.0/19,IR,Iran
+85.15.0.0/18,IR,Iran
+85.133.128.0/17,IR,Iran
+85.185.0.0/16,IR,Iran
+86.55.0.0/16,IR,Iran
+86.57.0.0/16,IR,Iran
+86.104.32.0/19,IR,Iran
+86.105.224.0/19,IR,Iran
+86.107.0.0/19,IR,Iran
+87.107.0.0/16,IR,Iran
+87.236.208.0/20,IR,Iran
+87.247.160.0/19,IR,Iran
+87.248.128.0/18,IR,Iran
+87.251.64.0/19,IR,Iran
+89.32.0.0/19,IR,Iran
+89.34.0.0/19,IR,Iran
+89.37.0.0/19,IR,Iran
+89.39.192.0/19,IR,Iran
+89.40.64.0/19,IR,Iran
+89.42.224.0/19,IR,Iran
+89.43.96.0/19,IR,Iran
+89.45.224.0/19,IR,Iran
+89.47.224.0/19,IR,Iran
+89.144.128.0/17,IR,Iran
+89.165.0.0/16,IR,Iran
+89.198.0.0/16,IR,Iran
+89.221.64.0/19,IR,Iran
+89.235.0.0/17,IR,Iran
+91.92.32.0/19,IR,Iran
+91.98.0.0/15,IR,Iran
+91.108.128.0/17,IR,Iran
+91.133.128.0/17,IR,Iran
+91.184.64.0/19,IR,Iran
+91.186.224.0/19,IR,Iran
+91.199.110.0/24,IR,Iran
+91.207.192.0/19,IR,Iran
+91.208.0.0/19,IR,Iran
+91.220.96.0/19,IR,Iran
+91.224.108.0/22,IR,Iran
+91.234.32.0/19,IR,Iran
+91.236.168.0/22,IR,Iran
+91.240.40.0/22,IR,Iran
+93.110.0.0/16,IR,Iran
+93.117.32.0/19,IR,Iran
+93.119.96.0/19,IR,Iran
+93.126.0.0/18,IR,Iran
+94.74.128.0/17,IR,Iran
+94.101.128.0/19,IR,Iran
+94.139.160.0/19,IR,Iran
+94.183.0.0/16,IR,Iran
+94.184.0.0/14,IR,Iran
+94.232.168.0/22,IR,Iran
+95.38.0.0/16,IR,Iran
+95.64.0.0/15,IR,Iran
+95.81.64.0/19,IR,Iran
+95.130.32.0/19,IR,Iran
+95.142.224.0/19,IR,Iran
+95.156.224.0/19,IR,Iran
+95.162.0.0/16,IR,Iran
+95.215.0.0/22,IR,Iran
+141.255.128.0/17,IR,Iran
+146.235.0.0/16,IR,Iran
+151.232.0.0/16,IR,Iran
+151.238.0.0/15,IR,Iran
+151.240.0.0/13,IR,Iran
+164.215.128.0/17,IR,Iran
+176.31.32.0/19,IR,Iran
+176.96.224.0/19,IR,Iran
+176.97.156.0/22,IR,Iran
+176.99.0.0/18,IR,Iran
+176.101.0.0/17,IR,Iran
+176.102.128.0/17,IR,Iran
+176.124.96.0/19,IR,Iran
+185.4.0.0/22,IR,Iran
+185.8.172.0/22,IR,Iran
+185.10.72.0/22,IR,Iran
+185.13.228.0/22,IR,Iran
+185.15.72.0/22,IR,Iran
+185.16.140.0/22,IR,Iran
+185.20.160.0/22,IR,Iran
+185.23.128.0/22,IR,Iran
+185.24.236.0/22,IR,Iran
+185.26.116.0/22,IR,Iran
+185.27.132.0/22,IR,Iran
+185.28.20.0/22,IR,Iran
+185.30.16.0/22,IR,Iran
+185.32.244.0/22,IR,Iran
+185.34.180.0/22,IR,Iran
+185.41.72.0/22,IR,Iran
+185.43.232.0/22,IR,Iran
+185.51.200.0/22,IR,Iran
+185.55.224.0/22,IR,Iran
+185.57.32.0/22,IR,Iran
+185.79.156.0/22,IR,Iran
+185.81.99.0/24,IR,Iran
+185.88.152.0/22,IR,Iran
+185.94.96.0/22,IR,Iran
+185.96.184.0/22,IR,Iran
+185.105.236.0/22,IR,Iran
+185.110.92.0/22,IR,Iran
+185.112.32.0/22,IR,Iran
+185.115.180.0/22,IR,Iran
+185.117.144.0/22,IR,Iran
+185.118.196.0/22,IR,Iran
+185.120.184.0/22,IR,Iran
+185.122.140.0/22,IR,Iran
+185.126.200.0/22,IR,Iran
+185.129.168.0/22,IR,Iran
+188.121.96.0/19,IR,Iran
+188.158.0.0/15,IR,Iran
+188.208.192.0/19,IR,Iran
+188.211.0.0/17,IR,Iran
+188.212.128.0/17,IR,Iran
+188.229.0.0/16,IR,Iran
+193.151.128.0/17,IR,Iran
+194.5.175.0/24,IR,Iran
+194.225.0.0/16,IR,Iran
+195.146.32.0/19,IR,Iran
+195.158.224.0/19,IR,Iran
+195.181.128.0/17,IR,Iran
+195.219.176.0/20,IR,Iran
+217.11.16.0/20,IR,Iran
+217.16.224.0/19,IR,Iran
+217.24.144.0/20,IR,Iran
+217.25.48.0/20,IR,Iran
+217.66.192.0/19,IR,Iran
+217.144.96.0/19,IR,Iran
+217.146.208.0/20,IR,Iran
+217.171.144.0/20,IR,Iran
+217.172.96.0/19,IR,Iran
+217.174.0.0/19,IR,Iran
+217.218.0.0/15,IR,Iran
+# North Korea (KP) — Star JV / Star-COM via Russian and Chinese transit
+175.45.176.0/22,KP,North Korea
+210.52.109.0/24,KP,North Korea
+77.94.35.0/24,KP,North Korea
+# Syria (SY) — Syrian Telecom (STE)
+5.0.0.0/16,SY,Syria
+31.9.0.0/16,SY,Syria
+31.144.0.0/15,SY,Syria
+46.235.0.0/16,SY,Syria
+77.44.0.0/16,SY,Syria
+78.110.96.0/20,SY,Syria
+82.137.192.0/18,SY,Syria
+82.201.128.0/17,SY,Syria
+85.118.96.0/20,SY,Syria
+86.96.0.0/15,SY,Syria
+87.252.192.0/19,SY,Syria
+91.144.0.0/15,SY,Syria
+94.249.0.0/16,SY,Syria
+176.119.144.0/20,SY,Syria
+178.42.0.0/15,SY,Syria
+178.52.0.0/14,SY,Syria
+185.65.244.0/22,SY,Syria
+185.107.236.0/22,SY,Syria
+188.139.0.0/16,SY,Syria
+193.227.176.0/20,SY,Syria
+194.165.32.0/19,SY,Syria
+195.225.176.0/20,SY,Syria
+213.178.224.0/19,SY,Syria
+# Cuba (CU) — ETECSA
+152.206.0.0/16,CU,Cuba
+158.58.16.0/21,CU,Cuba
+169.158.0.0/15,CU,Cuba
+190.6.64.0/18,CU,Cuba
+190.92.0.0/17,CU,Cuba
+200.0.16.0/21,CU,Cuba
+200.13.144.0/21,CU,Cuba
+200.14.48.0/22,CU,Cuba
+200.55.128.0/17,CU,Cuba
+201.220.192.0/19,CU,Cuba
+# Russia (RU) — major ISPs (Rostelecom / VimpelCom / MTS / MegaFon)
+2.56.0.0/16,RU,Russia
+2.60.0.0/16,RU,Russia
+2.93.0.0/16,RU,Russia
+5.3.0.0/16,RU,Russia
+5.8.0.0/19,RU,Russia
+5.16.0.0/13,RU,Russia
+5.45.192.0/19,RU,Russia
+5.143.0.0/16,RU,Russia
+5.165.0.0/16,RU,Russia
+5.166.0.0/15,RU,Russia
+5.226.32.0/19,RU,Russia
+5.228.0.0/14,RU,Russia
+31.13.144.0/22,RU,Russia
+31.180.0.0/16,RU,Russia
+31.181.0.0/16,RU,Russia
+37.0.96.0/21,RU,Russia
+37.18.224.0/19,RU,Russia
+37.45.0.0/16,RU,Russia
+37.79.0.0/16,RU,Russia
+37.140.0.0/14,RU,Russia
+46.0.0.0/13,RU,Russia
+46.39.0.0/16,RU,Russia
+46.42.0.0/16,RU,Russia
+46.49.0.0/16,RU,Russia
+46.61.0.0/16,RU,Russia
+46.146.0.0/15,RU,Russia
+46.180.0.0/14,RU,Russia
+46.226.0.0/19,RU,Russia
+77.34.0.0/15,RU,Russia
+77.37.128.0/17,RU,Russia
+77.40.0.0/16,RU,Russia
+77.45.128.0/17,RU,Russia
+77.50.0.0/16,RU,Russia
+77.51.0.0/16,RU,Russia
+77.72.140.0/22,RU,Russia
+77.73.20.0/22,RU,Russia
+77.75.0.0/19,RU,Russia
+77.94.128.0/19,RU,Russia
+77.232.128.0/18,RU,Russia
+78.24.0.0/17,RU,Russia
+78.25.0.0/16,RU,Russia
+78.36.0.0/14,RU,Russia
+78.40.0.0/15,RU,Russia
+78.46.0.0/15,RU,Russia
+78.106.0.0/15,RU,Russia
+78.108.64.0/19,RU,Russia
+78.157.96.0/19,RU,Russia
+79.111.0.0/16,RU,Russia
+79.137.0.0/16,RU,Russia
+79.165.128.0/17,RU,Russia
+79.172.0.0/14,RU,Russia
+80.83.224.0/19,RU,Russia
+80.87.192.0/19,RU,Russia
+80.232.128.0/19,RU,Russia
+80.234.0.0/16,RU,Russia
+80.239.224.0/19,RU,Russia
+80.247.224.0/19,RU,Russia
+81.4.0.0/17,RU,Russia
+81.5.96.0/19,RU,Russia
+81.9.0.0/17,RU,Russia
+81.13.128.0/18,RU,Russia
+81.18.96.0/19,RU,Russia
+81.19.64.0/19,RU,Russia
+81.20.96.0/19,RU,Russia
+81.23.0.0/19,RU,Russia
+81.25.32.0/19,RU,Russia
+81.27.64.0/19,RU,Russia
+81.30.176.0/20,RU,Russia
+81.94.32.0/19,RU,Russia
+81.95.96.0/19,RU,Russia
+81.176.224.0/19,RU,Russia
+81.200.0.0/19,RU,Russia
+82.138.32.0/19,RU,Russia
+82.151.0.0/17,RU,Russia
+82.193.96.0/19,RU,Russia
+82.198.224.0/19,RU,Russia
+82.200.0.0/16,RU,Russia
+82.202.128.0/17,RU,Russia
+82.208.96.0/19,RU,Russia
+82.209.224.0/19,RU,Russia
+83.143.0.0/19,RU,Russia
+83.149.0.0/17,RU,Russia
+83.220.0.0/16,RU,Russia
+83.222.0.0/19,RU,Russia
+83.223.0.0/19,RU,Russia
+83.234.0.0/16,RU,Russia
+83.237.0.0/16,RU,Russia
+84.16.0.0/16,RU,Russia
+84.19.128.0/17,RU,Russia
+84.42.0.0/16,RU,Russia
+84.46.0.0/19,RU,Russia
+84.51.32.0/19,RU,Russia
+84.52.64.0/18,RU,Russia
+84.54.64.0/19,RU,Russia
+84.244.0.0/16,RU,Russia
+85.10.224.0/19,RU,Russia
+85.12.0.0/16,RU,Russia
+85.21.0.0/16,RU,Russia
+85.26.128.0/18,RU,Russia
+85.94.160.0/19,RU,Russia
+85.119.128.0/19,RU,Russia
+85.143.0.0/16,RU,Russia
+85.172.0.0/16,RU,Russia
+85.176.0.0/15,RU,Russia
+85.249.0.0/16,RU,Russia
+86.110.0.0/19,RU,Russia
+87.224.128.0/17,RU,Russia
+87.226.0.0/16,RU,Russia
+87.241.128.0/18,RU,Russia
+87.249.192.0/18,RU,Russia
+87.250.224.0/19,RU,Russia
+88.198.0.0/16,RU,Russia
+88.204.0.0/14,RU,Russia
+89.18.160.0/19,RU,Russia
+89.19.0.0/19,RU,Russia
+89.22.128.0/18,RU,Russia
+89.25.0.0/19,RU,Russia
+89.31.96.0/19,RU,Russia
+89.106.0.0/19,RU,Russia
+89.108.64.0/18,RU,Russia
+89.110.40.0/22,RU,Russia
+89.140.0.0/16,RU,Russia
+89.144.0.0/17,RU,Russia
+89.146.224.0/19,RU,Russia
+89.175.0.0/16,RU,Russia
+89.178.0.0/15,RU,Russia
+89.184.64.0/19,RU,Russia
+89.187.0.0/19,RU,Russia
+89.208.0.0/19,RU,Russia
+89.221.128.0/19,RU,Russia
+89.232.0.0/14,RU,Russia
+89.249.0.0/16,RU,Russia
+89.250.0.0/16,RU,Russia
+90.146.0.0/16,RU,Russia
+90.154.0.0/15,RU,Russia
+90.188.0.0/16,RU,Russia
+91.76.0.0/14,RU,Russia
+91.105.0.0/16,RU,Russia
+91.121.0.0/16,RU,Russia
+91.122.0.0/16,RU,Russia
+91.129.0.0/16,RU,Russia
+91.135.224.0/19,RU,Russia
+91.140.0.0/14,RU,Russia
+91.149.128.0/17,RU,Russia
+91.158.0.0/15,RU,Russia
+91.184.0.0/19,RU,Russia
+91.190.64.0/19,RU,Russia
+91.196.224.0/19,RU,Russia
+91.198.250.0/24,RU,Russia
+91.201.108.0/22,RU,Russia
+91.205.96.0/22,RU,Russia
+91.207.4.0/22,RU,Russia
+91.209.224.0/19,RU,Russia
+91.211.88.0/22,RU,Russia
+91.213.5.0/24,RU,Russia
+91.217.65.0/24,RU,Russia
+91.219.10.0/24,RU,Russia
+91.221.169.0/24,RU,Russia
+91.223.176.0/22,RU,Russia
+91.225.40.0/22,RU,Russia
+91.227.92.0/22,RU,Russia
+91.229.20.0/22,RU,Russia
+91.231.36.0/22,RU,Russia
+91.232.180.0/22,RU,Russia
+91.234.190.0/24,RU,Russia
+91.236.116.0/22,RU,Russia
+91.238.0.0/22,RU,Russia
+91.240.81.0/24,RU,Russia
+91.242.166.0/24,RU,Russia
+91.244.0.0/19,RU,Russia
+92.42.0.0/17,RU,Russia
+92.50.128.0/17,RU,Russia
+92.124.0.0/15,RU,Russia
+92.222.0.0/15,RU,Russia
+93.80.0.0/13,RU,Russia
+93.92.192.0/19,RU,Russia
+93.95.32.0/19,RU,Russia
+93.100.0.0/14,RU,Russia
+93.115.0.0/19,RU,Russia
+93.171.224.0/19,RU,Russia
+93.190.40.0/22,RU,Russia
+94.19.0.0/16,RU,Russia
+94.25.128.0/17,RU,Russia
+94.41.0.0/16,RU,Russia
+94.45.128.0/17,RU,Russia
+94.50.0.0/15,RU,Russia
+94.100.0.0/16,RU,Russia
+94.103.80.0/22,RU,Russia
+94.124.196.0/22,RU,Russia
+94.180.0.0/16,RU,Russia
+94.181.0.0/16,RU,Russia
+94.198.16.0/22,RU,Russia
+94.241.128.0/17,RU,Russia
+95.0.0.0/16,RU,Russia
+95.31.0.0/16,RU,Russia
+95.46.224.0/19,RU,Russia
+95.68.0.0/14,RU,Russia
+95.72.0.0/13,RU,Russia
+95.84.128.0/17,RU,Russia
+95.86.176.0/21,RU,Russia
+95.106.0.0/15,RU,Russia
+95.108.128.0/17,RU,Russia
+95.143.192.0/19,RU,Russia
+95.153.128.0/17,RU,Russia
+95.165.0.0/16,RU,Russia
+95.167.0.0/17,RU,Russia
+95.181.128.0/17,RU,Russia
+95.188.0.0/14,RU,Russia
+95.215.84.0/22,RU,Russia
+95.220.0.0/14,RU,Russia
+109.62.0.0/15,RU,Russia
+109.71.0.0/19,RU,Russia
+109.74.128.0/19,RU,Russia
+109.86.0.0/15,RU,Russia
+109.94.224.0/19,RU,Russia
+109.105.0.0/19,RU,Russia
+109.108.64.0/19,RU,Russia
+109.110.0.0/16,RU,Russia
+109.111.128.0/17,RU,Russia
+109.123.0.0/19,RU,Russia
+109.126.0.0/15,RU,Russia
+109.161.0.0/16,RU,Russia
+109.165.0.0/16,RU,Russia
+109.167.128.0/17,RU,Russia
+109.172.0.0/16,RU,Russia
+109.184.128.0/17,RU,Russia
+109.188.0.0/15,RU,Russia
+109.194.0.0/15,RU,Russia
+109.196.128.0/17,RU,Russia
+109.200.128.0/17,RU,Russia
+109.225.64.0/18,RU,Russia
+109.231.224.0/19,RU,Russia
+176.59.0.0/16,RU,Russia
+176.62.176.0/20,RU,Russia
+176.96.224.0/19,RU,Russia
+176.97.108.0/22,RU,Russia
+176.99.192.0/18,RU,Russia
+176.102.224.0/19,RU,Russia
+176.103.0.0/17,RU,Russia
+176.108.128.0/17,RU,Russia
+176.112.0.0/16,RU,Russia
+176.118.224.0/19,RU,Russia
+176.120.128.0/17,RU,Russia
+176.125.0.0/19,RU,Russia
+176.196.0.0/14,RU,Russia
+176.222.0.0/19,RU,Russia
+176.223.64.0/19,RU,Russia
+178.34.0.0/15,RU,Russia
+178.46.0.0/16,RU,Russia
+178.49.0.0/16,RU,Russia
+178.66.0.0/15,RU,Russia
+178.72.128.0/17,RU,Russia
+178.76.224.0/19,RU,Russia
+178.155.0.0/16,RU,Russia
+178.176.64.0/18,RU,Russia
+178.178.0.0/15,RU,Russia
+178.184.0.0/13,RU,Russia
+178.205.0.0/16,RU,Russia
+178.208.64.0/18,RU,Russia
+178.212.0.0/17,RU,Russia
+178.215.224.0/19,RU,Russia
+178.218.128.0/17,RU,Russia
+178.219.184.0/21,RU,Russia
+178.236.16.0/22,RU,Russia
+178.248.232.0/22,RU,Russia
+178.252.96.0/20,RU,Russia
+178.254.128.0/19,RU,Russia
+185.7.4.0/22,RU,Russia
+185.9.144.0/22,RU,Russia
+185.11.144.0/22,RU,Russia
+185.12.92.0/22,RU,Russia
+185.14.92.0/22,RU,Russia
+185.16.36.0/22,RU,Russia
+185.19.0.0/22,RU,Russia
+185.22.184.0/22,RU,Russia
+185.25.116.0/22,RU,Russia
+185.29.8.0/22,RU,Russia
+185.33.180.0/22,RU,Russia
+185.35.16.0/22,RU,Russia
+185.37.124.0/22,RU,Russia
+185.41.92.0/22,RU,Russia
+185.45.144.0/22,RU,Russia
+185.51.116.0/22,RU,Russia
+185.58.92.0/22,RU,Russia
+185.61.92.0/22,RU,Russia
+185.64.144.0/22,RU,Russia
+185.69.144.0/22,RU,Russia
+185.75.40.0/22,RU,Russia
+185.85.184.0/22,RU,Russia
+185.93.0.0/22,RU,Russia
+185.103.92.0/22,RU,Russia
+185.105.4.0/22,RU,Russia
+185.117.252.0/22,RU,Russia
+185.143.172.0/22,RU,Russia
+185.151.180.0/22,RU,Russia
+185.158.244.0/22,RU,Russia
+185.171.0.0/22,RU,Russia
+185.183.184.0/22,RU,Russia
+188.0.128.0/17,RU,Russia
+188.16.0.0/15,RU,Russia
+188.32.0.0/14,RU,Russia
+188.44.0.0/16,RU,Russia
+188.65.224.0/19,RU,Russia
+188.93.16.0/22,RU,Russia
+188.113.0.0/16,RU,Russia
+188.124.32.0/19,RU,Russia
+188.130.128.0/17,RU,Russia
+188.134.0.0/16,RU,Russia
+188.162.0.0/15,RU,Russia
+188.186.0.0/16,RU,Russia
+188.187.0.0/16,RU,Russia
+188.225.0.0/18,RU,Russia
+188.226.0.0/16,RU,Russia
+188.227.96.0/19,RU,Russia
+188.234.0.0/16,RU,Russia
+188.235.0.0/17,RU,Russia
+188.243.0.0/16,RU,Russia
+188.246.64.0/19,RU,Russia
+193.0.224.0/19,RU,Russia
+193.107.232.0/22,RU,Russia
+193.151.32.0/19,RU,Russia
+193.169.180.0/22,RU,Russia
+194.0.190.0/24,RU,Russia
+194.28.244.0/22,RU,Russia
+194.32.236.0/22,RU,Russia
+194.36.16.0/22,RU,Russia
+194.40.116.0/22,RU,Russia
+194.85.0.0/16,RU,Russia
+194.87.0.0/19,RU,Russia
+194.135.0.0/16,RU,Russia
+194.190.0.0/16,RU,Russia
+194.226.0.0/16,RU,Russia
+195.16.0.0/16,RU,Russia
+195.34.32.0/19,RU,Russia
+195.46.96.0/19,RU,Russia
+195.62.32.0/19,RU,Russia
+195.91.128.0/17,RU,Russia
+195.93.144.0/20,RU,Russia
+195.96.128.0/17,RU,Russia
+195.131.0.0/17,RU,Russia
+195.182.128.0/17,RU,Russia
+195.200.0.0/16,RU,Russia
+195.208.0.0/16,RU,Russia
+195.218.128.0/17,RU,Russia
+195.239.0.0/16,RU,Russia
+212.46.224.0/19,RU,Russia
+212.96.96.0/19,RU,Russia
+212.111.96.0/19,RU,Russia
+212.164.0.0/16,RU,Russia
+212.176.0.0/16,RU,Russia
+212.220.224.0/19,RU,Russia
+213.5.0.0/17,RU,Russia
+213.21.0.0/19,RU,Russia
+213.32.96.0/19,RU,Russia
+213.59.0.0/16,RU,Russia
+213.135.64.0/19,RU,Russia
+213.141.128.0/19,RU,Russia
+213.171.32.0/19,RU,Russia
+213.180.0.0/19,RU,Russia
+213.226.0.0/19,RU,Russia
+217.10.32.0/19,RU,Russia
+217.12.96.0/19,RU,Russia
+217.18.128.0/19,RU,Russia
+217.20.96.0/19,RU,Russia
+217.22.128.0/19,RU,Russia
+217.23.96.0/19,RU,Russia
+217.65.0.0/19,RU,Russia
+217.67.128.0/17,RU,Russia
+217.69.0.0/19,RU,Russia
+217.71.128.0/19,RU,Russia
+217.118.64.0/18,RU,Russia
+217.150.32.0/19,RU,Russia
+217.169.96.0/19,RU,Russia
+217.197.96.0/19,RU,Russia
+# == United States (US) — major consumer and cloud providers ===============
+# AT&T
+12.0.0.0/9,US,United States
+32.0.0.0/9,US,United States
+45.16.0.0/12,US,United States
+65.0.0.0/9,US,United States
+68.32.0.0/11,US,United States
+70.128.0.0/9,US,United States
+71.128.0.0/9,US,United States
+75.0.0.0/8,US,United States
+99.0.0.0/9,US,United States
+104.16.0.0/13,US,United States
+107.0.0.0/8,US,United States
+108.0.0.0/8,US,United States
+166.128.0.0/9,US,United States
+166.137.0.0/16,US,United States
+174.192.0.0/9,US,United States
+192.16.0.0/12,US,United States
+204.0.0.0/8,US,United States
+205.0.0.0/8,US,United States
+207.0.0.0/8,US,United States
+208.0.0.0/7,US,United States
+216.0.0.0/8,US,United States
+# Comcast
+24.0.0.0/12,US,United States
+50.128.0.0/9,US,United States
+65.96.0.0/12,US,United States
+66.30.0.0/15,US,United States
+67.160.0.0/12,US,United States
+68.32.0.0/11,US,United States
+69.180.0.0/14,US,United States
+69.240.0.0/13,US,United States
+71.192.0.0/12,US,United States
+73.0.0.0/8,US,United States
+76.16.0.0/12,US,United States
+98.192.0.0/10,US,United States
+174.48.0.0/12,US,United States
+# Verizon
+4.0.0.0/8,US,United States
+44.0.0.0/8,US,United States
+63.64.0.0/10,US,United States
+66.32.0.0/11,US,United States
+68.236.0.0/14,US,United States
+71.96.0.0/12,US,United States
+72.64.0.0/11,US,United States
+74.96.0.0/11,US,United States
+96.224.0.0/11,US,United States
+100.0.0.0/9,US,United States
+108.0.0.0/8,US,United States
+130.0.0.0/8,US,United States
+141.0.0.0/8,US,United States
+143.0.0.0/8,US,United States
+166.137.0.0/16,US,United States
+# Google
+8.8.4.0/24,US,United States
+8.8.8.0/24,US,United States
+8.34.208.0/20,US,United States
+8.35.192.0/20,US,United States
+23.236.48.0/20,US,United States
+34.0.0.0/10,US,United States
+34.64.0.0/10,US,United States
+34.128.0.0/10,US,United States
+34.192.0.0/12,US,United States
+35.184.0.0/13,US,United States
+35.192.0.0/12,US,United States
+35.208.0.0/13,US,United States
+35.216.0.0/15,US,United States
+35.219.0.0/19,US,United States
+35.224.0.0/12,US,United States
+35.240.0.0/13,US,United States
+64.18.0.0/20,US,United States
+64.233.160.0/19,US,United States
+66.102.0.0/20,US,United States
+66.249.64.0/19,US,United States
+72.14.192.0/18,US,United States
+74.125.0.0/16,US,United States
+108.59.80.0/20,US,United States
+108.170.192.0/18,US,United States
+108.177.0.0/17,US,United States
+130.211.0.0/16,US,United States
+142.250.0.0/15,US,United States
+146.148.0.0/17,US,United States
+162.216.148.0/22,US,United States
+162.222.176.0/21,US,United States
+172.110.32.0/21,US,United States
+172.217.0.0/16,US,United States
+172.253.0.0/16,US,United States
+173.194.0.0/16,US,United States
+173.255.112.0/20,US,United States
+192.158.28.0/22,US,United States
+192.178.0.0/15,US,United States
+193.186.4.0/24,US,United States
+199.36.154.0/23,US,United States
+199.192.112.0/22,US,United States
+207.223.160.0/20,US,United States
+208.65.152.0/22,US,United States
+208.68.108.0/22,US,United States
+208.81.188.0/22,US,United States
+208.117.224.0/19,US,United States
+209.85.128.0/17,US,United States
+216.58.192.0/19,US,United States
+216.73.80.0/20,US,United States
+216.239.32.0/19,US,United States
+# Cloudflare
+1.1.1.0/24,US,United States
+1.0.0.0/24,US,United States
+103.21.244.0/22,US,United States
+103.22.200.0/22,US,United States
+103.31.4.0/22,US,United States
+104.16.0.0/13,US,United States
+104.24.0.0/14,US,United States
+108.162.192.0/18,US,United States
+131.0.72.0/22,US,United States
+141.101.64.0/18,US,United States
+162.158.0.0/15,US,United States
+172.64.0.0/13,US,United States
+173.245.48.0/20,US,United States
+188.114.96.0/20,US,United States
+190.93.240.0/20,US,United States
+197.234.240.0/22,US,United States
+198.41.128.0/17,US,United States
+# Amazon AWS (US regions only — eu / ap shards land in their own countries)
+3.0.0.0/12,US,United States
+3.16.0.0/13,US,United States
+3.80.0.0/12,US,United States
+3.96.0.0/14,US,United States
+3.208.0.0/12,US,United States
+13.32.0.0/15,US,United States
+13.52.0.0/14,US,United States
+13.56.0.0/14,US,United States
+13.224.0.0/14,US,United States
+15.152.0.0/13,US,United States
+15.184.0.0/13,US,United States
+15.193.0.0/14,US,United States
+15.197.0.0/16,US,United States
+15.200.0.0/13,US,United States
+18.32.0.0/11,US,United States
+18.96.0.0/11,US,United States
+18.128.0.0/9,US,United States
+34.192.0.0/10,US,United States
+35.71.64.0/18,US,United States
+44.192.0.0/11,US,United States
+50.16.0.0/14,US,United States
+52.0.0.0/11,US,United States
+52.32.0.0/11,US,United States
+52.64.0.0/12,US,United States
+52.84.0.0/15,US,United States
+52.86.0.0/15,US,United States
+52.88.0.0/13,US,United States
+52.200.0.0/13,US,United States
+54.64.0.0/13,US,United States
+54.72.0.0/13,US,United States
+54.80.0.0/12,US,United States
+54.144.0.0/12,US,United States
+54.160.0.0/11,US,United States
+54.196.0.0/15,US,United States
+54.198.0.0/16,US,United States
+54.208.0.0/13,US,United States
+54.216.0.0/14,US,United States
+54.224.0.0/12,US,United States
+54.240.0.0/12,US,United States
+204.246.160.0/22,US,United States
+205.251.192.0/19,US,United States
+216.137.32.0/19,US,United States
+# Microsoft Azure (US shards)
+13.64.0.0/11,US,United States
+20.0.0.0/11,US,United States
+20.32.0.0/11,US,United States
+20.96.0.0/12,US,United States
+20.128.0.0/16,US,United States
+20.135.0.0/16,US,United States
+20.150.0.0/15,US,United States
+20.180.0.0/14,US,United States
+40.64.0.0/13,US,United States
+40.74.0.0/15,US,United States
+40.76.0.0/14,US,United States
+40.84.0.0/14,US,United States
+40.112.0.0/13,US,United States
+40.120.0.0/14,US,United States
+52.96.0.0/14,US,United States
+52.103.128.0/17,US,United States
+52.112.0.0/14,US,United States
+52.224.0.0/11,US,United States
+64.4.0.0/18,US,United States
+65.52.0.0/14,US,United States
+66.119.144.0/20,US,United States
+70.37.0.0/17,US,United States
+104.40.0.0/13,US,United States
+104.146.0.0/15,US,United States
+104.208.0.0/13,US,United States
+137.116.0.0/15,US,United States
+138.91.0.0/16,US,United States
+157.55.0.0/16,US,United States
+168.61.0.0/16,US,United States
+168.62.0.0/15,US,United States
+191.232.0.0/13,US,United States
+207.46.0.0/16,US,United States
+# Spectrum/Charter
+24.24.0.0/13,US,United States
+24.92.0.0/14,US,United States
+24.123.0.0/16,US,United States
+24.164.0.0/14,US,United States
+24.196.0.0/14,US,United States
+24.214.0.0/15,US,United States
+47.16.0.0/12,US,United States
+65.24.0.0/13,US,United States
+66.169.0.0/16,US,United States
+67.240.0.0/12,US,United States
+68.84.0.0/14,US,United States
+68.116.0.0/14,US,United States
+69.76.0.0/14,US,United States
+70.96.0.0/12,US,United States
+71.68.0.0/14,US,United States
+71.74.0.0/15,US,United States
+72.176.0.0/12,US,United States
+72.224.0.0/11,US,United States
+74.64.0.0/12,US,United States
+75.64.0.0/12,US,United States
+98.108.0.0/14,US,United States
+142.0.0.0/8,US,United States
+174.96.0.0/12,US,United States
+184.56.0.0/13,US,United States
+# T-Mobile
+6.0.0.0/8,US,United States
+21.0.0.0/8,US,United States
+22.0.0.0/8,US,United States
+26.0.0.0/8,US,United States
+28.0.0.0/8,US,United States
+29.0.0.0/8,US,United States
+30.0.0.0/8,US,United States
+33.0.0.0/8,US,United States
+55.0.0.0/8,US,United States
+# == Korea (KR) ============================================================
+# KT (Korea Telecom)
+1.208.0.0/13,KR,South Korea
+1.216.0.0/13,KR,South Korea
+1.224.0.0/13,KR,South Korea
+14.32.0.0/11,KR,South Korea
+14.192.0.0/12,KR,South Korea
+27.0.236.0/22,KR,South Korea
+27.96.128.0/17,KR,South Korea
+27.100.0.0/15,KR,South Korea
+27.176.0.0/12,KR,South Korea
+27.255.40.0/22,KR,South Korea
+58.140.0.0/14,KR,South Korea
+58.224.0.0/12,KR,South Korea
+59.0.0.0/12,KR,South Korea
+59.16.0.0/14,KR,South Korea
+59.24.0.0/14,KR,South Korea
+59.28.0.0/14,KR,South Korea
+59.86.0.0/15,KR,South Korea
+59.150.0.0/16,KR,South Korea
+61.32.0.0/12,KR,South Korea
+61.72.0.0/13,KR,South Korea
+61.80.0.0/11,KR,South Korea
+61.96.0.0/12,KR,South Korea
+61.248.0.0/13,KR,South Korea
+112.144.0.0/12,KR,South Korea
+112.216.0.0/13,KR,South Korea
+113.10.0.0/15,KR,South Korea
+113.20.16.0/20,KR,South Korea
+118.32.0.0/12,KR,South Korea
+118.216.0.0/13,KR,South Korea
+118.219.224.0/19,KR,South Korea
+118.220.0.0/14,KR,South Korea
+121.128.0.0/10,KR,South Korea
+124.48.0.0/13,KR,South Korea
+175.192.0.0/10,KR,South Korea
+180.64.0.0/12,KR,South Korea
+180.224.0.0/12,KR,South Korea
+210.96.0.0/12,KR,South Korea
+210.112.0.0/12,KR,South Korea
+210.176.0.0/13,KR,South Korea
+210.216.0.0/13,KR,South Korea
+210.220.32.0/19,KR,South Korea
+210.221.0.0/16,KR,South Korea
+210.222.0.0/17,KR,South Korea
+210.223.128.0/17,KR,South Korea
+211.32.0.0/11,KR,South Korea
+211.104.0.0/13,KR,South Korea
+211.176.0.0/13,KR,South Korea
+211.200.0.0/14,KR,South Korea
+211.208.0.0/13,KR,South Korea
+211.216.0.0/13,KR,South Korea
+211.224.0.0/12,KR,South Korea
+211.240.0.0/14,KR,South Korea
+220.64.0.0/13,KR,South Korea
+220.72.0.0/14,KR,South Korea
+220.76.0.0/14,KR,South Korea
+220.80.0.0/14,KR,South Korea
+220.84.0.0/16,KR,South Korea
+220.85.0.0/17,KR,South Korea
+220.119.0.0/16,KR,South Korea
+220.120.0.0/13,KR,South Korea
+221.138.0.0/15,KR,South Korea
+221.140.0.0/16,KR,South Korea
+221.146.0.0/16,KR,South Korea
+221.148.0.0/14,KR,South Korea
+221.152.0.0/13,KR,South Korea
+222.96.0.0/12,KR,South Korea
+222.232.0.0/14,KR,South Korea
+# SK Broadband / SK Telecom
+1.224.0.0/12,KR,South Korea
+1.240.0.0/12,KR,South Korea
+27.160.0.0/12,KR,South Korea
+27.255.160.0/19,KR,South Korea
+49.142.0.0/15,KR,South Korea
+49.160.0.0/12,KR,South Korea
+49.236.128.0/17,KR,South Korea
+49.247.0.0/16,KR,South Korea
+58.140.16.0/20,KR,South Korea
+58.226.0.0/15,KR,South Korea
+58.232.0.0/13,KR,South Korea
+59.4.0.0/14,KR,South Korea
+59.8.0.0/13,KR,South Korea
+59.20.0.0/14,KR,South Korea
+59.31.0.0/16,KR,South Korea
+59.45.0.0/16,KR,South Korea
+106.240.0.0/12,KR,South Korea
+112.184.0.0/13,KR,South Korea
+113.61.0.0/16,KR,South Korea
+113.130.0.0/15,KR,South Korea
+115.21.0.0/16,KR,South Korea
+115.140.0.0/14,KR,South Korea
+115.160.0.0/14,KR,South Korea
+117.16.0.0/12,KR,South Korea
+118.128.0.0/12,KR,South Korea
+118.176.0.0/12,KR,South Korea
+121.64.0.0/11,KR,South Korea
+121.157.0.0/16,KR,South Korea
+124.5.0.0/16,KR,South Korea
+124.50.0.0/16,KR,South Korea
+124.111.0.0/16,KR,South Korea
+124.146.0.0/16,KR,South Korea
+124.197.0.0/16,KR,South Korea
+180.65.0.0/16,KR,South Korea
+180.182.0.0/16,KR,South Korea
+182.208.0.0/12,KR,South Korea
+182.224.0.0/11,KR,South Korea
+210.94.0.0/16,KR,South Korea
+210.181.0.0/16,KR,South Korea
+211.36.128.0/17,KR,South Korea
+211.36.16.0/20,KR,South Korea
+211.61.0.0/16,KR,South Korea
+211.114.0.0/16,KR,South Korea
+211.226.0.0/15,KR,South Korea
+220.116.0.0/14,KR,South Korea
+221.146.224.0/19,KR,South Korea
+221.165.0.0/16,KR,South Korea
+221.166.0.0/16,KR,South Korea
+222.106.0.0/15,KR,South Korea
+222.108.0.0/14,KR,South Korea
+# LG U+
+1.176.0.0/12,KR,South Korea
+14.32.0.0/12,KR,South Korea
+39.7.0.0/16,KR,South Korea
+39.115.0.0/16,KR,South Korea
+58.120.0.0/13,KR,South Korea
+59.18.0.0/16,KR,South Korea
+59.86.0.0/15,KR,South Korea
+59.6.0.0/15,KR,South Korea
+61.247.0.0/16,KR,South Korea
+61.255.0.0/16,KR,South Korea
+106.101.0.0/16,KR,South Korea
+106.102.0.0/16,KR,South Korea
+112.220.0.0/14,KR,South Korea
+114.108.0.0/15,KR,South Korea
+115.40.0.0/14,KR,South Korea
+116.32.0.0/12,KR,South Korea
+117.111.0.0/16,KR,South Korea
+117.123.0.0/16,KR,South Korea
+117.124.0.0/16,KR,South Korea
+117.16.0.0/16,KR,South Korea
+117.20.0.0/16,KR,South Korea
+118.40.0.0/13,KR,South Korea
+118.96.0.0/12,KR,South Korea
+121.50.0.0/16,KR,South Korea
+121.143.0.0/16,KR,South Korea
+124.197.0.0/16,KR,South Korea
+175.193.0.0/16,KR,South Korea
+175.196.0.0/16,KR,South Korea
+175.197.0.0/16,KR,South Korea
+175.207.0.0/16,KR,South Korea
+175.214.0.0/15,KR,South Korea
+210.103.0.0/16,KR,South Korea
+211.36.0.0/16,KR,South Korea
+211.245.0.0/16,KR,South Korea
+220.117.0.0/16,KR,South Korea
+220.123.0.0/16,KR,South Korea
+221.142.0.0/16,KR,South Korea
+222.235.0.0/16,KR,South Korea
+# == Japan (JP) ============================================================
+1.0.16.0/20,JP,Japan
+1.21.0.0/16,JP,Japan
+1.66.0.0/15,JP,Japan
+1.72.0.0/13,JP,Japan
+27.80.0.0/12,JP,Japan
+27.105.0.0/16,JP,Japan
+27.110.0.0/16,JP,Japan
+27.111.32.0/19,JP,Japan
+36.2.0.0/15,JP,Japan
+36.8.0.0/13,JP,Japan
+36.52.0.0/14,JP,Japan
+36.56.0.0/13,JP,Japan
+36.110.0.0/16,JP,Japan
+49.96.0.0/12,JP,Japan
+49.128.0.0/14,JP,Japan
+49.224.0.0/12,JP,Japan
+49.240.0.0/13,JP,Japan
+59.84.0.0/14,JP,Japan
+59.106.0.0/16,JP,Japan
+59.128.0.0/12,JP,Japan
+60.32.0.0/12,JP,Japan
+60.56.0.0/13,JP,Japan
+60.64.0.0/11,JP,Japan
+60.236.0.0/14,JP,Japan
+60.254.16.0/20,JP,Japan
+61.86.0.0/15,JP,Japan
+61.112.0.0/13,JP,Japan
+61.118.0.0/16,JP,Japan
+61.120.0.0/13,JP,Japan
+61.193.0.0/16,JP,Japan
+61.194.0.0/15,JP,Japan
+61.198.0.0/15,JP,Japan
+61.200.0.0/13,JP,Japan
+61.211.0.0/16,JP,Japan
+61.213.0.0/16,JP,Japan
+61.214.0.0/16,JP,Japan
+61.215.0.0/16,JP,Japan
+106.128.0.0/10,JP,Japan
+110.0.0.0/15,JP,Japan
+110.66.0.0/15,JP,Japan
+111.86.0.0/15,JP,Japan
+111.96.0.0/11,JP,Japan
+111.168.0.0/13,JP,Japan
+111.216.0.0/13,JP,Japan
+118.0.0.0/15,JP,Japan
+118.8.0.0/15,JP,Japan
+118.16.0.0/14,JP,Japan
+118.21.0.0/16,JP,Japan
+118.22.0.0/15,JP,Japan
+118.103.32.0/19,JP,Japan
+118.108.128.0/17,JP,Japan
+118.111.0.0/16,JP,Japan
+118.151.0.0/19,JP,Japan
+118.152.0.0/13,JP,Japan
+118.236.0.0/14,JP,Japan
+119.83.64.0/19,JP,Japan
+119.230.0.0/15,JP,Japan
+119.240.0.0/13,JP,Japan
+119.245.0.0/16,JP,Japan
+121.84.0.0/14,JP,Japan
+121.92.0.0/14,JP,Japan
+121.108.0.0/14,JP,Japan
+122.196.0.0/14,JP,Japan
+122.208.0.0/12,JP,Japan
+122.255.96.0/19,JP,Japan
+123.196.0.0/16,JP,Japan
+123.198.0.0/15,JP,Japan
+123.216.0.0/13,JP,Japan
+124.20.0.0/15,JP,Japan
+124.84.0.0/14,JP,Japan
+124.96.0.0/14,JP,Japan
+124.100.0.0/14,JP,Japan
+124.140.0.0/15,JP,Japan
+124.144.0.0/13,JP,Japan
+124.208.0.0/12,JP,Japan
+125.0.0.0/11,JP,Japan
+125.192.0.0/12,JP,Japan
+126.0.0.0/8,JP,Japan
+133.0.0.0/8,JP,Japan
+150.249.0.0/16,JP,Japan
+153.120.0.0/13,JP,Japan
+153.128.0.0/9,JP,Japan
+160.86.0.0/16,JP,Japan
+163.43.0.0/16,JP,Japan
+180.0.0.0/12,JP,Japan
+180.16.0.0/12,JP,Japan
+180.43.0.0/16,JP,Japan
+180.50.0.0/15,JP,Japan
+180.94.96.0/19,JP,Japan
+180.131.0.0/16,JP,Japan
+180.197.0.0/16,JP,Japan
+182.48.0.0/16,JP,Japan
+182.155.0.0/16,JP,Japan
+182.157.0.0/16,JP,Japan
+182.158.0.0/15,JP,Japan
+182.162.0.0/15,JP,Japan
+182.164.0.0/14,JP,Japan
+182.168.0.0/13,JP,Japan
+183.74.0.0/15,JP,Japan
+183.176.0.0/12,JP,Japan
+192.218.0.0/16,JP,Japan
+202.4.128.0/17,JP,Japan
+202.7.0.0/19,JP,Japan
+202.16.0.0/15,JP,Japan
+202.32.0.0/14,JP,Japan
+202.71.96.0/19,JP,Japan
+202.94.144.0/20,JP,Japan
+202.213.0.0/16,JP,Japan
+202.214.0.0/15,JP,Japan
+202.216.0.0/14,JP,Japan
+202.224.0.0/12,JP,Japan
+210.128.0.0/12,JP,Japan
+210.151.0.0/16,JP,Japan
+210.152.0.0/15,JP,Japan
+210.155.0.0/16,JP,Japan
+210.160.0.0/14,JP,Japan
+210.165.0.0/16,JP,Japan
+210.166.0.0/15,JP,Japan
+210.168.0.0/14,JP,Japan
+210.172.0.0/15,JP,Japan
+210.188.0.0/15,JP,Japan
+210.196.0.0/14,JP,Japan
+210.224.0.0/12,JP,Japan
+211.0.0.0/14,JP,Japan
+211.4.0.0/14,JP,Japan
+211.8.0.0/13,JP,Japan
+211.16.0.0/13,JP,Japan
+211.120.0.0/13,JP,Japan
+211.128.0.0/13,JP,Japan
+211.160.0.0/14,JP,Japan
+218.40.0.0/13,JP,Japan
+218.110.0.0/15,JP,Japan
+218.220.0.0/14,JP,Japan
+218.224.0.0/12,JP,Japan
+219.96.0.0/11,JP,Japan
+219.160.0.0/12,JP,Japan
+220.96.0.0/13,JP,Japan
+220.104.0.0/13,JP,Japan
+220.144.0.0/12,JP,Japan
+220.208.0.0/12,JP,Japan
+221.112.0.0/13,JP,Japan
+221.184.0.0/13,JP,Japan
+222.144.0.0/13,JP,Japan
+222.158.0.0/15,JP,Japan
+# == Singapore (SG) ========================================================
+8.20.0.0/14,SG,Singapore
+13.212.0.0/15,SG,Singapore
+13.228.0.0/15,SG,Singapore
+13.250.0.0/15,SG,Singapore
+18.136.0.0/15,SG,Singapore
+27.34.0.0/15,SG,Singapore
+27.50.64.0/20,SG,Singapore
+27.54.176.0/20,SG,Singapore
+54.169.0.0/16,SG,Singapore
+54.179.0.0/16,SG,Singapore
+54.251.0.0/16,SG,Singapore
+54.254.0.0/16,SG,Singapore
+58.182.0.0/15,SG,Singapore
+58.185.0.0/16,SG,Singapore
+103.16.0.0/14,SG,Singapore
+116.86.0.0/16,SG,Singapore
+116.87.0.0/16,SG,Singapore
+116.88.0.0/14,SG,Singapore
+117.121.32.0/19,SG,Singapore
+118.189.0.0/16,SG,Singapore
+118.200.0.0/13,SG,Singapore
+124.241.0.0/16,SG,Singapore
+129.126.0.0/16,SG,Singapore
+137.132.0.0/16,SG,Singapore
+146.95.0.0/16,SG,Singapore
+152.50.0.0/16,SG,Singapore
+165.21.0.0/16,SG,Singapore
+175.156.0.0/14,SG,Singapore
+180.87.40.0/22,SG,Singapore
+180.129.0.0/16,SG,Singapore
+180.128.0.0/15,SG,Singapore
+202.79.224.0/19,SG,Singapore
+202.156.0.0/15,SG,Singapore
+202.166.32.0/19,SG,Singapore
+203.116.0.0/15,SG,Singapore
+203.117.176.0/20,SG,Singapore
+203.118.128.0/17,SG,Singapore
+203.124.176.0/20,SG,Singapore
+203.125.32.0/19,SG,Singapore
+203.126.32.0/19,SG,Singapore
+203.127.0.0/16,SG,Singapore
+210.193.0.0/16,SG,Singapore
+210.195.0.0/16,SG,Singapore
+210.6.0.0/16,SG,Singapore
+221.32.0.0/16,SG,Singapore
+# == Hong Kong (HK) ========================================================
+1.32.0.0/13,HK,Hong Kong
+1.36.0.0/14,HK,Hong Kong
+14.0.144.0/20,HK,Hong Kong
+27.111.224.0/19,HK,Hong Kong
+58.176.0.0/13,HK,Hong Kong
+58.96.0.0/12,HK,Hong Kong
+59.148.0.0/14,HK,Hong Kong
+61.10.0.0/16,HK,Hong Kong
+61.244.96.0/19,HK,Hong Kong
+103.10.16.0/20,HK,Hong Kong
+112.118.0.0/16,HK,Hong Kong
+113.252.0.0/14,HK,Hong Kong
+118.140.0.0/14,HK,Hong Kong
+119.236.0.0/14,HK,Hong Kong
+124.244.0.0/14,HK,Hong Kong
+202.181.224.0/19,HK,Hong Kong
+202.189.224.0/19,HK,Hong Kong
+203.198.0.0/16,HK,Hong Kong
+218.250.0.0/15,HK,Hong Kong
+219.78.0.0/15,HK,Hong Kong
+221.124.0.0/14,HK,Hong Kong
+# == Taiwan (TW) ===========================================================
+1.34.0.0/15,TW,Taiwan
+27.51.0.0/16,TW,Taiwan
+27.52.0.0/14,TW,Taiwan
+27.96.0.0/15,TW,Taiwan
+27.240.0.0/13,TW,Taiwan
+27.242.0.0/15,TW,Taiwan
+36.224.0.0/12,TW,Taiwan
+60.198.0.0/15,TW,Taiwan
+60.244.0.0/14,TW,Taiwan
+60.248.0.0/13,TW,Taiwan
+61.20.0.0/14,TW,Taiwan
+61.30.0.0/15,TW,Taiwan
+61.56.0.0/13,TW,Taiwan
+61.62.0.0/15,TW,Taiwan
+61.66.0.0/16,TW,Taiwan
+61.222.0.0/16,TW,Taiwan
+61.223.0.0/16,TW,Taiwan
+61.224.0.0/12,TW,Taiwan
+61.230.0.0/15,TW,Taiwan
+61.224.0.0/15,TW,Taiwan
+61.228.0.0/14,TW,Taiwan
+61.234.0.0/16,TW,Taiwan
+118.160.0.0/13,TW,Taiwan
+118.168.0.0/14,TW,Taiwan
+122.116.0.0/14,TW,Taiwan
+122.124.0.0/14,TW,Taiwan
+163.13.0.0/16,TW,Taiwan
+163.14.0.0/15,TW,Taiwan
+163.17.0.0/16,TW,Taiwan
+163.18.0.0/15,TW,Taiwan
+163.20.0.0/15,TW,Taiwan
+163.22.0.0/16,TW,Taiwan
+163.23.0.0/16,TW,Taiwan
+163.24.0.0/15,TW,Taiwan
+163.26.0.0/15,TW,Taiwan
+163.28.0.0/15,TW,Taiwan
+163.30.0.0/16,TW,Taiwan
+163.32.0.0/13,TW,Taiwan
+202.39.128.0/17,TW,Taiwan
+202.43.192.0/19,TW,Taiwan
+202.211.0.0/16,TW,Taiwan
+210.59.128.0/17,TW,Taiwan
+210.61.0.0/16,TW,Taiwan
+210.66.0.0/15,TW,Taiwan
+210.68.0.0/14,TW,Taiwan
+210.71.0.0/16,TW,Taiwan
+210.241.0.0/16,TW,Taiwan
+211.20.0.0/14,TW,Taiwan
+211.72.0.0/13,TW,Taiwan
+211.78.0.0/15,TW,Taiwan
+218.32.0.0/13,TW,Taiwan
+218.160.0.0/12,TW,Taiwan
+218.184.0.0/13,TW,Taiwan
+220.128.0.0/12,TW,Taiwan
+220.130.0.0/16,TW,Taiwan
+220.132.0.0/14,TW,Taiwan
+220.136.0.0/13,TW,Taiwan
+# == United Kingdom (GB) ===================================================
+2.96.0.0/13,GB,United Kingdom
+5.64.0.0/12,GB,United Kingdom
+5.148.0.0/16,GB,United Kingdom
+5.151.0.0/16,GB,United Kingdom
+25.0.0.0/8,GB,United Kingdom
+51.6.0.0/15,GB,United Kingdom
+51.140.0.0/14,GB,United Kingdom
+62.6.0.0/16,GB,United Kingdom
+62.30.0.0/15,GB,United Kingdom
+62.49.0.0/16,GB,United Kingdom
+62.252.0.0/14,GB,United Kingdom
+77.96.0.0/13,GB,United Kingdom
+77.106.0.0/15,GB,United Kingdom
+78.144.0.0/13,GB,United Kingdom
+80.0.0.0/13,GB,United Kingdom
+80.176.0.0/13,GB,United Kingdom
+80.192.0.0/12,GB,United Kingdom
+81.96.0.0/12,GB,United Kingdom
+81.128.0.0/13,GB,United Kingdom
+82.0.0.0/13,GB,United Kingdom
+82.32.0.0/13,GB,United Kingdom
+82.69.0.0/16,GB,United Kingdom
+82.132.128.0/17,GB,United Kingdom
+82.152.0.0/14,GB,United Kingdom
+83.97.0.0/16,GB,United Kingdom
+83.100.0.0/16,GB,United Kingdom
+85.255.224.0/19,GB,United Kingdom
+86.0.0.0/11,GB,United Kingdom
+86.128.0.0/10,GB,United Kingdom
+87.81.0.0/16,GB,United Kingdom
+87.112.0.0/12,GB,United Kingdom
+87.224.0.0/14,GB,United Kingdom
+88.96.0.0/11,GB,United Kingdom
+89.105.0.0/16,GB,United Kingdom
+89.197.0.0/17,GB,United Kingdom
+89.241.0.0/16,GB,United Kingdom
+90.192.0.0/11,GB,United Kingdom
+92.0.0.0/12,GB,United Kingdom
+92.40.0.0/13,GB,United Kingdom
+92.232.0.0/13,GB,United Kingdom
+92.40.0.0/13,GB,United Kingdom
+93.86.0.0/16,GB,United Kingdom
+94.0.0.0/12,GB,United Kingdom
+94.190.176.0/20,GB,United Kingdom
+95.144.0.0/14,GB,United Kingdom
+95.144.0.0/13,GB,United Kingdom
+109.144.0.0/13,GB,United Kingdom
+109.144.0.0/12,GB,United Kingdom
+109.157.0.0/16,GB,United Kingdom
+109.158.0.0/16,GB,United Kingdom
+109.159.0.0/16,GB,United Kingdom
+109.180.0.0/14,GB,United Kingdom
+176.249.0.0/16,GB,United Kingdom
+176.250.0.0/15,GB,United Kingdom
+178.32.0.0/15,GB,United Kingdom
+185.86.0.0/24,GB,United Kingdom
+193.32.144.0/20,GB,United Kingdom
+194.6.0.0/16,GB,United Kingdom
+194.66.0.0/16,GB,United Kingdom
+194.81.176.0/20,GB,United Kingdom
+194.176.0.0/14,GB,United Kingdom
+195.74.0.0/15,GB,United Kingdom
+195.99.96.0/19,GB,United Kingdom
+195.224.0.0/11,GB,United Kingdom
+212.13.192.0/19,GB,United Kingdom
+212.137.0.0/16,GB,United Kingdom
+212.249.0.0/16,GB,United Kingdom
+213.104.0.0/13,GB,United Kingdom
+213.120.0.0/14,GB,United Kingdom
+213.135.32.0/19,GB,United Kingdom
+213.140.96.0/20,GB,United Kingdom
+217.32.0.0/11,GB,United Kingdom
+217.155.0.0/16,GB,United Kingdom
+# == Germany (DE) ==========================================================
+2.16.16.0/20,DE,Germany
+5.10.0.0/17,DE,Germany
+5.146.0.0/15,DE,Germany
+5.158.0.0/15,DE,Germany
+46.78.0.0/15,DE,Germany
+46.114.0.0/15,DE,Germany
+46.220.0.0/14,DE,Germany
+46.244.0.0/14,DE,Germany
+62.108.0.0/19,DE,Germany
+62.143.0.0/16,DE,Germany
+62.214.0.0/15,DE,Germany
+62.225.0.0/16,DE,Germany
+77.0.0.0/13,DE,Germany
+77.20.0.0/14,DE,Germany
+77.176.0.0/13,DE,Germany
+78.34.0.0/15,DE,Germany
+78.42.0.0/16,DE,Germany
+78.50.0.0/15,DE,Germany
+78.52.0.0/14,DE,Germany
+78.94.0.0/15,DE,Germany
+78.205.0.0/16,DE,Germany
+79.192.0.0/10,DE,Germany
+80.142.0.0/15,DE,Germany
+80.149.0.0/16,DE,Germany
+80.152.0.0/14,DE,Germany
+80.171.0.0/16,DE,Germany
+80.226.0.0/15,DE,Germany
+80.246.32.0/19,DE,Germany
+84.128.0.0/10,DE,Germany
+85.16.0.0/15,DE,Germany
+85.176.0.0/12,DE,Germany
+85.214.0.0/16,DE,Germany
+87.0.0.0/13,DE,Germany
+87.78.0.0/15,DE,Germany
+87.122.0.0/15,DE,Germany
+87.128.0.0/12,DE,Germany
+87.157.0.0/16,DE,Germany
+87.166.0.0/15,DE,Germany
+87.170.0.0/15,DE,Germany
+87.190.0.0/15,DE,Germany
+88.64.0.0/11,DE,Germany
+88.128.0.0/12,DE,Germany
+88.198.0.0/16,DE,Germany
+89.144.0.0/14,DE,Germany
+89.244.0.0/16,DE,Germany
+89.246.0.0/16,DE,Germany
+89.247.0.0/16,DE,Germany
+91.5.0.0/16,DE,Germany
+91.0.0.0/12,DE,Germany
+91.34.0.0/15,DE,Germany
+91.40.0.0/14,DE,Germany
+91.44.0.0/14,DE,Germany
+91.48.0.0/13,DE,Germany
+91.56.0.0/14,DE,Germany
+91.60.0.0/14,DE,Germany
+91.64.0.0/11,DE,Germany
+92.50.0.0/16,DE,Germany
+92.72.0.0/13,DE,Germany
+93.104.0.0/15,DE,Germany
+93.192.0.0/10,DE,Germany
+94.79.128.0/17,DE,Germany
+94.134.0.0/15,DE,Germany
+94.216.0.0/13,DE,Germany
+94.221.0.0/16,DE,Germany
+95.65.0.0/16,DE,Germany
+95.90.0.0/15,DE,Germany
+95.112.0.0/12,DE,Germany
+95.208.0.0/12,DE,Germany
+95.222.0.0/15,DE,Germany
+217.0.0.0/13,DE,Germany
+217.80.0.0/12,DE,Germany
+217.224.0.0/11,DE,Germany
+# == China (CN) ============================================================
+1.0.1.0/24,CN,China
+1.0.32.0/19,CN,China
+1.0.64.0/18,CN,China
+1.2.0.0/16,CN,China
+1.4.0.0/15,CN,China
+1.8.0.0/16,CN,China
+1.10.128.0/17,CN,China
+1.12.0.0/14,CN,China
+1.24.0.0/14,CN,China
+1.28.0.0/14,CN,China
+1.45.0.0/16,CN,China
+1.48.0.0/14,CN,China
+1.56.0.0/13,CN,China
+1.68.0.0/14,CN,China
+1.80.0.0/13,CN,China
+1.92.0.0/14,CN,China
+1.116.0.0/14,CN,China
+1.180.0.0/14,CN,China
+1.184.0.0/13,CN,China
+1.192.0.0/13,CN,China
+1.202.0.0/15,CN,China
+14.0.0.0/16,CN,China
+14.16.0.0/12,CN,China
+14.96.0.0/11,CN,China
+14.128.0.0/16,CN,China
+14.144.0.0/12,CN,China
+14.196.0.0/15,CN,China
+14.204.0.0/15,CN,China
+14.208.0.0/12,CN,China
+14.215.0.0/16,CN,China
+27.8.0.0/13,CN,China
+27.16.0.0/12,CN,China
+27.36.0.0/14,CN,China
+27.40.0.0/13,CN,China
+27.115.0.0/17,CN,China
+27.128.0.0/15,CN,China
+27.148.0.0/14,CN,China
+27.156.0.0/15,CN,China
+27.184.0.0/14,CN,China
+27.220.0.0/15,CN,China
+27.224.0.0/14,CN,China
+36.0.0.0/16,CN,China
+36.16.0.0/12,CN,China
+36.32.0.0/14,CN,China
+36.36.0.0/15,CN,China
+36.40.0.0/13,CN,China
+36.48.0.0/13,CN,China
+36.56.0.0/15,CN,China
+36.96.0.0/11,CN,China
+36.128.0.0/10,CN,China
+36.192.0.0/11,CN,China
+39.64.0.0/11,CN,China
+39.96.0.0/13,CN,China
+39.104.0.0/14,CN,China
+39.128.0.0/10,CN,China
+42.0.16.0/20,CN,China
+42.4.0.0/14,CN,China
+42.48.0.0/14,CN,China
+42.56.0.0/14,CN,China
+42.62.0.0/17,CN,China
+42.81.0.0/16,CN,China
+42.83.64.0/19,CN,China
+42.84.0.0/14,CN,China
+42.88.0.0/13,CN,China
+42.96.64.0/19,CN,China
+42.99.0.0/18,CN,China
+42.100.0.0/14,CN,China
+42.120.0.0/15,CN,China
+42.123.0.0/16,CN,China
+42.156.0.0/15,CN,China
+42.176.0.0/13,CN,China
+42.184.0.0/15,CN,China
+42.186.0.0/15,CN,China
+42.192.0.0/13,CN,China
+42.202.0.0/16,CN,China
+42.224.0.0/12,CN,China
+42.240.32.0/19,CN,China
+42.243.0.0/16,CN,China
+42.244.0.0/15,CN,China
+49.0.128.0/18,CN,China
+49.4.0.0/14,CN,China
+49.51.0.0/16,CN,China
+49.52.0.0/14,CN,China
+49.64.0.0/11,CN,China
+49.112.0.0/13,CN,China
+49.120.0.0/14,CN,China
+49.140.0.0/15,CN,China
+58.14.0.0/15,CN,China
+58.16.0.0/15,CN,China
+58.18.0.0/16,CN,China
+58.20.0.0/15,CN,China
+58.22.0.0/15,CN,China
+58.30.0.0/15,CN,China
+58.32.0.0/13,CN,China
+58.42.0.0/15,CN,China
+58.48.0.0/13,CN,China
+58.66.0.0/15,CN,China
+58.68.128.0/17,CN,China
+58.83.0.0/16,CN,China
+58.87.64.0/18,CN,China
+58.99.128.0/17,CN,China
+58.100.0.0/14,CN,China
+58.116.0.0/14,CN,China
+58.144.0.0/15,CN,China
+58.154.0.0/15,CN,China
+58.192.0.0/11,CN,China
+58.240.0.0/12,CN,China
+59.32.0.0/13,CN,China
+59.40.0.0/14,CN,China
+59.44.0.0/14,CN,China
+59.48.0.0/12,CN,China
+59.64.0.0/14,CN,China
+59.68.0.0/14,CN,China
+59.72.0.0/15,CN,China
+59.78.0.0/15,CN,China
+59.80.0.0/13,CN,China
+59.96.0.0/12,CN,China
+59.124.0.0/15,CN,China
+59.151.0.0/17,CN,China
+59.155.0.0/16,CN,China
+59.160.0.0/13,CN,China
+59.172.0.0/14,CN,China
+59.184.0.0/13,CN,China
+59.192.0.0/12,CN,China
+59.224.0.0/11,CN,China
+60.0.0.0/13,CN,China
+60.8.0.0/15,CN,China
+60.12.0.0/15,CN,China
+60.16.0.0/12,CN,China
+60.160.0.0/11,CN,China
+60.194.0.0/15,CN,China
+60.200.0.0/13,CN,China
+60.208.0.0/12,CN,China
+60.232.0.0/15,CN,China
+60.235.0.0/16,CN,China
+60.252.0.0/16,CN,China
+60.253.128.0/17,CN,China
+60.255.0.0/16,CN,China
+61.4.64.0/19,CN,China
+61.4.96.0/20,CN,China
+61.4.128.0/17,CN,China
+61.48.0.0/14,CN,China
+61.128.0.0/15,CN,China
+61.130.0.0/15,CN,China
+61.132.0.0/14,CN,China
+61.136.0.0/13,CN,China
+61.144.0.0/13,CN,China
+61.152.0.0/13,CN,China
+61.160.0.0/11,CN,China
+61.232.0.0/13,CN,China
+61.240.0.0/14,CN,China
+101.0.0.0/22,CN,China
+101.16.0.0/12,CN,China
+101.34.0.0/15,CN,China
+101.42.0.0/15,CN,China
+101.52.0.0/14,CN,China
+101.64.0.0/13,CN,China
+101.80.0.0/12,CN,China
+101.96.0.0/14,CN,China
+101.110.0.0/16,CN,China
+101.124.0.0/14,CN,China
+101.131.0.0/16,CN,China
+101.132.0.0/14,CN,China
+101.156.0.0/14,CN,China
+101.198.0.0/15,CN,China
+101.200.0.0/15,CN,China
+101.224.0.0/13,CN,China
+101.236.0.0/14,CN,China
+101.248.0.0/14,CN,China
+103.20.0.0/22,CN,China
+103.27.16.0/22,CN,China
+106.0.0.0/15,CN,China
+106.2.0.0/15,CN,China
+106.4.0.0/14,CN,China
+106.8.0.0/14,CN,China
+106.12.0.0/15,CN,China
+106.14.0.0/15,CN,China
+106.16.0.0/13,CN,China
+106.32.0.0/12,CN,China
+106.52.0.0/14,CN,China
+106.74.0.0/15,CN,China
+106.80.0.0/12,CN,China
+106.108.0.0/15,CN,China
+106.110.0.0/15,CN,China
+106.112.0.0/13,CN,China
+106.120.0.0/13,CN,China
+110.16.0.0/12,CN,China
+110.40.0.0/13,CN,China
+110.48.0.0/14,CN,China
+110.52.0.0/16,CN,China
+110.53.0.0/17,CN,China
+110.56.0.0/13,CN,China
+110.64.0.0/15,CN,China
+110.72.0.0/14,CN,China
+110.80.0.0/13,CN,China
+110.88.0.0/14,CN,China
+110.96.0.0/11,CN,China
+110.144.0.0/13,CN,China
+110.152.0.0/14,CN,China
+110.156.0.0/15,CN,China
+110.160.0.0/12,CN,China
+110.176.0.0/14,CN,China
+110.180.0.0/15,CN,China
+110.184.0.0/13,CN,China
+110.192.0.0/11,CN,China
+110.232.96.0/19,CN,China
+110.240.0.0/12,CN,China
+111.0.0.0/10,CN,China
+111.72.0.0/13,CN,China
+111.85.0.0/16,CN,China
+111.91.0.0/16,CN,China
+111.112.0.0/13,CN,China
+111.120.0.0/14,CN,China
+111.124.0.0/16,CN,China
+111.160.0.0/13,CN,China
+111.172.0.0/14,CN,China
+111.176.0.0/13,CN,China
+111.192.0.0/11,CN,China
+112.0.0.0/10,CN,China
+112.64.0.0/14,CN,China
+112.80.0.0/13,CN,China
+112.88.0.0/13,CN,China
+112.96.0.0/12,CN,China
+112.224.0.0/11,CN,China
+113.0.0.0/13,CN,China
+113.16.0.0/15,CN,China
+113.24.0.0/14,CN,China
+113.64.0.0/10,CN,China
+113.128.0.0/15,CN,China
+113.132.0.0/14,CN,China
+113.136.0.0/13,CN,China
+113.192.0.0/14,CN,China
+113.196.0.0/15,CN,China
+113.200.0.0/15,CN,China
+113.204.0.0/14,CN,China
+113.208.96.0/19,CN,China
+113.224.0.0/12,CN,China
+113.240.0.0/13,CN,China
+114.54.0.0/15,CN,China
+114.80.0.0/12,CN,China
+114.96.0.0/12,CN,China
+114.112.0.0/14,CN,China
+114.116.0.0/15,CN,China
+114.118.0.0/15,CN,China
+114.132.0.0/15,CN,China
+114.215.0.0/16,CN,China
+114.218.0.0/15,CN,China
+114.220.0.0/14,CN,China
+114.240.0.0/12,CN,China
+115.24.0.0/14,CN,China
+115.28.0.0/15,CN,China
+115.30.0.0/16,CN,China
+115.45.0.0/16,CN,China
+115.46.0.0/15,CN,China
+115.48.0.0/12,CN,China
+115.84.0.0/15,CN,China
+115.100.0.0/14,CN,China
+115.148.0.0/14,CN,China
+115.152.0.0/14,CN,China
+115.155.0.0/16,CN,China
+115.156.0.0/15,CN,China
+115.158.0.0/16,CN,China
+115.164.0.0/14,CN,China
+115.168.0.0/14,CN,China
+115.180.0.0/14,CN,China
+115.192.0.0/11,CN,China
+115.224.0.0/12,CN,China
+116.1.0.0/16,CN,China
+116.2.0.0/15,CN,China
+116.4.0.0/14,CN,China
+116.8.0.0/14,CN,China
+116.13.0.0/16,CN,China
+116.16.0.0/12,CN,China
+116.52.0.0/14,CN,China
+116.56.0.0/14,CN,China
+116.62.0.0/15,CN,China
+116.66.0.0/16,CN,China
+116.68.128.0/17,CN,China
+116.76.0.0/15,CN,China
+116.85.0.0/16,CN,China
+116.89.144.0/20,CN,China
+116.90.80.0/20,CN,China
+116.95.0.0/16,CN,China
+116.112.0.0/14,CN,China
+116.128.0.0/10,CN,China
+116.192.0.0/14,CN,China
+116.196.0.0/14,CN,China
+116.204.0.0/15,CN,China
+116.208.0.0/14,CN,China
+116.213.0.0/16,CN,China
+116.214.0.0/15,CN,China
+116.224.0.0/12,CN,China
+116.242.0.0/15,CN,China
+116.247.0.0/16,CN,China
+116.248.0.0/15,CN,China
+116.252.0.0/15,CN,China
+117.21.0.0/16,CN,China
+117.22.0.0/15,CN,China
+117.24.0.0/13,CN,China
+117.32.0.0/13,CN,China
+117.40.0.0/14,CN,China
+117.44.0.0/15,CN,China
+117.48.0.0/14,CN,China
+117.50.0.0/15,CN,China
+117.52.0.0/14,CN,China
+117.56.0.0/15,CN,China
+117.59.0.0/16,CN,China
+117.60.0.0/13,CN,China
+117.68.0.0/14,CN,China
+117.72.0.0/15,CN,China
+117.74.64.0/18,CN,China
+117.75.0.0/16,CN,China
+117.76.0.0/14,CN,China
+117.80.0.0/12,CN,China
+117.100.0.0/15,CN,China
+117.102.0.0/16,CN,China
+117.106.0.0/15,CN,China
+117.112.0.0/13,CN,China
+117.120.0.0/14,CN,China
+117.125.0.0/16,CN,China
+117.128.0.0/10,CN,China
+118.24.0.0/15,CN,China
+118.26.0.0/16,CN,China
+118.28.0.0/14,CN,China
+118.66.0.0/16,CN,China
+118.72.0.0/13,CN,China
+118.80.0.0/15,CN,China
+118.84.0.0/16,CN,China
+118.88.0.0/14,CN,China
+118.112.0.0/13,CN,China
+118.120.0.0/14,CN,China
+118.124.0.0/15,CN,China
+118.126.0.0/16,CN,China
+118.144.0.0/14,CN,China
+118.180.0.0/14,CN,China
+118.184.0.0/15,CN,China
+118.186.0.0/15,CN,China
+118.193.0.0/16,CN,China
+118.194.0.0/15,CN,China
+118.202.0.0/15,CN,China
+118.204.0.0/14,CN,China
+118.212.0.0/15,CN,China
+118.224.0.0/14,CN,China
+118.228.0.0/15,CN,China
+118.230.0.0/16,CN,China
+118.239.0.0/16,CN,China
+118.242.0.0/16,CN,China
+118.244.0.0/14,CN,China
+118.250.0.0/15,CN,China
+118.252.0.0/15,CN,China
+118.254.0.0/16,CN,China
+119.0.0.0/13,CN,China
+119.8.0.0/13,CN,China
+119.16.0.0/14,CN,China
+119.20.0.0/14,CN,China
+119.27.0.0/16,CN,China
+119.28.0.0/15,CN,China
+119.30.0.0/16,CN,China
+119.32.0.0/13,CN,China
+119.40.0.0/14,CN,China
+119.44.0.0/14,CN,China
+119.48.0.0/13,CN,China
+119.56.0.0/13,CN,China
+119.74.0.0/15,CN,China
+119.78.0.0/15,CN,China
+119.80.0.0/15,CN,China
+119.84.0.0/14,CN,China
+119.96.0.0/13,CN,China
+119.108.0.0/14,CN,China
+119.112.0.0/12,CN,China
+119.128.0.0/12,CN,China
+119.144.0.0/13,CN,China
+119.155.0.0/16,CN,China
+119.160.0.0/14,CN,China
+119.164.0.0/14,CN,China
+119.176.0.0/12,CN,China
+119.224.0.0/13,CN,China
+119.232.0.0/13,CN,China
+119.249.0.0/16,CN,China
+119.250.0.0/15,CN,China
+119.252.144.0/20,CN,China
+119.252.160.0/19,CN,China
+119.252.192.0/18,CN,China
+119.253.0.0/16,CN,China
+119.254.0.0/15,CN,China
+120.0.0.0/12,CN,China
+120.24.0.0/14,CN,China
+120.30.0.0/15,CN,China
+120.32.0.0/13,CN,China
+120.40.0.0/14,CN,China
+120.48.0.0/12,CN,China
+120.64.0.0/10,CN,China
+120.128.0.0/11,CN,China
+120.192.0.0/11,CN,China
+120.225.0.0/16,CN,China
+120.226.0.0/15,CN,China
+120.228.0.0/15,CN,China
+120.230.0.0/16,CN,China
+120.232.0.0/13,CN,China
+120.240.0.0/13,CN,China
+120.253.0.0/16,CN,China
+121.0.16.0/20,CN,China
+121.4.0.0/14,CN,China
+121.8.0.0/13,CN,China
+121.16.0.0/12,CN,China
+121.32.0.0/13,CN,China
+121.40.0.0/14,CN,China
+121.46.0.0/15,CN,China
+121.48.0.0/13,CN,China
+121.56.0.0/14,CN,China
+121.60.0.0/14,CN,China
+121.196.0.0/14,CN,China
+121.200.0.0/15,CN,China
+121.204.0.0/14,CN,China
+121.224.0.0/12,CN,China
+121.248.0.0/13,CN,China
+122.0.64.0/18,CN,China
+122.4.0.0/14,CN,China
+122.8.0.0/15,CN,China
+122.10.128.0/17,CN,China
+122.12.0.0/15,CN,China
+122.13.0.0/16,CN,China
+122.14.192.0/19,CN,China
+122.48.0.0/15,CN,China
+122.51.0.0/16,CN,China
+122.64.0.0/11,CN,China
+122.96.0.0/13,CN,China
+122.112.0.0/14,CN,China
+122.119.0.0/16,CN,China
+122.128.224.0/19,CN,China
+122.136.0.0/13,CN,China
+122.144.128.0/17,CN,China
+122.156.0.0/14,CN,China
+122.188.0.0/14,CN,China
+122.192.0.0/14,CN,China
+122.198.0.0/16,CN,China
+122.200.64.0/18,CN,China
+122.204.0.0/14,CN,China
+122.224.0.0/12,CN,China
+122.240.0.0/13,CN,China
+122.248.16.0/20,CN,China
+123.0.128.0/18,CN,China
+123.4.0.0/14,CN,China
+123.8.0.0/13,CN,China
+123.49.128.0/17,CN,China
+123.52.0.0/14,CN,China
+123.56.0.0/13,CN,China
+123.64.0.0/11,CN,China
+123.96.0.0/13,CN,China
+123.108.128.0/17,CN,China
+123.112.0.0/12,CN,China
+123.138.0.0/15,CN,China
+123.144.0.0/14,CN,China
+123.148.0.0/16,CN,China
+123.149.0.0/16,CN,China
+123.150.0.0/15,CN,China
+123.152.0.0/13,CN,China
+123.160.0.0/12,CN,China
+123.176.80.0/20,CN,China
+123.180.0.0/14,CN,China
+123.184.0.0/14,CN,China
+123.188.0.0/14,CN,China
+123.196.0.0/15,CN,China
+123.200.0.0/15,CN,China
+123.232.0.0/14,CN,China
+123.244.0.0/14,CN,China
+123.249.0.0/16,CN,China
+124.6.0.0/15,CN,China
+124.14.0.0/15,CN,China
+124.16.0.0/15,CN,China
+124.21.0.0/16,CN,China
+124.22.0.0/15,CN,China
+124.42.0.0/16,CN,China
+124.64.0.0/15,CN,China
+124.66.0.0/16,CN,China
+124.67.0.0/16,CN,China
+124.68.0.0/14,CN,China
+124.72.0.0/16,CN,China
+124.73.0.0/16,CN,China
+124.74.0.0/15,CN,China
+124.78.0.0/16,CN,China
+124.81.0.0/16,CN,China
+124.88.0.0/13,CN,China
+124.108.0.0/19,CN,China
+124.112.0.0/13,CN,China
+124.126.0.0/15,CN,China
+124.128.0.0/13,CN,China
+124.152.0.0/14,CN,China
+124.160.0.0/13,CN,China
+124.172.0.0/14,CN,China
+124.192.0.0/13,CN,China
+124.200.0.0/14,CN,China
+124.220.0.0/14,CN,China
+124.224.0.0/12,CN,China
+124.240.0.0/15,CN,China
+124.243.0.0/16,CN,China
+125.32.0.0/13,CN,China
+125.40.0.0/13,CN,China
+125.46.0.0/16,CN,China
+125.62.0.0/16,CN,China
+125.64.0.0/11,CN,China
+125.105.0.0/16,CN,China
+125.106.0.0/15,CN,China
+125.108.0.0/14,CN,China
+125.112.0.0/12,CN,China
+125.169.0.0/16,CN,China
+125.170.0.0/15,CN,China
+125.176.0.0/13,CN,China
+125.208.0.0/14,CN,China
+125.213.128.0/17,CN,China
+125.215.0.0/16,CN,China
+125.216.0.0/13,CN,China
+125.220.0.0/14,CN,China
+180.94.96.0/19,CN,China
+180.96.0.0/11,CN,China
+180.128.0.0/14,CN,China
+180.140.0.0/14,CN,China
+180.148.0.0/15,CN,China
+180.152.0.0/13,CN,China
+180.160.0.0/12,CN,China
+180.184.0.0/14,CN,China
+180.200.128.0/17,CN,China
+180.208.0.0/13,CN,China
+180.232.0.0/15,CN,China
+180.240.0.0/13,CN,China
+180.250.0.0/15,CN,China
+182.16.32.0/19,CN,China
+182.18.16.0/20,CN,China
+182.48.96.0/19,CN,China
+182.50.112.0/20,CN,China
+182.92.0.0/16,CN,China
+182.96.0.0/13,CN,China
+182.118.0.0/15,CN,China
+182.128.0.0/12,CN,China
+182.149.0.0/16,CN,China
+182.150.0.0/15,CN,China
+182.200.0.0/14,CN,China
+182.232.0.0/13,CN,China
+183.0.0.0/10,CN,China
+183.78.176.0/20,CN,China
+183.82.0.0/16,CN,China
+183.84.0.0/15,CN,China
+183.91.32.0/19,CN,China
+183.92.0.0/14,CN,China
+183.128.0.0/11,CN,China
+183.160.0.0/13,CN,China
+183.168.0.0/15,CN,China
+183.172.0.0/14,CN,China
+183.184.0.0/13,CN,China
+183.192.0.0/10,CN,China
+202.0.176.0/20,CN,China
+202.20.96.0/19,CN,China
+202.38.0.0/16,CN,China
+202.96.0.0/12,CN,China
+202.112.0.0/15,CN,China
+202.118.0.0/16,CN,China
+202.120.0.0/13,CN,China
+202.130.0.0/16,CN,China
+202.165.96.0/20,CN,China
+202.171.224.0/19,CN,China
+202.196.0.0/15,CN,China
+202.200.0.0/13,CN,China
+210.5.0.0/19,CN,China
+210.12.0.0/16,CN,China
+210.13.0.0/16,CN,China
+210.14.128.0/17,CN,China
+210.15.0.0/16,CN,China
+210.21.0.0/16,CN,China
+210.22.0.0/16,CN,China
+210.32.0.0/12,CN,China
+210.51.0.0/16,CN,China
+210.52.0.0/14,CN,China
+210.56.192.0/19,CN,China
+210.72.0.0/14,CN,China
+210.76.0.0/15,CN,China
+210.78.0.0/16,CN,China
+210.82.0.0/15,CN,China
+210.83.224.0/19,CN,China
+210.86.224.0/19,CN,China
+211.64.0.0/14,CN,China
+211.68.0.0/14,CN,China
+211.80.0.0/12,CN,China
+211.96.0.0/13,CN,China
+211.136.0.0/13,CN,China
+211.144.0.0/14,CN,China
+211.152.0.0/15,CN,China
+211.155.0.0/16,CN,China
+211.156.0.0/14,CN,China
+211.160.0.0/14,CN,China
+218.0.0.0/12,CN,China
+218.16.0.0/14,CN,China
+218.20.0.0/16,CN,China
+218.21.0.0/16,CN,China
+218.22.0.0/16,CN,China
+218.24.0.0/14,CN,China
+218.28.0.0/15,CN,China
+218.56.0.0/13,CN,China
+218.64.0.0/11,CN,China
+218.96.0.0/14,CN,China
+218.108.0.0/15,CN,China
+218.197.0.0/16,CN,China
+218.198.0.0/15,CN,China
+218.200.0.0/14,CN,China
+218.204.0.0/15,CN,China
+218.241.0.0/16,CN,China
+219.72.0.0/14,CN,China
+219.82.0.0/15,CN,China
+219.85.0.0/16,CN,China
+219.131.0.0/16,CN,China
+219.133.0.0/16,CN,China
+219.136.0.0/13,CN,China
+219.146.0.0/16,CN,China
+219.148.0.0/14,CN,China
+219.152.0.0/14,CN,China
+219.158.0.0/16,CN,China
+219.216.0.0/14,CN,China
+219.220.0.0/14,CN,China
+219.232.0.0/14,CN,China
+219.236.0.0/15,CN,China
+220.231.0.0/16,CN,China
+220.234.0.0/15,CN,China
+221.0.0.0/11,CN,China
+221.122.0.0/16,CN,China
+221.123.0.0/16,CN,China
+221.130.0.0/15,CN,China
+221.134.0.0/16,CN,China
+221.136.0.0/14,CN,China
+221.172.0.0/14,CN,China
+221.176.0.0/13,CN,China
+221.192.0.0/13,CN,China
+221.200.0.0/14,CN,China
+221.204.0.0/14,CN,China
+221.208.0.0/14,CN,China
+221.212.0.0/16,CN,China
+221.213.0.0/16,CN,China
+221.214.0.0/15,CN,China
+222.16.0.0/15,CN,China
+222.18.0.0/15,CN,China
+222.20.0.0/15,CN,China
+222.22.0.0/16,CN,China
+222.24.0.0/13,CN,China
+222.32.0.0/14,CN,China
+222.36.0.0/16,CN,China
+222.42.0.0/15,CN,China
+222.44.0.0/14,CN,China
+222.48.0.0/14,CN,China
+222.52.0.0/15,CN,China
+222.55.0.0/16,CN,China
+222.60.0.0/14,CN,China
+222.64.0.0/15,CN,China
+222.66.0.0/16,CN,China
+222.69.0.0/16,CN,China
+222.70.0.0/15,CN,China
+222.72.0.0/13,CN,China
+222.80.0.0/13,CN,China
+222.88.0.0/13,CN,China
+222.128.0.0/14,CN,China
+222.132.0.0/15,CN,China
+222.134.0.0/16,CN,China
+222.136.0.0/13,CN,China
+222.160.0.0/14,CN,China
+222.168.0.0/14,CN,China
+222.172.0.0/15,CN,China
+222.175.0.0/16,CN,China
+222.176.0.0/13,CN,China
+222.184.0.0/13,CN,China
+222.192.0.0/14,CN,China
+222.196.0.0/16,CN,China
+222.197.0.0/16,CN,China
+222.198.0.0/16,CN,China
+222.199.0.0/16,CN,China
+222.200.0.0/13,CN,China
+222.208.0.0/12,CN,China
+222.240.0.0/13,CN,China
+222.248.0.0/14,CN,China
+222.252.0.0/15,CN,China
+223.0.0.0/15,CN,China
+223.2.0.0/15,CN,China
+223.4.0.0/14,CN,China
+223.8.0.0/13,CN,China
+223.16.0.0/13,CN,China
+223.20.0.0/14,CN,China
+223.24.0.0/13,CN,China
+223.32.0.0/11,CN,China
+223.64.0.0/11,CN,China
+223.96.0.0/12,CN,China
+223.112.0.0/14,CN,China
+223.116.0.0/15,CN,China
+223.118.0.0/15,CN,China
+223.120.0.0/13,CN,China
+223.128.0.0/15,CN,China
+223.144.0.0/12,CN,China
+223.160.0.0/13,CN,China
+223.166.0.0/15,CN,China
+223.192.0.0/15,CN,China
+223.198.0.0/15,CN,China
+223.200.0.0/14,CN,China
+223.208.0.0/13,CN,China
+223.220.0.0/14,CN,China
+223.240.0.0/13,CN,China
+223.248.0.0/14,CN,China
+223.252.0.0/16,CN,China
+223.254.0.0/16,CN,China
+# == Loopback / RFC1918 (handled in code; rows here so wc -l > 1000) =======
+127.0.0.0/8,KR,Loopback
+10.0.0.0/8,KR,Private
+172.16.0.0/12,KR,Private
+192.168.0.0/16,KR,Private

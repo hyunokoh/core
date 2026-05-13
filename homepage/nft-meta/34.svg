@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#16161d"/><rect x="0" y="0" width="83" height="83" fill="#f43f5e" opacity="0.67"/>
+<rect x="0" y="83" width="83" height="83" fill="#34d399" opacity="0.99"/>
+<rect x="83" y="0" width="83" height="83" fill="#34d399" opacity="0.73"/>
+<rect x="83" y="83" width="83" height="83" fill="#f43f5e" opacity="0.81"/>
+<rect x="83" y="166" width="83" height="83" fill="#60a5fa" opacity="0.94"/>
+<rect x="83" y="249" width="83" height="83" fill="#34d399" opacity="0.62"/>
+<rect x="83" y="332" width="83" height="83" fill="#60a5fa" opacity="0.68"/>
+<rect x="166" y="0" width="83" height="83" fill="#34d399" opacity="0.91"/>
+<rect x="249" y="83" width="83" height="83" fill="#f43f5e" opacity="0.66"/>
+<rect x="249" y="166" width="83" height="83" fill="#f43f5e" opacity="0.77"/>
+<rect x="249" y="249" width="83" height="83" fill="#34d399" opacity="0.88"/>
+<rect x="332" y="166" width="83" height="83" fill="#60a5fa" opacity="0.88"/>
+<rect x="332" y="415" width="83" height="83" fill="#60a5fa" opacity="0.62"/>
+<rect x="415" y="0" width="83" height="83" fill="#f43f5e" opacity="0.68"/>
+<rect x="415" y="83" width="83" height="83" fill="#34d399" opacity="0.67"/>
+<rect x="415" y="249" width="83" height="83" fill="#34d399" opacity="0.83"/>
+<rect x="415" y="415" width="83" height="83" fill="#34d399" opacity="0.80"/><text x="480" y="490" font-family="JetBrains Mono, monospace" font-size="22" fill="#60a5fa" text-anchor="end" opacity="0.9">#34</text><text x="20" y="490" font-family="JetBrains Mono, monospace" font-size="14" fill="#f43f5e" opacity="0.8">zkCEX</text></svg>

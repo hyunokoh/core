@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=chain
+
+COPY --chown=65532:65532 tools/chain_server.py     /app/tools/chain_server.py
+COPY --chown=65532:65532 tools/asset_precisions.py /app/tools/asset_precisions.py
+COPY --chown=65532:65532 tools/providers/          /app/tools/providers/
+
+ENV PORT=5502
+EXPOSE 5502
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5502", "/chain/health"]
+CMD ["-u", "/app/tools/chain_server.py", "5502"]

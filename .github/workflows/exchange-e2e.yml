@@ -1,18 +1,69 @@
 name: Exchange E2E
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/exchange-e2e.yml'
+      - 'accountant/**'
+      - 'api/**'
+      - 'bc-gateway/**'
+      - 'common/**'
+      - 'docker-compose*.yml'
+      - 'docker-images/**'
+      - 'docs/exchange-e2e.md'
+      - 'eventlog/**'
+      - 'market/**'
+      - 'matching-engine/**'
+      - 'matching-gateway/**'
+      - 'pom.xml'
+      - 'preferences-e2e*.yml'
+      - 'tools/e2e/**'
+      - 'user-management/**'
+      - 'wallet/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/exchange-e2e.yml'
+      - 'accountant/**'
+      - 'api/**'
+      - 'bc-gateway/**'
+      - 'common/**'
+      - 'docker-compose*.yml'
+      - 'docker-images/**'
+      - 'docs/exchange-e2e.md'
+      - 'eventlog/**'
+      - 'market/**'
+      - 'matching-engine/**'
+      - 'matching-gateway/**'
+      - 'pom.xml'
+      - 'preferences-e2e*.yml'
+      - 'tools/e2e/**'
+      - 'user-management/**'
+      - 'wallet/**'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: exchange-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   exchange-e2e:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify Docker
         run: docker info
+
+      - name: Free runner disk space
+        run: |
+          docker system prune -af || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -26,6 +77,33 @@ jobs:
           DOCKER_SOCK: unix:///var/run/docker.sock
         run: tools/e2e/run_exchange_e2e.sh --package --build --reset
 
+      - name: Collect E2E logs
+        if: failure()
+        env:
+          DOCKER_SOCK: unix:///var/run/docker.sock
+        run: |
+          mkdir -p /tmp/opex-e2e-logs
+          docker -H "$DOCKER_SOCK" compose \
+            --profile full-stack \
+            --env-file .env.e2e \
+            -f docker-compose.yml \
+            -f docker-compose.override.yml \
+            -f docker-compose.build.yml \
+            -f docker-compose.local.yml \
+            -f tools/e2e/docker-compose.e2e.yml \
+            ps > /tmp/opex-e2e-logs/compose-ps.txt || true
+          docker -H "$DOCKER_SOCK" compose \
+            --profile full-stack \
+            --env-file .env.e2e \
+            -f docker-compose.yml \
+            -f docker-compose.override.yml \
+            -f docker-compose.build.yml \
+            -f docker-compose.local.yml \
+            -f tools/e2e/docker-compose.e2e.yml \
+            logs --tail=500 \
+            zookeeper kafka-1 wallet accountant matching-engine matching-gateway market eventlog api bc-gateway vault consul \
+            > /tmp/opex-e2e-logs/compose.log 2>&1 || true
+
       - name: Upload E2E summary
         if: always()
         uses: actions/upload-artifact@v4
@@ -34,16 +112,35 @@ jobs:
           path: /tmp/opex-e2e-*.json
           if-no-files-found: ignore
 
+      - name: Upload E2E logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exchange-e2e-logs
+          path: /tmp/opex-e2e-logs/
+          if-no-files-found: ignore
+
       - name: Print E2E logs on failure
         if: failure()
+        run: |
+          if test -f /tmp/opex-e2e-logs/compose-ps.txt; then
+            cat /tmp/opex-e2e-logs/compose-ps.txt
+          fi
+          if test -f /tmp/opex-e2e-logs/compose.log; then
+            tail -n 300 /tmp/opex-e2e-logs/compose.log
+          fi
+
+      - name: Stop E2E stack
+        if: always()
         env:
           DOCKER_SOCK: unix:///var/run/docker.sock
         run: |
           docker -H "$DOCKER_SOCK" compose \
+            --profile full-stack \
             --env-file .env.e2e \
             -f docker-compose.yml \
             -f docker-compose.override.yml \
             -f docker-compose.build.yml \
             -f docker-compose.local.yml \
             -f tools/e2e/docker-compose.e2e.yml \
-            logs --tail=300 wallet accountant matching-engine matching-gateway market
+            down --volumes --remove-orphans

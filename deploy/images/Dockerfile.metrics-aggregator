@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=metrics-aggregator
+
+COPY --chown=65532:65532 tools/metrics_aggregator.py /app/tools/metrics_aggregator.py
+
+ENV PORT=5640
+EXPOSE 5640
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5640", "/health"]
+CMD ["-u", "/app/tools/metrics_aggregator.py", "5640"]

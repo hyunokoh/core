@@ -1,0 +1,12 @@
+{title}
+
+{body}
+
+Asset:       {asset}
+Amount:      {amount}
+Destination: {destination}
+TX:          {tx}
+
+If you did not start this withdrawal, sign in immediately and rotate your password.
+
+— zkCEX

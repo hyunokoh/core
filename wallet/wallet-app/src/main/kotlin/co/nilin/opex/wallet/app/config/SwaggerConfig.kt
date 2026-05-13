@@ -1,6 +1,7 @@
 package co.nilin.opex.wallet.app.config
 
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.core.annotation.AuthenticationPrincipal
@@ -18,6 +19,7 @@ import java.security.Principal
 import java.util.*
 
 @Configuration
+@ConditionalOnProperty(name = ["app.swagger.enabled"], havingValue = "true", matchIfMissing = true)
 class SwaggerConfig {
     @Value("\${swagger.authUrl}")
     private lateinit var authUrl: String

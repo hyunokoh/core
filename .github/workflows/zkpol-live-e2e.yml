@@ -1,0 +1,51 @@
+name: zkPoL Live E2E
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zkpol-live-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install test dependencies
+        run: pip install pytest
+
+      - name: Require live zkPoL environment configuration
+        env:
+          WALLET_BASE: ${{ vars.ZKPOL_E2E_WALLET_BASE }}
+          ZKPOL_BRIDGE_BASE: ${{ vars.ZKPOL_E2E_BRIDGE_BASE }}
+          ANCHOR_BASE: ${{ vars.ZKPOL_E2E_ANCHOR_BASE }}
+          ZKPOL_E2E_USER: ${{ vars.ZKPOL_E2E_USER }}
+          BULLETIN_BOARD_ADDRESS: ${{ vars.BULLETIN_BOARD_ADDRESS }}
+          ZKCEX_TEST_BEARER: ${{ secrets.ZKCEX_TEST_BEARER }}
+        run: |
+          test -n "$WALLET_BASE"
+          test -n "$ZKPOL_BRIDGE_BASE"
+          test -n "$ANCHOR_BASE"
+          test -n "$ZKPOL_E2E_USER"
+          test -n "$BULLETIN_BOARD_ADDRESS"
+          test -n "$ZKCEX_TEST_BEARER"
+
+      - name: Run zkPoL live E2E
+        env:
+          WALLET_BASE: ${{ vars.ZKPOL_E2E_WALLET_BASE }}
+          ZKPOL_BRIDGE_BASE: ${{ vars.ZKPOL_E2E_BRIDGE_BASE }}
+          ANCHOR_BASE: ${{ vars.ZKPOL_E2E_ANCHOR_BASE }}
+          BULLETIN_BOARD_ADDRESS: ${{ vars.BULLETIN_BOARD_ADDRESS }}
+          ZKCEX_TEST_BEARER: ${{ secrets.ZKCEX_TEST_BEARER }}
+          ZKPOL_E2E_USER: ${{ vars.ZKPOL_E2E_USER }}
+          ZKPOL_E2E_REQUIRED: "1"
+          ZKPOL_E2E_REQUIRE_ACCOUNT_COMMITMENT: "1"
+          ZKPOL_E2E_TIMEOUT_SECONDS: "180"
+        run: PYTHONPATH=tools pytest tools/tests/test_zkpol_e2e.py -v -m live

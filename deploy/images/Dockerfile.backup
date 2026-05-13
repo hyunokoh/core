@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=backup
+
+# tools/__init__.py is needed for `python -m tools.backup.backup_daemon` to
+# resolve. Distroless has no shell so we cannot `touch /app/tools/__init__.py`
+# at build time; instead we rely on PYTHONPATH=/app/tools (set in base) so the
+# daemon can be invoked as `-m backup.backup_daemon`.
+COPY --chown=65532:65532 tools/backup/ /app/tools/backup/
+
+ENV PORT=5670
+EXPOSE 5670
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5670", "/health"]
+# Note: postgres_backup.py shells out to `docker exec`. That requires the
+# `docker` CLI inside the container, which is not present in either the old
+# slim image or this distroless image. The backup daemon's other code paths
+# (sqlite, mariadb-via-network, S3) work as-is.
+CMD ["-u", "-m", "backup.backup_daemon", "5670"]

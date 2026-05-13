@@ -1,0 +1,43 @@
+# perp service authorization. Only the matching engine, proxy, and
+# market-maker bot may speak to it.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: perp-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: perp
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            paths:
+              - /perp/order/*
+              - /perp/position/*
+              - /perp/funding/*
+              - /perp/leverage
+              - /perp/liquidate
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/proxy
+              - cluster.local/ns/zkcex/sa/order-engine
+              - cluster.local/ns/zkcex/sa/mm-bot
+              - cluster.local/ns/zkcex/sa/safu
+    - to:
+        - operation:
+            methods: ["GET"]
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/metrics-aggregator
+              - cluster.local/ns/zkcex/sa/ops
+              - cluster.local/ns/zkcex/sa/export
+    - to:
+        - operation:
+            paths: ["/perp/health"]
+      from:
+        - source:
+            namespaces: ["istio-system", "monitoring", "zkcex"]

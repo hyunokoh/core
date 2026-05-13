@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>선물 / Futures — zkCEX</title>
+  <meta name="description" content="zkCEX USDT-마진 무기한 선물. 마크 가격, 펀딩, 레버리지, 청산 - 데모." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main id="main" class="trade-shell futures-shell">
+
+  <h1 class="sr-only">선물 거래 / Futures trade</h1>
+
+  <!-- Symbol bar with mark / index / funding / balance -->
+  <section class="symbol-bar futures-bar">
+    <div class="symbol-pick" id="symbol-pick">
+      <span class="asset-icon" id="bar-icon">·</span>
+      <span class="pair" id="bar-pair">— PERP</span>
+      <span class="caret">▼</span>
+      <select id="symbol-select" aria-label="선물 심볼 선택 / Select futures symbol" style="position:absolute; inset:0; opacity:0; cursor:pointer;"></select>
+    </div>
+    <div class="symbol-stats futures-stats">
+      <div class="stat">
+        <span class="label">마크 / Mark</span>
+        <span class="value lp mono" id="bar-mark">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">인덱스 / Index</span>
+        <span class="value mono" id="bar-index">—</span>
+      </div>
+      <div class="stat">
+        <span class="label" title="다음 펀딩까지 남은 시간">다음 펀딩 / Funding in</span>
+        <span class="value mono" id="bar-countdown" title="현재 펀딩률 / Current funding rate">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">현재 펀딩률 / Rate</span>
+        <span class="value mono" id="bar-funding-rate">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">잔액 / Wallet</span>
+        <span class="value mono" id="bar-wallet">— USDT</span>
+      </div>
+      <div class="stat">
+        <span class="label">사용 가능 / Available</span>
+        <span class="value mono" id="bar-available">— USDT</span>
+      </div>
+      <div class="stat">
+        <span class="label">미실현 PnL</span>
+        <span class="value mono" id="bar-upnl">—</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="trade-grid futures-grid">
+
+    <!-- Chart + open positions row -->
+    <section class="panel chart-panel">
+      <header class="panel-header">
+        <span>마크 차트 <span class="en">/ Mark chart</span></span>
+        <span class="pad"></span>
+        <span class="muted" style="font-size:11px;">CLOB 활성 · maker 0.02% / taker 0.05% · 마크는 인덱스 ±5% 내에서 클램프</span>
+      </header>
+      <div style="display:grid; grid-template-columns: 1fr 240px; gap:0;">
+        <div class="chart-host" id="chart-host" style="min-height:340px;"></div>
+        <div class="orderbook-panel" id="orderbook-panel"
+             style="border-left:1px solid rgba(255,255,255,0.06); padding:8px 10px;
+                    min-height:340px; max-height:340px; overflow:hidden;
+                    font-size:11px; line-height:1.4;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <strong>주문장 / Order Book</strong>
+            <span class="muted mono" id="ob-spread">—</span>
+          </div>
+          <table class="ob-table" aria-label="선물 주문장 / Futures order book" style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr style="font-size:10px; color:#9aa3b3;">
+                <th scope="col" style="text-align:left; padding:2px 4px;">Price</th>
+                <th scope="col" style="text-align:right; padding:2px 4px;">Qty</th>
+              </tr>
+            </thead>
+            <tbody id="ob-asks" style="color:#ff4d63;"></tbody>
+            <tbody id="ob-mid">
+              <tr><td colspan="2" style="text-align:center; padding:4px 0;
+                  border-top:1px dashed rgba(255,255,255,0.08);
+                  border-bottom:1px dashed rgba(255,255,255,0.08);
+                  font-weight:600; color:#dfe5f1;" id="ob-mid-cell">—</td></tr>
+            </tbody>
+            <tbody id="ob-bids" style="color:#00d997;"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="futures-positions-strip" id="positions-strip">
+        <div class="muted" style="padding:14px 18px;">로그인 후 포지션이 표시됩니다. / Sign in to see your open positions.</div>
+      </div>
+    </section>
+
+    <!-- Order form -->
+    <section class="order-panel futures-order">
+      <div class="margin-tabs">
+        <button class="margin-tab active" data-mtype="ISOLATED">격리 / Isolated</button>
+        <button class="margin-tab" data-mtype="CROSSED" title="포지션 없을 때만 변경 가능 / Only when no open positions">교차 / Cross</button>
+      </div>
+
+      <div class="leverage-row">
+        <label for="lev-slider">레버리지 / Leverage</label>
+        <div class="lev-display"><span id="lev-x">10</span>×</div>
+      </div>
+      <input id="lev-slider" type="range" min="1" max="50" value="10" step="1" class="lev-slider" />
+      <div class="lev-snaps" id="lev-snaps">
+        <button data-l="2">2×</button>
+        <button data-l="5">5×</button>
+        <button data-l="10" class="active">10×</button>
+        <button data-l="20">20×</button>
+        <button data-l="25">25×</button>
+        <button data-l="50">50×</button>
+      </div>
+
+      <div class="ls-toggle">
+        <button class="ls-tab active long" data-side="BUY">롱 / Long</button>
+        <button class="ls-tab short" data-side="SELL">숏 / Short</button>
+      </div>
+
+      <div class="order-tabs">
+        <button class="order-tab active" data-otype="MARKET">시장가 / Market</button>
+        <button class="order-tab" data-otype="LIMIT">지정가 / Limit</button>
+        <button class="order-tab" data-otype="POST_ONLY">Post-only</button>
+        <button class="order-tab" data-otype="IOC">IOC</button>
+        <button class="order-tab" data-otype="FOK">FOK</button>
+      </div>
+
+      <div class="field-row" id="price-row" style="display:none;">
+        <label for="order-price">가격 / Price</label>
+        <input id="order-price" type="text" inputmode="decimal" placeholder="0.00" />
+        <span class="unit">USDT</span>
+      </div>
+
+      <div class="field-row">
+        <label for="order-qty">수량 / Quantity</label>
+        <input id="order-qty" type="text" inputmode="decimal" placeholder="0.000" />
+        <span class="unit" id="qty-unit">ETH</span>
+      </div>
+
+      <div class="field-row">
+        <label for="order-notional">총액 / Notional</label>
+        <input id="order-notional" type="text" inputmode="decimal" placeholder="0.00" />
+        <span class="unit">USDT</span>
+      </div>
+
+      <div class="slider-row">
+        <input id="amt-slider" type="range" min="0" max="100" value="0" step="1" aria-label="주문 수량 비율 / Order size percent" />
+        <span class="muted mono" id="amt-slider-pct" style="width:34px; text-align:right; font-size:11px;">0%</span>
+      </div>
+      <div class="slider-pcts">
+        <button class="slider-pct" data-p="25">25%</button>
+        <button class="slider-pct" data-p="50">50%</button>
+        <button class="slider-pct" data-p="75">75%</button>
+        <button class="slider-pct" data-p="100">100%</button>
+      </div>
+
+      <div class="order-flags" style="display:flex; gap:14px; align-items:center; font-size:11px; padding:4px 0;">
+        <label for="reduce-only" style="display:inline-flex; gap:5px; align-items:center; cursor:pointer;">
+          <input id="reduce-only" type="checkbox" /> Reduce-only
+        </label>
+        <label for="post-only" style="display:inline-flex; gap:5px; align-items:center; cursor:pointer;">
+          <input id="post-only" type="checkbox" /> Post-only
+        </label>
+      </div>
+
+      <div class="order-meta">
+        <span class="row-line"><span class="label">필요 마진 / Init. margin</span><span id="est-margin">—</span></span>
+        <span class="row-line"><span class="label">청산가 / Est. liq. price</span><span id="est-liq">—</span></span>
+        <span class="row-line"><span class="label">수수료 / Fee</span><span>taker 0.05% · maker 0.02%</span></span>
+      </div>
+
+      <button class="btn-perp btn-long" id="submit-long">롱 / Long <span id="long-base">ETH</span></button>
+      <button class="btn-perp btn-short" id="submit-short" style="margin-top:8px;">숏 / Short <span id="short-base">ETH</span></button>
+    </section>
+
+    <!-- Bottom: position / orders / trades / funding / transfer tabs -->
+    <section class="history-panel futures-history">
+      <div class="history-tabs">
+        <button class="history-tab active" data-ftab="positions">포지션 / Positions</button>
+        <button class="history-tab" data-ftab="orders">주문 / Orders</button>
+        <button class="history-tab" data-ftab="trades">거래내역 / Trades</button>
+        <button class="history-tab" data-ftab="funding">펀딩 / Funding</button>
+        <button class="history-tab" data-ftab="transfer">입출금 / Transfer</button>
+      </div>
+      <div class="history-body" id="ftab-body">
+        <div class="muted">로그인 후 표시됩니다. / Sign in to see your futures activity.</div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<div id="app-footer"></div>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.7/dist/lightweight-charts.standalone.production.js"></script>
+<script type="module">
+import {
+  renderHeader, renderFooter,
+  api, getQuery, toast,
+  fmtPrice, fmtAmount, escapeHtml,
+  getSession,
+} from "./app.js";
+import * as perp from "./futures.js";
+
+renderHeader("trade");  // share trade tab highlight
+renderFooter();
+
+const $ = (id) => document.getElementById(id);
+const state = {
+  symbols: [],
+  symbol: (getQuery("symbol", "ETHUSDT_PERP") || "ETHUSDT_PERP").toUpperCase(),
+  base: "ETH",
+  quote: "USDT",
+  leverage: 10,
+  side: "BUY",        // BUY -> open long; SELL -> open short
+  orderType: "MARKET",
+  marginType: "ISOLATED",
+  timeInForce: "GTC", // GTC | IOC | FOK | GTX (POST_ONLY synonym)
+  postOnly: false,
+  reduceOnly: false,
+  mark: 0,
+  index: 0,
+  fundingRate: 0,
+  nextFundingTime: 0,
+  available: 0,
+  wallet: 0,
+  upnl: 0,
+  crossUpnl: 0,
+  positions: [],
+  market: null,        // current market exchange-info row
+  marks: new Map(),    // candles for the chart
+  chart: null, candleSeries: null,
+  activeTab: "positions",
+  // Cached margin-type-per-symbol (filled from /fapi/v1/account.marginSettings).
+  marginSettings: {},
+};
+
+const session = getSession();
+
+// ---------- Exchange info / symbol switch ----------
+async function loadExchangeInfo() {
+  const info = await perp.getExchangeInfo();
+  state.symbols = (info.symbols || []).filter(s => s.status === "TRADING");
+  // Populate symbol picker
+  const sel = $("symbol-select");
+  sel.innerHTML = state.symbols.map(s =>
+    `<option value="${s.symbol}" ${s.symbol === state.symbol ? "selected" : ""}>${s.baseAsset}/${s.quoteAsset} PERP</option>`
+  ).join("");
+  state.market = state.symbols.find(s => s.symbol === state.symbol) || state.symbols[0];
+  if (state.market) {
+    state.symbol = state.market.symbol;
+    state.base = state.market.baseAsset;
+    state.quote = state.market.quoteAsset;
+    document.title = `${state.base}/${state.quote} PERP · 선물 / Futures — zkCEX`;
+    $("bar-icon").className = `asset-icon ${state.base.toLowerCase()}`;
+    $("bar-icon").textContent = state.base.slice(0, 3);
+    $("bar-pair").textContent = `${state.base}/${state.quote} PERP`;
+    $("qty-unit").textContent = state.base;
+    $("long-base").textContent = state.base;
+    $("short-base").textContent = state.base;
+    // Per-symbol leverage stored locally
+    const stored = Number(localStorage.getItem(`perp.lev.${state.symbol}`));
+    if (stored >= 1 && stored <= state.market.maxLeverage) state.leverage = stored;
+    $("lev-slider").max = state.market.maxLeverage;
+    $("lev-slider").value = state.leverage;
+    $("lev-x").textContent = state.leverage;
+  }
+  sel.addEventListener("change", () => {
+    location.href = `futures.html?symbol=${encodeURIComponent(sel.value)}`;
+  });
+}
+
+// ---------- Mark / funding / countdown ----------
+function fmtCountdown(ms) {
+  if (!ms || ms < 0) return "—";
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
+function paintMark(p) {
+  state.mark = Number(p.markPrice) || 0;
+  state.index = Number(p.indexPrice) || 0;
+  state.fundingRate = Number(p.lastFundingRate) || 0;
+  state.nextFundingTime = Number(p.nextFundingTime) || 0;
+  $("bar-mark").textContent = state.mark ? fmtPrice(state.mark, state.base, state.quote) : "—";
+  $("bar-index").textContent = state.index ? fmtPrice(state.index, state.base, state.quote) : "—";
+  const remaining = state.nextFundingTime - Date.now();
+  $("bar-countdown").textContent = fmtCountdown(remaining);
+  $("bar-funding-rate").textContent = perp.fmtFundingPct(state.fundingRate);
+  // also feed the chart synthetic candle every tick — clean enough for a demo.
+  if (state.candleSeries && state.mark > 0) {
+    const now = Math.floor(Date.now() / 1000);
+    const bucket = now - (now % 60); // 1m bucket
+    const last = state.marks.get(bucket) || {
+      time: bucket, open: state.mark, high: state.mark, low: state.mark, close: state.mark,
+    };
+    last.close = state.mark;
+    last.high = Math.max(last.high, state.mark);
+    last.low = Math.min(last.low, state.mark);
+    state.marks.set(bucket, last);
+    state.candleSeries.update(last);
+  }
+  // refresh the order-form estimates whenever mark moves
+  recalcEstimates();
+}
+
+// 1s ticker for the countdown alone (mark fields are updated by the poll)
+setInterval(() => {
+  if (!state.nextFundingTime) return;
+  const remaining = state.nextFundingTime - Date.now();
+  $("bar-countdown").textContent = fmtCountdown(remaining);
+}, 1000);
+
+// ---------- Account (wallet + positions) ----------
+async function refreshAccount() {
+  if (!session) return;
+  try {
+    const acc = await perp.getAccount();
+    state.wallet = Number(acc.totalWalletBalance) || 0;
+    state.available = Number(acc.availableBalance) || 0;
+    state.upnl = Number(acc.totalUnrealizedProfit) || 0;
+    state.crossUpnl = Number(acc.crossUnPnl) || 0;
+    state.positions = acc.positions || [];
+    state.marginSettings = {};
+    for (const m of (acc.marginSettings || [])) {
+      state.marginSettings[m.symbol] = m.marginType;
+    }
+    // Reflect the current symbol's margin mode in the tabs.
+    state.marginType = state.marginSettings[state.symbol] || "ISOLATED";
+    paintMarginTabs();
+    paintBalances();
+    paintPositionsStrip();
+    if (state.activeTab === "positions") paintPositionsTab();
+    recalcEstimates();
+  } catch (e) {
+    // 401 just means we're not authed — leave defaults
+    if (e.status !== 401) console.warn("account refresh failed", e);
+  }
+}
+
+function paintMarginTabs() {
+  document.querySelectorAll(".margin-tab").forEach(b => {
+    b.classList.toggle("active", b.dataset.mtype === state.marginType);
+  });
+}
+
+function paintBalances() {
+  $("bar-wallet").textContent = `${state.wallet.toFixed(2)} ${state.quote}`;
+  $("bar-available").textContent = `${state.available.toFixed(2)} ${state.quote}`;
+  const upnl = state.upnl;
+  const cls = upnl > 0 ? "up" : upnl < 0 ? "down" : "muted";
+  $("bar-upnl").innerHTML = `<span class="${cls}">${perp.fmtPnl(upnl, state.quote)}</span>`;
+}
+
+function paintPositionsStrip() {
+  const strip = $("positions-strip");
+  const open = state.positions.filter(p => Math.abs(Number(p.positionAmt)) > 0);
+  if (!session) {
+    strip.innerHTML = `<div class="muted" style="padding:14px 18px;">로그인 후 포지션이 표시됩니다. / Sign in to see your open positions.</div>`;
+    return;
+  }
+  if (!open.length) {
+    strip.innerHTML = `<div class="muted" style="padding:14px 18px;">열린 포지션이 없습니다. / No open positions.</div>`;
+    return;
+  }
+  const html = open.map(p => {
+    const sideCls = p.side === "LONG" ? "long" : "short";
+    const pnl = Number(p.unRealizedProfit);
+    const pnlCls = pnl > 0 ? "up" : pnl < 0 ? "down" : "muted";
+    return `<div class="position-card">
+      <div class="pos-head">
+        <span class="lev-badge">${escapeHtml(p.leverage)}×</span>
+        <span class="pos-side ${sideCls}">${p.side}</span>
+        <span class="pos-symbol">${escapeHtml(p.symbol)}</span>
+        <span class="pos-amt mono">${escapeHtml(p.positionAmt)} ${state.base}</span>
+      </div>
+      <div class="pos-grid">
+        <div><span class="dim">진입가</span><span class="mono">${fmtPrice(p.entryPrice, state.base, state.quote)}</span></div>
+        <div><span class="dim">마크</span><span class="mono">${fmtPrice(p.markPrice, state.base, state.quote)}</span></div>
+        <div><span class="dim">청산가</span><span class="mono">${fmtPrice(p.liquidationPrice, state.base, state.quote)}</span></div>
+        <div><span class="dim">미실현</span><span class="mono ${pnlCls}">${perp.fmtPnl(pnl, state.quote)}</span></div>
+      </div>
+      <button class="btn-pos-close" data-symbol="${escapeHtml(p.symbol)}">마크 가격에 청산 / Close at mark</button>
+    </div>`;
+  }).join("");
+  strip.innerHTML = html;
+  strip.querySelectorAll(".btn-pos-close").forEach(b => {
+    b.addEventListener("click", async () => {
+      try {
+        await perp.closePosition(b.dataset.symbol);
+        toast("포지션 청산 요청 / Close submitted");
+        await refreshAccount();
+      } catch (e) {
+        toast("청산 실패 / Close failed", String(e.body || e.message || e).slice(0, 200));
+      }
+    });
+  });
+}
+
+// ---------- Order form ----------
+function recalcEstimates() {
+  const qty = Number($("order-qty").value);
+  const price = state.orderType === "LIMIT"
+    ? Number($("order-price").value) || state.mark
+    : state.mark;
+  const lev = state.leverage;
+  if (!qty || !price || !lev) {
+    $("est-margin").textContent = "—";
+    $("est-liq").textContent = "—";
+    return;
+  }
+  const notional = qty * price;
+  const margin = notional / lev;
+  $("est-margin").textContent = `${margin.toFixed(4)} ${state.quote}`;
+  const side = state.side === "BUY" ? "LONG" : "SHORT";
+  const mmr = Number(state.market?.maintenanceMarginRate || 0.005);
+  const liq = perp.estimateLiquidationPrice({ side, entry: price, qty, leverage: lev, mmr });
+  $("est-liq").textContent = liq ? fmtPrice(liq, state.base, state.quote) : "—";
+}
+
+function bindOrderForm() {
+  // Side toggle
+  document.querySelectorAll(".ls-tab").forEach(b => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".ls-tab").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      state.side = b.dataset.side;
+      recalcEstimates();
+    });
+  });
+  // Order type
+  document.querySelectorAll(".order-tab[data-otype]").forEach(b => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".order-tab[data-otype]").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      const t = b.dataset.otype;
+      // Resolve tab -> backend order type + tif + flags
+      if (t === "MARKET") {
+        state.orderType = "MARKET"; state.timeInForce = "GTC"; state.postOnly = false;
+      } else if (t === "LIMIT") {
+        state.orderType = "LIMIT"; state.timeInForce = "GTC"; state.postOnly = false;
+      } else if (t === "POST_ONLY") {
+        state.orderType = "LIMIT"; state.timeInForce = "GTX"; state.postOnly = true;
+      } else if (t === "IOC") {
+        state.orderType = "LIMIT"; state.timeInForce = "IOC"; state.postOnly = false;
+      } else if (t === "FOK") {
+        state.orderType = "LIMIT"; state.timeInForce = "FOK"; state.postOnly = false;
+      }
+      $("price-row").style.display = (state.orderType === "LIMIT") ? "" : "none";
+      // Reflect post-only checkbox
+      $("post-only").checked = state.postOnly;
+      recalcEstimates();
+    });
+  });
+  // Margin-type tabs (Cross | Isolated)
+  document.querySelectorAll(".margin-tab").forEach(b => {
+    b.addEventListener("click", async () => {
+      const mt = b.dataset.mtype;
+      if (mt === state.marginType) return;
+      try {
+        await perp.setMarginType(state.symbol, mt);
+        state.marginType = mt;
+        paintMarginTabs();
+        toast(`마진 모드 변경 / Margin mode: ${mt}`);
+      } catch (e) {
+        // -3045: open positions / -4046: already same
+        let msg = "마진 모드 변경 실패 / Couldn't change margin mode";
+        try {
+          const body = JSON.parse(e.body || "{}");
+          if (body.code === -3045) msg = "포지션 또는 미체결 주문이 있을 때는 변경 불가 / Close positions/orders first";
+          if (body.code === -4046) msg = "이미 그 모드입니다 / Already in that mode";
+        } catch {}
+        toast(msg);
+      }
+    });
+  });
+  // reduce-only / post-only checkboxes
+  $("reduce-only").addEventListener("change", () => {
+    state.reduceOnly = $("reduce-only").checked;
+  });
+  $("post-only").addEventListener("change", () => {
+    state.postOnly = $("post-only").checked;
+  });
+  // Leverage snaps
+  document.querySelectorAll("#lev-snaps button").forEach(b => {
+    b.addEventListener("click", () => {
+      const L = Number(b.dataset.l);
+      $("lev-slider").value = L;
+      applyLeverage(L);
+    });
+  });
+  $("lev-slider").addEventListener("input", () => applyLeverage(Number($("lev-slider").value)));
+  // Two-way qty <-> notional sync
+  $("order-qty").addEventListener("input", () => {
+    const qty = Number($("order-qty").value);
+    const px = state.orderType === "LIMIT" ? Number($("order-price").value) || state.mark : state.mark;
+    if (qty && px) $("order-notional").value = (qty * px).toFixed(2);
+    recalcEstimates();
+  });
+  $("order-notional").addEventListener("input", () => {
+    const not = Number($("order-notional").value);
+    const px = state.orderType === "LIMIT" ? Number($("order-price").value) || state.mark : state.mark;
+    if (not && px) {
+      const step = Number(state.market?.stepSize || 0.001);
+      const q = Math.floor((not / px) / step) * step;
+      $("order-qty").value = q.toString();
+    }
+    recalcEstimates();
+  });
+  // % slider
+  $("amt-slider").addEventListener("input", () => {
+    const p = Number($("amt-slider").value);
+    $("amt-slider-pct").textContent = `${p}%`;
+    applyPercent(p);
+  });
+  document.querySelectorAll(".slider-pct").forEach(b => {
+    b.addEventListener("click", () => {
+      const p = Number(b.dataset.p);
+      $("amt-slider").value = p;
+      $("amt-slider-pct").textContent = `${p}%`;
+      applyPercent(p);
+    });
+  });
+  // Submit
+  $("submit-long").addEventListener("click", () => submitOrder("BUY"));
+  $("submit-short").addEventListener("click", () => submitOrder("SELL"));
+}
+
+function applyLeverage(L) {
+  if (!Number.isFinite(L) || L < 1) L = 1;
+  if (state.market && L > state.market.maxLeverage) L = state.market.maxLeverage;
+  state.leverage = L;
+  $("lev-x").textContent = L;
+  document.querySelectorAll("#lev-snaps button").forEach(b =>
+    b.classList.toggle("active", Number(b.dataset.l) === L));
+  localStorage.setItem(`perp.lev.${state.symbol}`, String(L));
+  recalcEstimates();
+  // Best-effort: persist leverage on the server too (no harm if it 401s)
+  if (session) {
+    perp.setLeverage(state.symbol, L).catch(() => {});
+  }
+}
+
+function applyPercent(p) {
+  // % of available balance, leveraged to a quantity at current mark.
+  const px = state.orderType === "LIMIT" ? Number($("order-price").value) || state.mark : state.mark;
+  if (!state.available || !px) return;
+  const notional = state.available * state.leverage * (p / 100);
+  const step = Number(state.market?.stepSize || 0.001);
+  const q = Math.floor((notional / px) / step) * step;
+  $("order-qty").value = q ? q.toString() : "";
+  $("order-notional").value = q ? (q * px).toFixed(2) : "";
+  recalcEstimates();
+}
+
+async function submitOrder(side) {
+  if (!session) {
+    toast("로그인이 필요합니다 / Sign in required");
+    return;
+  }
+  const qty = Number($("order-qty").value);
+  if (!qty) {
+    toast("수량을 입력하세요 / Enter quantity");
+    return;
+  }
+  try {
+    await perp.setLeverage(state.symbol, state.leverage).catch(() => {});
+    const order = await perp.placeOrder({
+      symbol: state.symbol,
+      side,
+      type: state.orderType,
+      quantity: qty,
+      price: state.orderType === "LIMIT" ? Number($("order-price").value) || undefined : undefined,
+      timeInForce: state.timeInForce,
+      postOnly: state.postOnly,
+      reduceOnly: state.reduceOnly,
+    });
+    toast(`${side === "BUY" ? "롱 진입" : "숏 진입"} ${qty} ${state.base}`,
+          `Order #${order.orderId} ${order.status}`);
+    await refreshAccount();
+    await refreshDepth();
+  } catch (e) {
+    // Parse Binance-style error body for friendlier UX.
+    let msg = String(e.body || e.message || e).slice(0, 200);
+    try {
+      const body = JSON.parse(e.body || "{}");
+      if (body.code === -5022) msg = "Post-only 주문이 즉시 체결될 수 있어 거부되었습니다 / Post-only order would be a taker";
+      if (body.code === -2010) msg = "유동성 부족으로 시장가 주문 실행 불가 / Insufficient liquidity for market order";
+      if (body.code === -2019) msg = "마진 부족 / Insufficient margin";
+      if (body.code === -2022) msg = "Reduce-only인데 반대 포지션 없음 / No opposing position";
+    } catch {}
+    toast("주문 실패 / Order failed", msg);
+  }
+}
+
+// ---------- Bottom tabs ----------
+function bindTabs() {
+  document.querySelectorAll(".history-tab").forEach(b => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".history-tab").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      state.activeTab = b.dataset.ftab;
+      renderTab();
+    });
+  });
+}
+
+async function renderTab() {
+  const body = $("ftab-body");
+  if (!session) {
+    body.innerHTML = `<div class="muted">로그인 후 표시됩니다. / Sign in to see your futures activity.</div>`;
+    return;
+  }
+  if (state.activeTab === "positions")  return paintPositionsTab();
+  if (state.activeTab === "orders")     return paintOrdersTab();
+  if (state.activeTab === "trades")     return paintTradesTab();
+  if (state.activeTab === "funding")    return paintFundingTab();
+  if (state.activeTab === "transfer")   return paintTransferTab();
+}
+
+function paintPositionsTab() {
+  const body = $("ftab-body");
+  const open = state.positions.filter(p => Math.abs(Number(p.positionAmt)) > 0);
+  if (!open.length) {
+    body.innerHTML = `<div class="muted">열린 포지션이 없습니다. / No open positions.</div>`;
+    return;
+  }
+  const rows = open.map(p => {
+    const pnl = Number(p.unRealizedProfit);
+    const pnlCls = pnl > 0 ? "up" : pnl < 0 ? "down" : "muted";
+    const sideCls = p.side === "LONG" ? "long" : "short";
+    return `<tr>
+      <td><span class="pos-side ${sideCls}">${p.side}</span> <span class="lev-badge sm">${escapeHtml(p.leverage)}×</span></td>
+      <td class="mono">${escapeHtml(p.symbol)}</td>
+      <td class="mono r">${escapeHtml(p.positionAmt)} ${state.base}</td>
+      <td class="mono r">${fmtPrice(p.entryPrice, state.base, state.quote)}</td>
+      <td class="mono r">${fmtPrice(p.markPrice, state.base, state.quote)}</td>
+      <td class="mono r">${fmtPrice(p.liquidationPrice, state.base, state.quote)}</td>
+      <td class="mono r">${escapeHtml(p.isolatedMargin)} ${state.quote}</td>
+      <td class="mono r ${pnlCls}">${perp.fmtPnl(pnl, state.quote)}</td>
+      <td class="r"><button class="btn-pos-close sm" data-symbol="${escapeHtml(p.symbol)}">청산 / Close</button></td>
+    </tr>`;
+  }).join("");
+  body.innerHTML = `<table class="futures-table"><thead><tr>
+    <th scope="col">사이드</th><th scope="col">심볼</th><th scope="col" class="r">수량</th><th scope="col" class="r">진입</th><th scope="col" class="r">마크</th>
+    <th scope="col" class="r">청산가</th><th scope="col" class="r">마진</th><th scope="col" class="r">미실현 PnL</th><th scope="col"></th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+  body.querySelectorAll(".btn-pos-close").forEach(b => {
+    b.addEventListener("click", async () => {
+      try { await perp.closePosition(b.dataset.symbol); toast("청산 요청 / Close submitted"); await refreshAccount(); }
+      catch (e) { toast("청산 실패 / Close failed"); }
+    });
+  });
+}
+
+async function paintOrdersTab() {
+  const body = $("ftab-body");
+  if (!body.querySelector("table")) {
+    body.innerHTML = `<div class="muted">불러오는 중… / Loading…</div>`;
+  }
+  let rows;
+  try {
+    rows = await perp.getOpenOrders();
+  } catch (e) {
+    body.innerHTML = `<div class="muted">로딩 실패 / Load failed</div>`;
+    return;
+  }
+  if (!rows.length) {
+    body.innerHTML = `<div class="muted">진행 중인 주문이 없습니다. / No open orders.</div>`;
+    return;
+  }
+  body.innerHTML = `<table class="futures-table"><thead><tr>
+    <th scope="col">ID</th><th scope="col">심볼</th><th scope="col">사이드</th><th scope="col">타입</th><th scope="col">TIF</th>
+    <th scope="col" class="r">가격</th><th scope="col" class="r">수량</th><th scope="col" class="r">체결</th>
+    <th scope="col">상태</th><th scope="col"></th>
+  </tr></thead><tbody>${rows.map(r => `<tr>
+    <td class="mono">#${r.orderId}</td>
+    <td class="mono">${escapeHtml(r.symbol)}</td>
+    <td>${r.side}</td>
+    <td>${r.type}${r.postOnly ? " · PO" : ""}${r.reduceOnly ? " · RO" : ""}</td>
+    <td>${escapeHtml(r.timeInForce || "GTC")}</td>
+    <td class="r mono">${fmtPrice(r.price, state.base, state.quote)}</td>
+    <td class="r mono">${escapeHtml(r.origQty)}</td>
+    <td class="r mono">${escapeHtml(r.executedQty)}</td>
+    <td>${r.status}</td>
+    <td class="r"><button class="btn-pos-close sm" data-cancel="${r.orderId}" data-sym="${escapeHtml(r.symbol)}">취소 / Cancel</button></td>
+  </tr>`).join("")}</tbody></table>`;
+  body.querySelectorAll("[data-cancel]").forEach(b => {
+    b.addEventListener("click", async () => {
+      try {
+        await perp.cancelOrder({ symbol: b.dataset.sym, orderId: b.dataset.cancel });
+        toast("취소 완료 / Order canceled");
+        await refreshAccount();
+        await refreshDepth();
+        paintOrdersTab();
+      } catch (e) {
+        toast("취소 실패 / Cancel failed");
+      }
+    });
+  });
+}
+
+async function paintTradesTab() {
+  const body = $("ftab-body");
+  body.innerHTML = `<div class="muted">불러오는 중… / Loading…</div>`;
+  const rows = await perp.getUserTrades(state.symbol, 50);
+  if (!rows.length) {
+    body.innerHTML = `<div class="muted">거래 내역이 없습니다. / No trades yet.</div>`;
+    return;
+  }
+  body.innerHTML = `<table class="futures-table"><thead><tr>
+    <th scope="col">시각</th><th scope="col">심볼</th><th scope="col">사이드</th>
+    <th scope="col" class="r">가격</th><th scope="col" class="r">수량</th>
+    <th scope="col" class="r">실현 PnL</th><th scope="col" class="r">수수료</th>
+  </tr></thead><tbody>${rows.map(r => `<tr>
+    <td class="mono">${new Date(r.time).toLocaleString()}</td>
+    <td class="mono">${escapeHtml(r.symbol)}</td>
+    <td>${r.side}</td>
+    <td class="r mono">${fmtPrice(r.price, state.base, state.quote)}</td>
+    <td class="r mono">${escapeHtml(r.qty)}</td>
+    <td class="r mono">${perp.fmtPnl(r.realizedPnl, "USDT")}</td>
+    <td class="r mono">${escapeHtml(r.commission)} ${r.commissionAsset}</td>
+  </tr>`).join("")}</tbody></table>`;
+}
+
+async function paintFundingTab() {
+  const body = $("ftab-body");
+  body.innerHTML = `<div class="muted">불러오는 중… / Loading…</div>`;
+  const hist = await perp.getFundingHistory(state.symbol, 30);
+  const userIncome = await perp.getIncome({ symbol: state.symbol, incomeType: "FUNDING_FEE", limit: 20 });
+  if (!hist.length && !userIncome.length) {
+    body.innerHTML = `<div class="muted">아직 펀딩 기록이 없습니다. / No funding events yet.</div>`;
+    return;
+  }
+  const histRows = hist.map(r => `<tr>
+    <td class="mono">${new Date(r.fundingTime).toLocaleString()}</td>
+    <td class="r mono">${perp.fmtFundingPct(r.fundingRate)}</td>
+    <td class="r mono">${r.appliedCount}</td>
+  </tr>`).join("");
+  const incomeRows = userIncome.map(r => `<tr>
+    <td class="mono">${new Date(r.time).toLocaleString()}</td>
+    <td class="r mono">${perp.fmtPnl(r.income, "USDT")}</td>
+  </tr>`).join("");
+  body.innerHTML = `
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;">
+      <div>
+        <strong style="display:block; margin-bottom:8px;">최근 펀딩률 / Recent rates</strong>
+        <table class="futures-table"><thead><tr>
+          <th scope="col">시각</th><th scope="col" class="r">레이트</th><th scope="col" class="r">적용 포지션</th>
+        </tr></thead><tbody>${histRows || "<tr><td colspan='3' class='muted'>(없음)</td></tr>"}</tbody></table>
+      </div>
+      <div>
+        <strong style="display:block; margin-bottom:8px;">내 펀딩 / My funding payments</strong>
+        <table class="futures-table"><thead><tr>
+          <th scope="col">시각</th><th scope="col" class="r">정산액</th>
+        </tr></thead><tbody>${incomeRows || "<tr><td colspan='2' class='muted'>(없음)</td></tr>"}</tbody></table>
+      </div>
+    </div>
+  `;
+}
+
+function paintTransferTab() {
+  const body = $("ftab-body");
+  body.innerHTML = `
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+      <div class="transfer-card">
+        <strong>현물 → 선물 / Spot → Futures</strong>
+        <div class="field-row" style="margin-top:8px;">
+          <label for="xfer-in-amt">금액 / Amount</label>
+          <input id="xfer-in-amt" type="text" inputmode="decimal" placeholder="0" />
+          <span class="unit">USDT</span>
+        </div>
+        <button class="btn-perp btn-long" id="xfer-in-btn" style="margin-top:8px;">선물 지갑으로 보내기 / Send to futures</button>
+      </div>
+      <div class="transfer-card">
+        <strong>선물 → 현물 / Futures → Spot</strong>
+        <div class="field-row" style="margin-top:8px;">
+          <label for="xfer-out-amt">금액 / Amount</label>
+          <input id="xfer-out-amt" type="text" inputmode="decimal" placeholder="0" />
+          <span class="unit">USDT</span>
+        </div>
+        <div class="muted" style="font-size:11px; margin-top:6px;">사용 가능 / Available: ${state.available.toFixed(2)} ${state.quote}</div>
+        <button class="btn-perp btn-short" id="xfer-out-btn" style="margin-top:8px;">현물 지갑으로 보내기 / Send to spot</button>
+      </div>
+    </div>
+  `;
+  $("xfer-in-btn").addEventListener("click", async () => {
+    const amt = Number($("xfer-in-amt").value);
+    if (!amt) { toast("금액을 입력하세요 / Enter an amount"); return; }
+    try { await perp.transferUSDT("SPOT_TO_FUTURES", amt); toast("이체 완료 / Transferred"); await refreshAccount(); paintTransferTab(); }
+    catch (e) { toast("이체 실패 / Transfer failed", String(e.body || e.message || e).slice(0, 200)); }
+  });
+  $("xfer-out-btn").addEventListener("click", async () => {
+    const amt = Number($("xfer-out-amt").value);
+    if (!amt) { toast("금액을 입력하세요 / Enter an amount"); return; }
+    try { await perp.transferUSDT("FUTURES_TO_SPOT", amt); toast("이체 완료 / Transferred"); await refreshAccount(); paintTransferTab(); }
+    catch (e) { toast("이체 실패 / Transfer failed", String(e.body || e.message || e).slice(0, 200)); }
+  });
+}
+
+// ---------- Order book depth ----------
+async function refreshDepth() {
+  try {
+    const r = await fetch(`/fapi/v1/depth?symbol=${encodeURIComponent(state.symbol)}&limit=10`);
+    const snap = await r.json();
+    paintBook(snap);
+  } catch (e) {
+    // Soft-fail
+  }
+}
+
+function paintBook(snap) {
+  const asks = (snap.asks || []).slice(0, 10).reverse();
+  const bids = (snap.bids || []).slice(0, 10);
+  const fmt = (p) => Number(p).toLocaleString("en-US", { maximumFractionDigits: 4 });
+  $("ob-asks").innerHTML = asks.length
+    ? asks.map(([p, q]) => `<tr><td style="padding:1px 4px;">${fmt(p)}</td><td class="mono" style="text-align:right; padding:1px 4px;">${fmt(q)}</td></tr>`).join("")
+    : `<tr><td colspan="2" class="muted" style="padding:6px 4px; text-align:center;">no asks</td></tr>`;
+  $("ob-bids").innerHTML = bids.length
+    ? bids.map(([p, q]) => `<tr><td style="padding:1px 4px;">${fmt(p)}</td><td class="mono" style="text-align:right; padding:1px 4px;">${fmt(q)}</td></tr>`).join("")
+    : `<tr><td colspan="2" class="muted" style="padding:6px 4px; text-align:center;">no bids</td></tr>`;
+  const bestBid = bids[0] ? Number(bids[0][0]) : null;
+  const bestAsk = (snap.asks || [])[0] ? Number((snap.asks || [])[0][0]) : null;
+  let mid = "—";
+  let spread = "—";
+  if (bestBid && bestAsk) {
+    mid = fmt((bestBid + bestAsk) / 2);
+    spread = `${fmt(bestAsk - bestBid)} (${((bestAsk - bestBid) / bestAsk * 100).toFixed(3)}%)`;
+  } else if (state.mark) {
+    mid = fmt(state.mark);
+  }
+  $("ob-mid-cell").textContent = mid;
+  $("ob-spread").textContent = spread;
+}
+
+// ---------- Open orders panel ----------
+async function refreshOpenOrders() {
+  if (!session) return;
+  if (state.activeTab !== "orders") return;
+  paintOrdersTab();
+}
+
+// ---------- Chart bootstrap ----------
+function makeChart() {
+  if (!window.LightweightCharts) return;
+  const host = $("chart-host");
+  const chart = window.LightweightCharts.createChart(host, {
+    layout: { background: { color: "transparent" }, textColor: "#9aa3b3" },
+    grid: { vertLines: { color: "rgba(255,255,255,0.05)" },
+            horzLines: { color: "rgba(255,255,255,0.05)" } },
+    timeScale: { borderColor: "rgba(255,255,255,0.05)", timeVisible: true, secondsVisible: false },
+    rightPriceScale: { borderColor: "rgba(255,255,255,0.05)" },
+    width: host.clientWidth, height: 340,
+  });
+  state.chart = chart;
+  state.candleSeries = chart.addCandlestickSeries({
+    upColor: "#00d997", downColor: "#ff4d63",
+    borderUpColor: "#00d997", borderDownColor: "#ff4d63",
+    wickUpColor: "#00d997", wickDownColor: "#ff4d63",
+  });
+  new ResizeObserver(() => chart.applyOptions({ width: host.clientWidth, height: 340 }))
+    .observe(host);
+}
+
+// ---------- Bootstrap ----------
+(async function init() {
+  try {
+    await loadExchangeInfo();
+  } catch (e) {
+    toast("선물 데이터를 불러오지 못했습니다 / Couldn't load futures markets",
+          "perp_engine가 실행 중인지 확인하세요. / Is perp_engine running?");
+    return;
+  }
+  makeChart();
+  bindOrderForm();
+  bindTabs();
+  // First mark fetch
+  paintMark(await perp.getPremiumIndex(state.symbol));
+  // Start the live ticker
+  perp.startLiveUpdates(state.symbol, paintMark, 1000);
+  // Account every 3s (cheaper than every tick)
+  await refreshAccount();
+  setInterval(refreshAccount, 3000);
+  // Depth book polling — 1s.
+  refreshDepth();
+  setInterval(refreshDepth, 1000);
+  // Open-orders polling — 3s, only when that tab is active.
+  setInterval(refreshOpenOrders, 3000);
+})();
+</script>
+
+</body>
+</html>

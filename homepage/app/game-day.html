@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Game day / DR — zkCEX ops</title>
+  <meta name="description" content="zkCEX game-day orchestrator: run disaster scenarios, measure detection and recovery time, archive printable reports." />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="theme-color" content="#0b3aff" />
+  <style>
+    :root {
+      --bg:#07090f; --fg:#e6e9ef; --muted:#9aa3b3; --line:rgba(255,255,255,.07);
+      --card:rgba(13,18,28,.7); --blue:#0b3aff; --green:#2ee59b; --yellow:#f0b429;
+      --red:#ff4d4f; --grey:#5b6478;
+    }
+    body { background:var(--bg); color:var(--fg); margin:0;
+           font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+           line-height:1.5; }
+    main { max-width:1080px; margin:0 auto; padding:28px 24px 80px;
+           display:flex; flex-direction:column; gap:22px; }
+    a.nav-back { color:var(--muted); font-size:13px; text-decoration:none; }
+    a.nav-back:hover { color:var(--fg); }
+    .hero { padding:24px 28px; border-radius:14px;
+            background: radial-gradient(800px 280px at 100% 0%, rgba(11,58,255,.10), transparent 60%),
+                        linear-gradient(180deg, rgba(46,229,155,.04), rgba(11,58,255,.02));
+            border:1px solid var(--line);
+            display:flex; flex-direction:column; gap:10px; }
+    .hero .eyebrow { color:var(--muted); font-size:11px; letter-spacing:.14em;
+                     text-transform:uppercase; font-weight:600; }
+    .hero h1 { margin:0; font-size:24px; font-weight:700; }
+    .hero p { color:var(--muted); font-size:14px; margin:0; max-width:760px; }
+
+    .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+               padding:14px 16px; border-radius:12px; background:var(--card);
+               border:1px solid var(--line); }
+    .toolbar input { background:rgba(0,0,0,.3); color:var(--fg);
+                     border:1px solid var(--line); border-radius:8px;
+                     padding:6px 10px; font-size:13px; min-width:280px;
+                     font-family:ui-monospace,Menlo,monospace; }
+    .toolbar label { font-size:12px; color:var(--muted); }
+    .toolbar .spacer { flex:1; }
+    button.btn {
+      background:var(--blue); color:#fff; border:none; border-radius:8px;
+      padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer;
+    }
+    button.btn:hover { filter:brightness(1.1); }
+    button.btn.ghost { background:transparent; color:var(--fg);
+                       border:1px solid var(--line); }
+    button.btn.danger { background:var(--red); }
+    button.btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px,1fr)); gap:12px; }
+    .card { background:var(--card); border:1px solid var(--line);
+            border-radius:12px; padding:16px 18px;
+            display:flex; flex-direction:column; gap:10px; }
+    .card .name { font-weight:600; font-size:15px; display:flex;
+                  align-items:center; gap:8px; }
+    .card .desc { color:var(--muted); font-size:13px; }
+    .card .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .badge { font-size:11px; padding:2px 8px; border-radius:999px;
+             font-weight:600; letter-spacing:.02em; }
+    .badge.pass { background:rgba(46,229,155,.14); color:var(--green); }
+    .badge.fail { background:rgba(255,77,79,.16); color:#ff7c7c; }
+    .badge.timeout { background:rgba(240,180,41,.14); color:var(--yellow); }
+    .badge.skipped { background:rgba(91,100,120,.16); color:#aab2c0; }
+    .badge.running { background:rgba(11,58,255,.18); color:#9bb0ff; }
+    .badge.idle { background:rgba(91,100,120,.16); color:#aab2c0; }
+    .badge.safe { background:rgba(46,229,155,.14); color:var(--green); }
+    .badge.unsafe { background:rgba(240,180,41,.12); color:var(--yellow); }
+    .stat { font-family:ui-monospace,Menlo,monospace; color:var(--muted);
+            font-size:12px; }
+    .stat strong { color:var(--fg); }
+
+    .history-wrap { background:var(--card); border:1px solid var(--line);
+                    border-radius:12px; padding:14px 18px; }
+    .history-wrap h2 { margin:0 0 10px; font-size:13px; color:var(--muted);
+                       letter-spacing:.1em; text-transform:uppercase; }
+    table.hist { width:100%; border-collapse:collapse; font-size:13px; }
+    table.hist th, table.hist td { padding:6px 8px; text-align:left;
+                                    border-bottom:1px solid var(--line); }
+    table.hist th { color:var(--muted); font-weight:500; font-size:11px;
+                    letter-spacing:.06em; text-transform:uppercase; }
+    table.hist td.num { font-family:ui-monospace,Menlo,monospace; }
+    table.hist a { color:#9bb0ff; }
+
+    /* Sparkline RTO chart */
+    svg.spark { display:block; width:100%; max-width:760px; height:70px; }
+
+    /* Modal */
+    .modal-backdrop {
+      position:fixed; inset:0; background:rgba(0,0,0,.6);
+      display:none; align-items:center; justify-content:center; z-index:100;
+    }
+    .modal-backdrop.open { display:flex; }
+    .modal {
+      background:#0e131c; border:1px solid var(--line); border-radius:12px;
+      padding:20px 24px; max-width:480px; width:90%;
+    }
+    .modal h3 { margin:0 0 10px; font-size:18px; }
+    .modal p { color:var(--muted); font-size:13px; }
+    .modal .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:16px; }
+
+    .pill { font-size:11px; padding:2px 8px; border-radius:999px;
+            background:rgba(91,100,120,.18); color:#aab2c0; }
+
+    .footer { color:#6e7787; font-size:12px; border-top:1px solid var(--line);
+              padding-top:14px; }
+  </style>
+</head>
+<body>
+<main>
+  <a class="nav-back" href="/">&larr; Back to home</a>
+
+  <section class="hero">
+    <span class="eyebrow">SRE / DR ops</span>
+    <h1>Game day orchestrator</h1>
+    <p>Pre-defined disaster scenarios against the demo zkCEX stack. Each run
+       induces a controlled failure, measures detection and recovery time
+       against a documented RTO target, and emits a printable report. Real
+       exchanges run game days quarterly; this is the codified procedure.
+       <span class="pill">loopback admin only</span>
+       <span class="pill">single-run lock</span>
+       <span class="pill">prod refused</span></p>
+  </section>
+
+  <section class="toolbar">
+    <label>Admin token</label>
+    <input id="tok" type="password" placeholder="DR_ADMIN_TOKEN (Bearer)" autocomplete="off" />
+    <label><input id="confirm" type="checkbox" /> I understand this will impact running services</label>
+    <span class="spacer"></span>
+    <button id="run-all" class="btn danger" disabled>Run all scenarios</button>
+    <button id="refresh" class="btn ghost">Refresh</button>
+  </section>
+
+  <section>
+    <div id="scenarios" class="grid">
+      <div class="card"><div class="desc">Loading scenarios…</div></div>
+    </div>
+  </section>
+
+  <section class="history-wrap">
+    <h2>Recent runs (last 50)</h2>
+    <svg id="rto-spark" class="spark" viewBox="0 0 760 70" preserveAspectRatio="none"></svg>
+    <table id="hist" class="hist">
+      <thead>
+        <tr>
+          <th>#</th><th>Scenario</th><th>Started</th><th>Status</th>
+          <th>RTO actual</th><th>RTO target</th><th>Operator</th><th>Report</th>
+        </tr>
+      </thead>
+      <tbody><tr><td colspan="8" style="color:var(--muted)">Sign in with a Bearer token to view history.</td></tr></tbody>
+    </table>
+  </section>
+
+  <div class="footer">
+    Backed by <code>tools/dr/game_day.py</code> on port 5680 (loopback). The
+    orchestrator is itself loopback-only for admin actions and refuses to
+    start with <code>ZKCEX_ENV=production</code>. Every scenario carries an
+    atexit cleanup so partial state cannot leak.
+  </div>
+</main>
+
+<div id="confirm-modal" class="modal-backdrop">
+  <div class="modal">
+    <h3>Run every scenario sequentially?</h3>
+    <p>This will induce every failure scenario in order, with a configurable
+       gap between each. Most scenarios are not <em>safe-for-real-run</em>
+       and rely on test-bench components. Confirm only on a staging stack.</p>
+    <div class="actions">
+      <button id="m-cancel" class="btn ghost">Cancel</button>
+      <button id="m-go" class="btn danger">Yes, run all</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var DR_BASE = "http://127.0.0.1:5680";
+  var TOK_KEY = "dr_admin_token_v1";
+  var STATUS_LABELS = ["pass", "fail", "timeout", "skipped", "running", "idle"];
+  var lastResultByScenario = {};
+  var scenarios = [];
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function fmtTs(t) {
+    if (!t) return "—";
+    var d = new Date(t * 1000);
+    return d.toISOString().replace("T", " ").slice(0, 19) + "Z";
+  }
+  function tokenInput() { return $("tok").value.trim(); }
+  function authHeaders() {
+    var t = tokenInput();
+    return t ? { Authorization: "Bearer " + t } : {};
+  }
+  function badge(status) {
+    return '<span class="badge ' + esc(status) + '">' + esc(status.toUpperCase()) + "</span>";
+  }
+
+  function loadToken() {
+    try { var t = sessionStorage.getItem(TOK_KEY); if (t) $("tok").value = t; } catch (e) {}
+  }
+  function saveToken() {
+    try { sessionStorage.setItem(TOK_KEY, tokenInput()); } catch (e) {}
+  }
+
+  async function fetchJson(url, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({}, opts.headers || {}, authHeaders());
+    var r;
+    try {
+      r = await fetch(url, opts);
+    } catch (e) {
+      return { status: 0, data: { error: "unreachable", message: String(e && e.message || e) } };
+    }
+    var body = await r.text();
+    var data = null;
+    try { data = body ? JSON.parse(body) : null; } catch (e) { data = { error: "bad_json", body: body }; }
+    return { status: r.status, data: data };
+  }
+
+  function renderScenarios() {
+    var el = $("scenarios");
+    if (!scenarios.length) {
+      el.innerHTML = '<div class="card"><div class="desc">No scenarios registered.</div></div>';
+      return;
+    }
+    el.innerHTML = scenarios.map(function (s) {
+      var last = lastResultByScenario[s.id];
+      var statusBadge = last ? badge(last.status || "idle") : badge("idle");
+      var rtoLine = last && last.rto_actual_seconds != null
+        ? '<span class="stat"><strong>' + last.rto_actual_seconds +
+          "s</strong> vs target <strong>" + s.rto_target_seconds + "s</strong></span>"
+        : '<span class="stat">target <strong>' + s.rto_target_seconds + "s</strong></span>";
+      var safety = s.safe_for_real_run
+        ? '<span class="badge safe">SAFE-FOR-LIVE</span>'
+        : '<span class="badge unsafe">REQUIRES STAGING</span>';
+      return (
+        '<div class="card">' +
+        '<div class="name">' + esc(s.name) + statusBadge + "</div>" +
+        '<div class="desc">' + esc(s.description) + "</div>" +
+        '<div class="row">' + rtoLine + safety + "</div>" +
+        '<div class="row">' +
+        '<button class="btn" data-run="' + esc(s.id) + '">Run scenario</button>' +
+        (last
+          ? '<a class="btn ghost" href="/app/game-day-report/' + last.id + '.html" target="_blank">Last report</a>'
+          : "") +
+        "</div></div>"
+      );
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll("[data-run]"), function (btn) {
+      btn.addEventListener("click", function () {
+        runScenario(btn.getAttribute("data-run"));
+      });
+    });
+  }
+
+  function renderHistory(runs) {
+    var tb = $("hist").querySelector("tbody");
+    if (!runs.length) {
+      tb.innerHTML = '<tr><td colspan="8" style="color:var(--muted)">No runs yet.</td></tr>';
+      $("rto-spark").innerHTML = "";
+      return;
+    }
+    tb.innerHTML = runs.map(function (r) {
+      var status = r.rto_pass ? "pass" : (r.rto_actual_seconds == null ? "fail" : "fail");
+      return (
+        "<tr>" +
+        '<td class="num">' + r.id + "</td>" +
+        "<td>" + esc(r.scenario_id) + "</td>" +
+        '<td class="num">' + fmtTs(r.started_at) + "</td>" +
+        "<td>" + badge(status) + "</td>" +
+        '<td class="num">' + (r.rto_actual_seconds == null ? "—" : r.rto_actual_seconds + "s") + "</td>" +
+        '<td class="num">' + r.rto_target_seconds + "s</td>" +
+        "<td>" + esc(r.operator || "") + "</td>" +
+        '<td><a href="/app/game-day-report/' + r.id + '.html" target="_blank">view</a></td>' +
+        "</tr>"
+      );
+    }).join("");
+    // Track last result per scenario for the card view.
+    lastResultByScenario = {};
+    runs.slice().reverse().forEach(function (r) {
+      lastResultByScenario[r.scenario_id] = r;
+      lastResultByScenario[r.scenario_id].status = r.rto_pass ? "pass" : "fail";
+    });
+    renderScenarios();
+    drawSpark(runs.slice().reverse());
+  }
+
+  function drawSpark(runs) {
+    var svg = $("rto-spark");
+    if (!runs.length) { svg.innerHTML = ""; return; }
+    var W = 760, H = 70, pad = 6;
+    var maxRto = Math.max.apply(
+      null,
+      runs.map(function (r) { return r.rto_actual_seconds || 0; }).concat([1])
+    );
+    var stepX = (W - 2 * pad) / Math.max(1, runs.length - 1);
+    var pts = runs.map(function (r, i) {
+      var v = r.rto_actual_seconds || 0;
+      var x = pad + i * stepX;
+      var y = H - pad - (v / maxRto) * (H - 2 * pad);
+      return [x, y, r];
+    });
+    var path = pts.map(function (p, i) {
+      return (i === 0 ? "M " : "L ") + p[0].toFixed(1) + " " + p[1].toFixed(1);
+    }).join(" ");
+    var dots = pts.map(function (p) {
+      var fill = p[2].rto_pass ? "#2ee59b" : "#ff7c7c";
+      return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.5" fill="' + fill + '"/>';
+    }).join("");
+    svg.innerHTML =
+      '<path d="' + path + '" fill="none" stroke="#9aa3b3" stroke-width="1.2" />' + dots;
+  }
+
+  async function loadScenarios() {
+    var r = await fetchJson(DR_BASE + "/dr/scenarios");
+    if (r.status === 200) {
+      scenarios = (r.data && r.data.scenarios) || [];
+      renderScenarios();
+    } else {
+      $("scenarios").innerHTML =
+        '<div class="card"><div class="desc">Failed to load scenarios from ' +
+        esc(DR_BASE) + " (status " + r.status + ").</div></div>";
+    }
+  }
+
+  async function loadHistory() {
+    var t = tokenInput();
+    if (!t) {
+      $("hist").querySelector("tbody").innerHTML =
+        '<tr><td colspan="8" style="color:var(--muted)">Enter admin Bearer token to view history.</td></tr>';
+      return;
+    }
+    var r = await fetchJson(DR_BASE + "/dr/history?limit=50");
+    if (r.status === 200) {
+      renderHistory((r.data && r.data.runs) || []);
+    } else {
+      $("hist").querySelector("tbody").innerHTML =
+        '<tr><td colspan="8" style="color:#ff7c7c">' +
+        esc((r.data && r.data.error) || ("HTTP " + r.status)) + "</td></tr>";
+    }
+  }
+
+  async function runScenario(id) {
+    if (!$("confirm").checked) {
+      alert("Tick the impact-acknowledgement checkbox first.");
+      return;
+    }
+    var t = tokenInput();
+    if (!t) { alert("Enter the admin Bearer token first."); return; }
+    if (!confirm('Run scenario "' + id + '" now?')) return;
+    saveToken();
+    var btns = document.querySelectorAll("button[data-run]");
+    Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+    try {
+      var r = await fetchJson(
+        DR_BASE + "/dr/run/" + encodeURIComponent(id) + "?confirm=true",
+        { method: "POST" }
+      );
+      if (r.status === 200) {
+        alert(
+          "Scenario " + id + " finished with status: " +
+          ((r.data && r.data.result && r.data.result.status) || "?") +
+          (r.data && r.data.report_url ? "\nReport: " + r.data.report_url : "")
+        );
+        await loadHistory();
+      } else {
+        alert("Run failed (" + r.status + "): " +
+              JSON.stringify(r.data || {}, null, 2));
+      }
+    } finally {
+      Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+    }
+  }
+
+  async function runAll() {
+    var t = tokenInput();
+    if (!t) { alert("Enter the admin Bearer token first."); return; }
+    saveToken();
+    $("confirm-modal").classList.remove("open");
+    $("run-all").disabled = true;
+    try {
+      var r = await fetchJson(DR_BASE + "/dr/run-all?confirm=true", { method: "POST" });
+      if (r.status === 200) {
+        var s = r.data && r.data.summary;
+        alert("Run-all complete: " + (s ? JSON.stringify(s, null, 2) : "see history"));
+        await loadHistory();
+      } else {
+        alert("Run-all failed (" + r.status + "): " +
+              JSON.stringify(r.data || {}, null, 2));
+      }
+    } finally {
+      $("run-all").disabled = false;
+    }
+  }
+
+  function refreshAll() { saveToken(); loadScenarios(); loadHistory(); }
+
+  $("refresh").addEventListener("click", refreshAll);
+  $("run-all").addEventListener("click", function () {
+    if (!$("confirm").checked) {
+      alert("Tick the impact-acknowledgement checkbox first.");
+      return;
+    }
+    $("confirm-modal").classList.add("open");
+  });
+  $("m-cancel").addEventListener("click", function () {
+    $("confirm-modal").classList.remove("open");
+  });
+  $("m-go").addEventListener("click", runAll);
+  $("confirm").addEventListener("change", function () {
+    $("run-all").disabled = !this.checked;
+  });
+  $("tok").addEventListener("change", refreshAll);
+
+  loadToken();
+  refreshAll();
+})();
+</script>
+</body>
+</html>

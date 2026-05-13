@@ -1,0 +1,28 @@
+{
+  "name": "zkCEX Edition #4",
+  "description": "ERC1155 edition #4 on zkCEX \u2014 50 copies in the wild. Drop a few in the marketplace and see them resurface in the browse view.",
+  "image": "/nft-meta/1004.svg",
+  "external_url": "/app/nft.html?token=1004",
+  "attributes": [
+    {
+      "trait_type": "Pattern",
+      "value": "constellation"
+    },
+    {
+      "trait_type": "Palette",
+      "value": 1
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Rare"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "Editions #4"
+    },
+    {
+      "trait_type": "Total Copies",
+      "value": 50
+    }
+  ]
+}

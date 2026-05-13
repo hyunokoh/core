@@ -112,6 +112,22 @@ private class WalletOwnerManagerTest : WalletPostgresIntegrationTest() {
         assertThat(owner.uuid).isEqualTo(VALID.WALLET_OWNER.uuid)
     }
 
+    @Test
+    fun givenExistingWalletOwner_whenCreateWalletOwner_thenReturnExistingWalletOwner(): Unit = runBlocking {
+        val existing = seedOwner()
+
+        val owner = walletOwnerManager.createWalletOwner(
+            existing.uuid,
+            "ignored",
+            "2"
+        )
+
+        assertThat(owner.id).isEqualTo(existing.id)
+        assertThat(owner.uuid).isEqualTo(existing.uuid)
+        assertThat(owner.title).isEqualTo(existing.title)
+        assertThat(owner.level).isEqualTo(existing.level)
+    }
+
     private suspend fun seedOwner() =
         walletOwnerRepository.save(VALID.WALLET_OWNER.copy(id = null).toModel()).awaitSingle().toPlainObject()
 

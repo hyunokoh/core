@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>알림 설정 / Notification Settings — zkCEX</title>
+  <meta name="description" content="zkCEX notification preferences: per-type channels, email verification, digest frequency, quiet hours, price alerts." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <style>
+    .settings-page { max-width: 880px; margin: 0 auto; padding: 24px 18px 80px; }
+    .settings-card { background: var(--panel, #11151f); border: 1px solid var(--line, #1d2230);
+                     border-radius: 14px; padding: 18px 20px; margin-bottom: 16px; }
+    .settings-card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em;
+                       color: var(--ink-mute, #9aa3b3); margin: 0 0 14px; }
+    .pref-matrix { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .pref-matrix th, .pref-matrix td { padding: 10px 8px; text-align: left;
+                                       border-bottom: 1px solid var(--line, #1d2230); }
+    .pref-matrix th { font-size: 11px; color: var(--ink-dim); text-transform: uppercase;
+                     letter-spacing: 0.06em; font-weight: 600; }
+    .pref-matrix td.cell { text-align: center; width: 80px; }
+    .pref-matrix tr:last-child td { border-bottom: none; }
+    .row-label .ko { color: var(--ink, #e6e9f0); }
+    .row-label .en { color: var(--ink-mute, #9aa3b3); font-size: 11px; display:block; }
+    .switch { position: relative; width: 38px; height: 22px; flex: 0 0 auto; display: inline-block; }
+    .switch input { display: none; }
+    .switch span { position: absolute; inset: 0; border-radius: 999px;
+                    background: rgba(255,255,255,0.14); cursor: pointer;
+                    transition: background 160ms ease; }
+    .switch span::after { content: ""; position: absolute; top: 2px; left: 2px;
+      width: 18px; height: 18px; background: #fff; border-radius: 50%;
+      transition: transform 160ms ease; }
+    .switch input:checked + span { background: var(--accent-bright, #0b3aff); }
+    .switch input:checked + span::after { transform: translateX(16px); }
+    .field { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .field label { color: var(--ink-mute); font-size: 13px; min-width: 200px; }
+    .field input[type="email"], .field select, .field input[type="text"], .field input[type="number"] {
+      background: var(--panel-2, #161b27); color: var(--ink, #e6e9f0);
+      border: 1px solid var(--line, #1d2230); border-radius: 8px; padding: 8px 10px;
+      font: inherit; min-width: 240px;
+    }
+    .verified-badge { display:inline-block; padding: 2px 8px; border-radius: 999px;
+                       font-size: 11px; font-weight: 600; }
+    .verified-badge.yes { background: rgba(34,197,94,0.15); color: #4ade80; }
+    .verified-badge.no  { background: rgba(255,77,77,0.15); color: #ff8a8a; }
+    .alert-row { display:flex; gap: 10px; align-items: center; padding: 10px 0;
+                  border-bottom: 1px solid var(--line, #1d2230); font-size: 13px; }
+    .alert-row:last-child { border-bottom: none; }
+    .alert-row .symbol { font-weight: 600; min-width: 80px; }
+    .alert-row .cond { color: var(--ink-mute); }
+    .alert-row .status { margin-left: auto; font-size: 11px; color: var(--ink-dim); }
+    .alert-row .status.triggered { color: #4ade80; }
+    .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    .banner { padding: 12px 14px; border-radius: 10px; margin-bottom: 14px;
+              background: rgba(11,58,255,0.08); border: 1px solid rgba(11,58,255,0.35);
+              color: var(--ink); font-size: 13px; }
+    .banner.ok { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.4); }
+    .banner.err { background: rgba(255,77,77,0.1); border-color: rgba(255,77,77,0.4); }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main id="main" class="settings-page">
+  <section class="page-heading">
+    <h1>알림 설정<span class="en">Notification settings</span></h1>
+    <p>유형별, 채널별로 알림을 켜고 끄세요. / Configure per-type, per-channel delivery.</p>
+  </section>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <section class="settings-card">
+    <h2>유형별 채널 / Per-type channels</h2>
+    <table class="pref-matrix" id="prefs-matrix" aria-label="알림 유형별 채널 설정 / Per-type notification channels">
+      <thead>
+        <tr>
+          <th scope="col">알림 유형 / Type</th>
+          <th scope="col" class="cell">앱 / In-app</th>
+          <th scope="col" class="cell">푸시 / Push</th>
+          <th scope="col" class="cell">이메일 / Email</th>
+        </tr>
+      </thead>
+      <tbody><tr><td colspan="4" style="text-align:center;color:var(--ink-mute);padding:24px">불러오는 중… / Loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section class="settings-card">
+    <h2>이메일 / Email</h2>
+    <div class="field">
+      <label for="email-input">이메일 주소 / Email address</label>
+      <input type="email" id="email-input" placeholder="you@example.com" />
+      <span class="verified-badge no" id="email-verified-badge">미인증 / Unverified</span>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost btn-sm" id="email-save" type="button">저장 / Save</button>
+      <button class="btn btn-primary btn-sm" id="email-verify" type="button">인증 메일 보내기 / Send verification</button>
+    </div>
+  </section>
+
+  <section class="settings-card">
+    <h2>요약 빈도 / Digest frequency</h2>
+    <div class="field">
+      <label for="digest-frequency">이메일 배달 주기 / Email delivery cadence</label>
+      <select id="digest-frequency">
+        <option value="realtime">실시간 / Realtime</option>
+        <option value="hourly">시간별 / Hourly</option>
+        <option value="daily">일일 / Daily</option>
+        <option value="off">끄기 / Off</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="settings-card">
+    <h2>방해 금지 시간 / Quiet hours (push only)</h2>
+    <p style="color:var(--ink-mute);font-size:12px;margin:0 0 10px;">이 시간대 동안 푸시 알림이 일시 정지됩니다. 인앱과 이메일은 영향을 받지 않습니다.<br>Quiet hours suppress push delivery only; in-app and email continue.</p>
+    <div class="field">
+      <label for="qh-start">시작 시각 / Start (0-23)</label>
+      <input type="number" min="0" max="23" id="qh-start" />
+    </div>
+    <div class="field">
+      <label for="qh-end">종료 시각 / End (0-23)</label>
+      <input type="number" min="0" max="23" id="qh-end" />
+    </div>
+  </section>
+
+  <section class="settings-card">
+    <h2>가격 알림 / Price alerts</h2>
+    <div id="alerts-list">
+      <div style="text-align:center;color:var(--ink-mute);padding:14px">불러오는 중… / Loading…</div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:14px;">
+      <div>
+        <div style="font-size:11px;color:var(--ink-dim)">심볼 / Symbol</div>
+        <input type="text" id="alert-symbol" placeholder="ETHUSDT" aria-label="알림 심볼 / Alert symbol" />
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--ink-dim)">조건 / Condition</div>
+        <select id="alert-cond" aria-label="알림 조건 / Alert condition">
+          <option value="above">above</option>
+          <option value="below">below</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--ink-dim)">가격 / Threshold</div>
+        <input type="text" id="alert-threshold" placeholder="50" aria-label="알림 가격 임계값 / Alert price threshold" />
+      </div>
+      <button class="btn btn-primary btn-sm" id="alert-create" type="button">알림 추가 / Create alert</button>
+    </div>
+  </section>
+
+  <section class="settings-card">
+    <h2>테스트 / Test</h2>
+    <div class="actions">
+      <button class="btn btn-ghost btn-sm" data-test="inapp" type="button">앱 알림 / In-app</button>
+      <button class="btn btn-ghost btn-sm" data-test="push" type="button">푸시 / Push</button>
+      <button class="btn btn-ghost btn-sm" data-test="email" type="button">이메일 / Email</button>
+    </div>
+  </section>
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import { renderHeader, renderFooter, requireSession, authedFetch, escapeHtml, toast } from "./app.js";
+  renderHeader("more");
+  renderFooter();
+  const session = requireSession();
+  if (!session) { /* redirected */ }
+
+  const PREF_TYPES = [
+    { key: "kyc",         ko: "본인인증",      en: "KYC events" },
+    { key: "deposit",     ko: "입금",          en: "Deposits" },
+    { key: "withdraw",    ko: "출금",          en: "Withdrawals" },
+    { key: "order",       ko: "주문 체결",     en: "Order fills" },
+    { key: "price_alert", ko: "가격 알림",     en: "Price alerts" },
+    { key: "security",    ko: "보안",          en: "Security" },
+    { key: "promo",       ko: "프로모션",      en: "Promotions" },
+  ];
+
+  const showBanner = (msg, kind = "info") => {
+    const b = document.getElementById("banner");
+    b.className = "banner " + (kind === "ok" ? "ok" : kind === "err" ? "err" : "");
+    b.textContent = msg;
+    b.hidden = false;
+    setTimeout(() => { b.hidden = true; }, 5000);
+  };
+
+  let currentPrefs = null;
+
+  function renderMatrix(prefs) {
+    const rows = PREF_TYPES.map(t => `
+      <tr>
+        <td class="row-label">
+          <span class="ko">${t.ko}</span>
+          <span class="en">${t.en}</span>
+        </td>
+        <td class="cell"><label class="switch"><input type="checkbox" data-col="${t.key}_inapp" ${prefs[t.key + "_inapp"] ? "checked" : ""}/><span></span></label></td>
+        <td class="cell"><label class="switch"><input type="checkbox" data-col="${t.key}_push" ${prefs[t.key + "_push"] ? "checked" : ""}/><span></span></label></td>
+        <td class="cell"><label class="switch"><input type="checkbox" data-col="${t.key}_email" ${prefs[t.key + "_email"] ? "checked" : ""}/><span></span></label></td>
+      </tr>
+    `).join("");
+    document.querySelector("#prefs-matrix tbody").innerHTML = rows;
+    Array.from(document.querySelectorAll('#prefs-matrix input[type="checkbox"]')).forEach(cb => {
+      cb.addEventListener("change", async () => {
+        const patch = {};
+        patch[cb.dataset.col] = cb.checked;
+        try {
+          const r = await authedFetch("/notifications/prefs", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch),
+          });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          toast("저장됨 / Saved");
+        } catch (e) {
+          showBanner("저장 실패 / Save failed: " + e, "err");
+        }
+      });
+    });
+  }
+
+  function setVerifiedBadge(verified) {
+    const b = document.getElementById("email-verified-badge");
+    if (verified) {
+      b.textContent = "인증됨 / Verified";
+      b.className = "verified-badge yes";
+    } else {
+      b.textContent = "미인증 / Unverified";
+      b.className = "verified-badge no";
+    }
+  }
+
+  async function loadPrefs() {
+    try {
+      const r = await authedFetch("/notifications/prefs");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      currentPrefs = j.prefs || {};
+      renderMatrix(currentPrefs);
+      document.getElementById("email-input").value =
+        currentPrefs.email_address || currentPrefs.email_address_suggested || "";
+      setVerifiedBadge(!!currentPrefs.email_verified);
+      document.getElementById("digest-frequency").value = currentPrefs.digest_frequency || "realtime";
+      if (currentPrefs.quiet_hours_start != null) document.getElementById("qh-start").value = currentPrefs.quiet_hours_start;
+      if (currentPrefs.quiet_hours_end   != null) document.getElementById("qh-end").value   = currentPrefs.quiet_hours_end;
+    } catch (e) {
+      showBanner("설정 로드 실패 / Could not load prefs: " + e, "err");
+    }
+  }
+
+  document.getElementById("email-save").addEventListener("click", async () => {
+    const addr = document.getElementById("email-input").value.trim().toLowerCase();
+    try {
+      const r = await authedFetch("/notifications/prefs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email_address: addr }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ("HTTP " + r.status)); }
+      const j = await r.json();
+      currentPrefs = j.prefs || currentPrefs;
+      setVerifiedBadge(false);
+      showBanner("이메일 주소 저장됨. 인증 메일을 보내세요. / Email saved — click Send verification.", "ok");
+    } catch (e) {
+      showBanner("이메일 저장 실패 / Could not save: " + e, "err");
+    }
+  });
+
+  document.getElementById("email-verify").addEventListener("click", async () => {
+    try {
+      const r = await authedFetch("/notifications/email/send-verification", { method: "POST" });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ("HTTP " + r.status)); }
+      showBanner("인증 메일을 보냈습니다. / Verification email sent. Check the outbox.", "ok");
+    } catch (e) {
+      showBanner("인증 메일 발송 실패 / Could not send: " + e, "err");
+    }
+  });
+
+  document.getElementById("digest-frequency").addEventListener("change", async (e) => {
+    try {
+      const r = await authedFetch("/notifications/prefs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ digest_frequency: e.target.value }),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      toast("저장됨 / Saved");
+    } catch (err) { showBanner("저장 실패 / Save failed: " + err, "err"); }
+  });
+
+  ["qh-start", "qh-end"].forEach(id => {
+    document.getElementById(id).addEventListener("change", async (e) => {
+      const v = e.target.value === "" ? null : parseInt(e.target.value, 10);
+      const key = id === "qh-start" ? "quiet_hours_start" : "quiet_hours_end";
+      const patch = {}; patch[key] = v;
+      try {
+        const r = await authedFetch("/notifications/prefs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        toast("저장됨 / Saved");
+      } catch (err) { showBanner("저장 실패 / Save failed: " + err, "err"); }
+    });
+  });
+
+  // Price alerts
+  async function loadAlerts() {
+    try {
+      const r = await authedFetch("/notifications/price-alerts");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      const list = (j.alerts || []);
+      const host = document.getElementById("alerts-list");
+      if (!list.length) {
+        host.innerHTML = `<div style="text-align:center;color:var(--ink-mute);padding:14px">등록된 가격 알림이 없습니다 / No price alerts yet.</div>`;
+        return;
+      }
+      host.innerHTML = list.map(a => `
+        <div class="alert-row">
+          <span class="symbol">${escapeHtml(a.symbol)}</span>
+          <span class="cond">${escapeHtml(a.condition)} ${escapeHtml(a.threshold_price)}</span>
+          <span class="status ${a.status}">${escapeHtml(a.status)}</span>
+          ${a.status === "active" ? `<button class="btn btn-ghost btn-sm" data-cancel="${a.id}" type="button">취소 / Cancel</button>` : ""}
+        </div>
+      `).join("");
+      Array.from(host.querySelectorAll("[data-cancel]")).forEach(b => {
+        b.addEventListener("click", async () => {
+          try {
+            const r = await authedFetch(`/notifications/price-alerts/${b.dataset.cancel}`, { method: "DELETE" });
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            loadAlerts();
+          } catch (e) { showBanner("취소 실패 / Cancel failed: " + e, "err"); }
+        });
+      });
+    } catch (e) { showBanner("가격 알림 로드 실패 / Load failed: " + e, "err"); }
+  }
+
+  document.getElementById("alert-create").addEventListener("click", async () => {
+    const symbol = document.getElementById("alert-symbol").value.trim().toUpperCase();
+    const condition = document.getElementById("alert-cond").value;
+    const threshold_price = document.getElementById("alert-threshold").value.trim();
+    if (!symbol || !threshold_price) { showBanner("심볼과 가격을 입력하세요 / Enter symbol and threshold.", "err"); return; }
+    try {
+      const r = await authedFetch("/notifications/price-alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol, condition, threshold_price }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ("HTTP " + r.status)); }
+      showBanner("알림이 등록되었습니다 / Alert created.", "ok");
+      document.getElementById("alert-symbol").value = "";
+      document.getElementById("alert-threshold").value = "";
+      loadAlerts();
+    } catch (e) { showBanner("등록 실패 / Create failed: " + e, "err"); }
+  });
+
+  // Test buttons
+  Array.from(document.querySelectorAll("[data-test]")).forEach(b => {
+    b.addEventListener("click", async () => {
+      try {
+        const r = await authedFetch("/notifications/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channel: b.dataset.test }),
+        });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ("HTTP " + r.status)); }
+        showBanner(`테스트 알림 전송 / Test sent (${b.dataset.test}).`, "ok");
+      } catch (e) {
+        showBanner("테스트 실패 / Test failed: " + e, "err");
+      }
+    });
+  });
+
+  // Verification token in URL (from email link)
+  const params = new URLSearchParams(location.search);
+  const vtoken = params.get("verify");
+  if (vtoken) {
+    authedFetch("/notifications/email/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: vtoken }),
+    }).then(r => r.json()).then(j => {
+      if (j.ok) {
+        showBanner("이메일 인증 완료 / Email verified.", "ok");
+        setVerifiedBadge(true);
+        history.replaceState({}, "", location.pathname);
+      } else {
+        showBanner("인증 실패 / Verification failed: " + (j.error || "?"), "err");
+      }
+    }).catch(e => showBanner("인증 실패 / Verification failed: " + e, "err"));
+  }
+
+  loadPrefs();
+  loadAlerts();
+</script>
+
+</body>
+</html>

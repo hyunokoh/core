@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#13111c"/><rect x="0" y="0" width="83" height="83" fill="#06d6a0" opacity="0.86"/>
+<rect x="0" y="83" width="83" height="83" fill="#9d4edd" opacity="0.94"/>
+<rect x="0" y="166" width="83" height="83" fill="#ef476f" opacity="0.74"/>
+<rect x="0" y="249" width="83" height="83" fill="#ef476f" opacity="0.74"/>
+<rect x="0" y="332" width="83" height="83" fill="#ef476f" opacity="0.73"/>
+<rect x="83" y="83" width="83" height="83" fill="#9d4edd" opacity="0.88"/>
+<rect x="83" y="249" width="83" height="83" fill="#ef476f" opacity="0.99"/>
+<rect x="83" y="332" width="83" height="83" fill="#ef476f" opacity="0.77"/>
+<rect x="83" y="415" width="83" height="83" fill="#ef476f" opacity="0.74"/>
+<rect x="166" y="0" width="83" height="83" fill="#ef476f" opacity="0.75"/>
+<rect x="166" y="332" width="83" height="83" fill="#9d4edd" opacity="0.69"/>
+<rect x="166" y="415" width="83" height="83" fill="#9d4edd" opacity="0.61"/>
+<rect x="249" y="83" width="83" height="83" fill="#ef476f" opacity="0.84"/>
+<rect x="249" y="166" width="83" height="83" fill="#06d6a0" opacity="0.81"/>
+<rect x="249" y="332" width="83" height="83" fill="#9d4edd" opacity="0.93"/>
+<rect x="332" y="0" width="83" height="83" fill="#9d4edd" opacity="0.95"/>
+<rect x="332" y="166" width="83" height="83" fill="#06d6a0" opacity="0.93"/>
+<rect x="332" y="249" width="83" height="83" fill="#06d6a0" opacity="0.72"/>
+<rect x="332" y="332" width="83" height="83" fill="#06d6a0" opacity="0.73"/>
+<rect x="415" y="83" width="83" height="83" fill="#06d6a0" opacity="0.77"/>
+<rect x="415" y="249" width="83" height="83" fill="#ef476f" opacity="0.92"/>
+<rect x="415" y="332" width="83" height="83" fill="#06d6a0" opacity="0.77"/>
+<rect x="415" y="415" width="83" height="83" fill="#9d4edd" opacity="0.77"/><text x="480" y="490" font-family="JetBrains Mono, monospace" font-size="22" fill="#ef476f" text-anchor="end" opacity="0.9">#41</text><text x="20" y="490" font-family="JetBrains Mono, monospace" font-size="14" fill="#06d6a0" opacity="0.8">zkCEX</text></svg>

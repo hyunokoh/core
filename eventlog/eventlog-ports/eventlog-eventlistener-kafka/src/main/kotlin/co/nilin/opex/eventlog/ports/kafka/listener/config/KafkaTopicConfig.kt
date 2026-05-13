@@ -2,23 +2,30 @@ package co.nilin.opex.eventlog.ports.kafka.listener.config
 
 import org.apache.kafka.clients.admin.NewTopic
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.support.GenericApplicationContext
 
 @Configuration
 class KafkaTopicConfig {
 
+    @Value("\${opex.kafka.dlt.partitions:10}")
+    private var partitions: Int = 10
+
+    @Value("\${opex.kafka.dlt.replicas:1}")
+    private var replicas: Int = 1
+
     @Autowired
     fun createTopics(applicationContext: GenericApplicationContext) {
         with(applicationContext) {
-            registerBean("topic_events.DLT", NewTopic::class.java, "events.DLT", 10, 1)
-            registerBean("topic_orders.DLT", NewTopic::class.java, "orders.DLT", 10, 1)
-            registerBean("topic_trades.DLT", NewTopic::class.java, "trades.DLT", 10, 1)
-            registerBean("topic_tempevents.DLT", NewTopic::class.java, "tempevents.DLT", 10, 1)
-            registerBean("topic_richTrade.DLT", NewTopic::class.java, "richTrade.DLT", 10, 1)
-            registerBean("topic_richOrder.DLT", NewTopic::class.java, "richOrder.DLT", 10, 1)
-            registerBean("topic_admin_event.DLT", NewTopic::class.java, "admin_event.DLT", 10, 1)
-            registerBean("topic_auth_user_created.DLT", NewTopic::class.java, "auth_user_created.DLT", 10, 1)
+            registerBean("topic_events.DLT", NewTopic::class.java, "events.DLT", partitions, replicas)
+            registerBean("topic_orders.DLT", NewTopic::class.java, "orders.DLT", partitions, replicas)
+            registerBean("topic_trades.DLT", NewTopic::class.java, "trades.DLT", partitions, replicas)
+            registerBean("topic_tempevents.DLT", NewTopic::class.java, "tempevents.DLT", partitions, replicas)
+            registerBean("topic_richTrade.DLT", NewTopic::class.java, "richTrade.DLT", partitions, replicas)
+            registerBean("topic_richOrder.DLT", NewTopic::class.java, "richOrder.DLT", partitions, replicas)
+            registerBean("topic_admin_event.DLT", NewTopic::class.java, "admin_event.DLT", partitions, replicas)
+            registerBean("topic_auth_user_created.DLT", NewTopic::class.java, "auth_user_created.DLT", partitions, replicas)
         }
     }
 

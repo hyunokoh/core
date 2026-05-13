@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=proxy
+
+COPY --chown=65532:65532 tools/serve_homepage.py /app/tools/serve_homepage.py
+COPY --chown=65532:65532 homepage/               /app/homepage/
+
+ENV PORT=5500
+EXPOSE 5500
+# serve_homepage proxies upstreams; if none are reachable it still serves the
+# static homepage. Probe the index for liveness.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5500", "/"]
+CMD ["-u", "/app/tools/serve_homepage.py", "5500"]

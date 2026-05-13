@@ -1,4 +1,5 @@
-FROM --platform=linux/amd64 confluentinc/cp-kafka:7.1.1
+ARG CONFLUENT_PLATFORM_VERSION=7.6.1
+FROM confluentinc/cp-kafka:${CONFLUENT_PLATFORM_VERSION}
 USER root
 RUN mkdir /opt/prometheus
 RUN chmod +rx /opt/prometheus

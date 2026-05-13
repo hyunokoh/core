@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>KYC review — Operator Console</title>
+  <link rel="stylesheet" href="/ops/ops.css">
+</head>
+<body>
+  <div id="chrome"></div>
+  <main class="wrap">
+    <h1>KYC review</h1>
+    <div class="split">
+      <div>
+        <div class="panel">
+          <h3>Pending submissions</h3>
+          <table class="dense" id="kycTable">
+            <thead><tr><th>opex_user</th><th>email</th><th>status</th><th>signed up</th></tr></thead>
+            <tbody><tr><td colspan="4" class="loading">loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div class="panel" id="detail">
+          <h3>Select a row</h3>
+          <div class="empty">Pick a user from the queue to view their KYC submission.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { requireOpsSession, opsFetch, renderChrome, renderActionToast,
+             fmtTs, escapeHtml, statusBadge } from "/ops/ops.js";
+
+    if (!requireOpsSession()) { /* redirect */ } else {
+      renderChrome("kyc");
+      let users = [];
+      let current = null;
+
+      async function loadQueue() {
+        const r = await opsFetch("/kyc/pending?limit=200");
+        const tbody = document.querySelector("#kycTable tbody");
+        if (!r || !r.ok) { tbody.innerHTML = `<tr><td colspan="4" class="empty">failed to load</td></tr>`; return; }
+        users = r.body.users || [];
+        if (!users.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">queue empty</td></tr>`; return; }
+        tbody.innerHTML = users.map(u => `
+          <tr class="selectable" data-opex="${escapeHtml(u.opex_user)}">
+            <td class="mono">${escapeHtml(u.opex_user)}</td>
+            <td>${escapeHtml(u.email || "")}</td>
+            <td>${statusBadge(u.kyc_status || "none")}</td>
+            <td>${u.created_at ? fmtTs(u.created_at) : "—"}</td>
+          </tr>`).join("");
+        tbody.querySelectorAll("tr.selectable").forEach(tr => {
+          tr.addEventListener("click", () => selectUser(tr.dataset.opex));
+        });
+      }
+
+      async function selectUser(opex) {
+        document.querySelectorAll("#kycTable tr.selectable").forEach(tr => {
+          tr.classList.toggle("selected", tr.dataset.opex === opex);
+        });
+        const r = await opsFetch("/kyc/" + encodeURIComponent(opex));
+        const det = document.getElementById("detail");
+        if (!r || !r.ok) { det.innerHTML = `<h3>${escapeHtml(opex)}</h3><div class="empty">load failed</div>`; return; }
+        const d = r.body;
+        const u = d.user || {};
+        current = d;
+        const sumsub = d.sumsub
+          ? `<dl class="kv">
+              <dt>applicant_id</dt><dd>${escapeHtml(d.sumsub.applicant_id || "")}</dd>
+              <dt>level</dt><dd>${escapeHtml(d.sumsub.level_name || "")}</dd>
+              <dt>last_status</dt><dd>${escapeHtml(d.sumsub.last_status || "—")}</dd>
+              <dt>review</dt><dd>${escapeHtml(d.sumsub.last_review_answer || "—")}</dd>
+             </dl>`
+          : `<div class="empty">no Sumsub applicant</div>`;
+        const deposits = (d.deposits || []).map(dep => `
+          <tr><td class="mono truncate">${escapeHtml(dep.tx || "")}</td>
+              <td>${escapeHtml(dep.asset)}</td>
+              <td class="mono">${escapeHtml(String(dep.amount))}</td>
+              <td>${statusBadge(dep.status)}</td>
+              <td>${dep.observed_at ? fmtTs(dep.observed_at) : "—"}</td></tr>`).join("");
+        det.innerHTML = `
+          <h3>${escapeHtml(opex)}</h3>
+          <dl class="kv">
+            <dt>email</dt><dd>${escapeHtml(u.email || "")}</dd>
+            <dt>name</dt><dd>${escapeHtml(u.name || "")}</dd>
+            <dt>kyc_status</dt><dd>${statusBadge(u.kyc_status || "none")}</dd>
+            <dt>kyc_name</dt><dd>${escapeHtml(u.kyc_name || "—")}</dd>
+            <dt>kyc_phone</dt><dd>${escapeHtml(u.kyc_phone || "—")}</dd>
+            <dt>kyc_birth</dt><dd>${escapeHtml(u.kyc_birth || "—")}</dd>
+            <dt>kyc_carrier</dt><dd>${escapeHtml(u.kyc_carrier || "—")}</dd>
+            <dt>signed up</dt><dd>${u.created_at ? fmtTs(u.created_at) : "—"}</dd>
+            <dt>kyc_request</dt><dd>${escapeHtml(u.kyc_provider_request_id || "—")}</dd>
+          </dl>
+          <h3 style="margin-top:18px;">Sumsub</h3>${sumsub}
+          <h3 style="margin-top:18px;">Recent deposits</h3>
+          ${deposits ? `<table class="dense"><thead><tr><th>tx</th><th>asset</th><th>amount</th><th>status</th><th>observed</th></tr></thead><tbody>${deposits}</tbody></table>`
+                     : `<div class="empty">no deposits yet</div>`}
+          <h3 style="margin-top:18px;">Decision</h3>
+          <div class="field"><label>Reason / note</label><input id="reasonIn" placeholder="audit-log reason"></div>
+          <div class="row">
+            <button class="btn ok" id="approveBtn">Approve</button>
+            <button class="btn danger" id="rejectBtn">Reject</button>
+            <button class="btn" id="moreBtn">Request more info</button>
+          </div>`;
+        document.getElementById("approveBtn").addEventListener("click", () => act("approve"));
+        document.getElementById("rejectBtn").addEventListener("click", () => act("reject"));
+        document.getElementById("moreBtn").addEventListener("click", () => act("request-more-info"));
+      }
+
+      async function act(verb) {
+        if (!current) return;
+        const reason = document.getElementById("reasonIn").value.trim();
+        const path = "/kyc/" + encodeURIComponent(current.user.opex_user) + "/" + verb;
+        const body = verb === "request-more-info" ? { message: reason } : { reason };
+        const r = await opsFetch(path, { method: "POST", body: JSON.stringify(body) });
+        if (!r || !r.ok) {
+          renderActionToast((r && r.body && (r.body.message || r.body.error)) || "Action failed", "err");
+          return;
+        }
+        renderActionToast(verb + " ok", "ok");
+        await loadQueue();
+        document.getElementById("detail").innerHTML =
+          `<h3>Done</h3><div class="empty">${verb} applied to ${escapeHtml(current.user.opex_user)}.</div>`;
+        current = null;
+      }
+      loadQueue();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=mcp
+
+COPY --chown=65532:65532 tools/mcp_server.py /app/tools/mcp_server.py
+
+ENV PORT=5560
+EXPOSE 5560
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5560", "/mcp/health"]
+CMD ["-u", "/app/tools/mcp_server.py", "--transport", "http", "--port", "5560"]

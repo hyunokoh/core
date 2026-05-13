@@ -1,0 +1,303 @@
+# Default values for zkcex.
+# This is a YAML-formatted file. Override per environment.
+
+# ---------- Region / cluster identity ----------
+region: a
+isPrimary: true
+clusterDomain: cluster.local
+
+# ---------- Image registry ----------
+# Default to the local registry that deploy/images/init-registry.sh stands up.
+# Override with --set image.repository=registry.internal.zkcex.io/zkcex for prod.
+# Images are built on gcr.io/distroless/python3-debian12:nonroot, which runs
+# as uid 65532 and has no shell — see deploy/images/DISTROLESS.md.
+image:
+  repository: 127.0.0.1:5050
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+  # Distroless ":nonroot" baked-in user. All pod and container SecurityContexts
+  # in this chart reference these values via the zkcex.runAsUser helper.
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+
+# ---------- Ingress + TLS ----------
+ingress:
+  enabled: true
+  className: nginx
+  host: app.zkcex.io
+  tls:
+    enabled: true
+    secretName: zkcex-tls
+    issuer: zkcex-letsencrypt
+  certManager:
+    email: ops@zkcex.io
+    server: https://acme-v02.api.letsencrypt.org/directory
+
+# ---------- Service mesh (Istio) ----------
+istio:
+  enabled: false
+  mtlsMode: STRICT
+
+# ---------- Network policies ----------
+networkPolicy:
+  enabled: true
+  defaultDeny: true
+
+# ---------- RBAC / ServiceAccount ----------
+rbac:
+  create: true
+
+# ---------- Bitnami sub-charts (disabled by default for kind smoke test) ----------
+postgresql:
+  enabled: false
+  auth:
+    username: zkcex
+    database: zkcex
+mariadb:
+  enabled: false
+redis:
+  enabled: false
+kafka:
+  enabled: false
+
+# ---------- Patroni (HA Postgres with K8s DCS) ----------
+# Opt-in. When enabled, the chart deploys a 3-node Patroni StatefulSet
+# alongside ConfigMap+RBAC+Services. The application Secret `zkcex-postgres`
+# should then point its `dsn` at host=patroni-primary for writes.
+# See tools/deploy/k8s/patroni/README.md for migration from the existing
+# primary/replica setup.
+patroni:
+  enabled: false   # opt-in; existing deployments keep their primary/replica
+  replicas: 3
+  image: ghcr.io/zalando/spilo-15:3.0-p1
+  pgVersion: "15"
+  scope: zkcex
+  storage:
+    size: 50Gi
+    storageClass: standard
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  # synchronous_standby_names='*'. Zero data loss when at least 1 standby
+  # is healthy; falls back to async if `strict_sync` is false below.
+  sync_replication: true
+  strict_sync: false
+  # Patroni timers. ttl + retry_timeout bounds worst-case failover time.
+  ttl: 30
+  loop_wait: 10
+  retry_timeout: 10
+  maximum_lag_on_failover: 1048576   # 1 MiB
+  # WAL-G archival to S3. Off by default — wire WALG_S3_PREFIX + creds
+  # before enabling. See README.md PITR section.
+  walg:
+    enabled: false
+    s3Prefix: ""
+    secretName: walg-s3
+  # podAntiAffinity hostname is hard; zone is preferred. Override here.
+  topology:
+    requireSeparateNodes: true
+    preferSeparateZones: true
+
+# ---------- Cross-region ----------
+crossRegion:
+  peerRegion: b
+  peerProxyUrl: ""
+  leaseNamespace: zkcex
+  leaseDurationSeconds: 30
+
+# ---------- Observability ----------
+monitoring:
+  serviceMonitor:
+    enabled: false   # requires Prometheus Operator CRDs
+    interval: 30s
+    scrapeTimeout: 10s
+  podMonitor:
+    enabled: false
+
+# ---------- Common defaults applied to every service unless overridden ----------
+defaults:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# ---------- Services ----------
+# Each entry produces: Deployment + Service + ServiceAccount (+ PDB/HPA as configured).
+# `singleton: true` => replicas=1 + leader-election Lease.
+services:
+  auth:
+    enabled: true
+    replicas: 3
+    port: 5501
+    healthPath: /auth/health
+    hpa:
+      minReplicas: 3
+      maxReplicas: 10
+    env:
+      AUTH_DB_BACKEND: postgres
+
+  chain:
+    enabled: true
+    replicas: 3
+    port: 5502
+    healthPath: /chain/health
+    hpa:
+      minReplicas: 3
+      maxReplicas: 6
+
+  pol:
+    enabled: true
+    replicas: 2
+    port: 5503
+    healthPath: /pol/server-info
+    # Service is named "pol" in the chart but the image is "zkcex-pol-py".
+    image:
+      name: pol-py
+
+  zkpol-bridge:
+    enabled: true
+    replicas: 2
+    port: 5504
+    healthPath: /bridge/health
+
+  pol-feed:
+    enabled: true
+    replicas: 1
+    singleton: true
+    port: 5505
+    healthPath: /health
+
+  api-key:
+    enabled: true
+    replicas: 3
+    port: 5550
+    healthPath: /api-keys/health
+    hpa:
+      minReplicas: 3
+      maxReplicas: 8
+
+  push:
+    enabled: true
+    replicas: 2
+    port: 5580
+    healthPath: /push/health
+
+  mcp:
+    enabled: true
+    replicas: 2
+    port: 5560
+    healthPath: /mcp/health
+
+  mm-bot:
+    enabled: true
+    replicas: 1
+    singleton: true
+    port: 5600
+    healthPath: /mm/health
+
+  safu:
+    enabled: true
+    replicas: 2
+    port: 5601
+    healthPath: /safu/health
+
+  ops:
+    enabled: true
+    replicas: 2
+    port: 5620
+    healthPath: /health
+
+  travel-rule:
+    enabled: true
+    replicas: 2
+    port: 5630
+    healthPath: /travel-rule/health
+
+  metrics-aggregator:
+    enabled: true
+    replicas: 2
+    port: 5640
+    healthPath: /health
+
+  zk-orderbook:
+    enabled: true
+    replicas: 3
+    port: 5660
+    healthPath: /zk-trade/health
+    hpa:
+      minReplicas: 3
+      maxReplicas: 8
+
+  ws-feed:
+    enabled: true
+    replicas: 3
+    port: 5510
+    healthPath: /health
+    hpa:
+      minReplicas: 3
+      maxReplicas: 12
+
+  perp:
+    enabled: true
+    replicas: 1
+    singleton: true
+    port: 5590
+    healthPath: /fapi/v1/ping
+
+  order-engine:
+    enabled: true
+    replicas: 1
+    singleton: true
+    port: 5570
+    healthPath: /orders/health
+
+  export:
+    enabled: true
+    replicas: 2
+    port: 5540
+    healthPath: /export/health
+
+  proxy:
+    enabled: true
+    replicas: 3
+    port: 5500
+    healthPath: /
+    hpa:
+      minReplicas: 3
+      maxReplicas: 10
+
+  custody-coordinator:
+    enabled: true
+    replicas: 1
+    singleton: true
+    port: 5530
+    healthPath: /health
+    # Image is published as "zkcex-custody-coord" (short name).
+    image:
+      name: custody-coord
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        cpu: 500m
+        memory: 384Mi

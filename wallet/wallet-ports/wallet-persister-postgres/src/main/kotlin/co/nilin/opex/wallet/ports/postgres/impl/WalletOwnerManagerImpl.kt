@@ -17,6 +17,7 @@ import kotlinx.coroutines.reactive.awaitFirstOrDefault
 import kotlinx.coroutines.reactive.awaitFirstOrElse
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.slf4j.LoggerFactory
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
 import java.time.LocalDateTime
@@ -130,7 +131,11 @@ class WalletOwnerManagerImpl(
     }
 
     override suspend fun createWalletOwner(uuid: String, title: String, userLevel: String): WalletOwner {
-        return walletOwnerRepository.save(WalletOwnerModel(null, uuid, title, userLevel)).awaitFirst().toPlainObject()
+        return try {
+            walletOwnerRepository.save(WalletOwnerModel(null, uuid, title, userLevel)).awaitFirst().toPlainObject()
+        } catch (e: DataIntegrityViolationException) {
+            walletOwnerRepository.findByUuid(uuid).awaitFirstOrNull()?.toPlainObject() ?: throw e
+        }
     }
 
     override suspend fun findAllWalletOwners(): List<WalletOwner> {

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: zkcex
+description: Verifiable exchange backend (zkCEX) Kubernetes chart
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+home: https://app.zkcex.io
+keywords:
+- exchange
+- trading
+- zk
+- perpetuals
+maintainers:
+- name: zkcex-platform

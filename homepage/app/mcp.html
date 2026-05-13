@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI 에이전트 연결 / MCP — zkCEX</title>
+  <meta name="description" content="zkCEX는 모델 컨텍스트 프로토콜(MCP)을 통해 AI 에이전트가 직접 시세 조회와 주문을 할 수 있도록 지원합니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    /* MCP page — additive styles. Re-uses page-heading, btn-primary,
+       order-tabs, field-row from app.css. */
+    .mcp-shell {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 0 16px 64px;
+    }
+    .mcp-card {
+      background: var(--panel, #11151c);
+      border: 1px solid var(--line, rgba(255,255,255,0.08));
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .mcp-card h2 {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 8px;
+      color: #fff;
+    }
+    .mcp-card h2 .en {
+      color: var(--ink-mute, #9aa3b3);
+      font-size: 13px;
+      font-weight: 500;
+      margin-left: 6px;
+    }
+    .mcp-card p {
+      color: var(--ink-mute, #9aa3b3);
+      line-height: 1.55;
+      margin: 8px 0;
+      font-size: 14px;
+    }
+    .mcp-card p code {
+      font-family: var(--font-mono, "JetBrains Mono", monospace);
+      font-size: 12.5px;
+      color: #d8dde7;
+      background: rgba(255,255,255,0.04);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    .tab-bar {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      background: var(--panel-2, rgba(255,255,255,0.03));
+      border-radius: 8px;
+      padding: 3px;
+      margin-bottom: 16px;
+    }
+    .tab-btn {
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-mute, #9aa3b3);
+      border-radius: 6px;
+      cursor: pointer;
+      background: transparent;
+      border: 0;
+      font-family: inherit;
+    }
+    .tab-btn.active {
+      background: var(--panel-3, rgba(255,255,255,0.07));
+      color: #fff;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    pre.code-block {
+      background: #0a0d12;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-family: var(--font-mono, "JetBrains Mono", monospace);
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: #d8dde7;
+      overflow-x: auto;
+      white-space: pre;
+      margin: 8px 0 12px;
+      position: relative;
+    }
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(255,255,255,0.06);
+      color: #d8dde7;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .copy-btn:hover { background: rgba(255,255,255,0.10); }
+    .copy-btn.copied { color: #00d997; border-color: rgba(0,217,151,0.4); }
+
+    .conn-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .conn-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: var(--ink-mute, #9aa3b3);
+    }
+    .conn-pill[data-state="ok"] {
+      color: #cdeacc;
+      border-color: rgba(0,184,124,0.4);
+      background: rgba(0,184,124,0.1);
+    }
+    .conn-pill[data-state="bad"] {
+      color: #f0bcc4;
+      border-color: rgba(255,77,99,0.4);
+      background: rgba(255,77,99,0.08);
+    }
+    .conn-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #5b6376;
+    }
+    .conn-pill[data-state="ok"] .conn-dot { background: #00d997; }
+    .conn-pill[data-state="bad"] .conn-dot { background: #ff4d63; }
+
+    .scope-row {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 14px;
+      margin: 12px 0 4px;
+      font-size: 13px;
+    }
+    .scope-row code {
+      font-family: var(--font-mono, "JetBrains Mono", monospace);
+      color: #00d997;
+    }
+    .scope-row span { color: var(--ink-mute, #9aa3b3); }
+
+    .tool-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px;
+      margin: 12px 0 0;
+    }
+    .tool-list code {
+      display: block;
+      font-family: var(--font-mono, "JetBrains Mono", monospace);
+      font-size: 12px;
+      padding: 6px 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 6px;
+      color: #d8dde7;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1>AI 에이전트 연결<span class="en">Connect an AI agent</span></h1>
+  <p>모델 컨텍스트 프로토콜 (MCP) 로 zkCEX와 직접 대화하세요 / Talk to zkCEX over the Model Context Protocol</p>
+</section>
+
+<main class="mcp-shell">
+
+  <!-- Intro -->
+  <section class="mcp-card">
+    <h2>왜 MCP 인가요?<span class="en">Why MCP?</span></h2>
+    <p>
+      MCP 는 AI 에이전트가 외부 도구를 호출하기 위한 표준 인터페이스입니다.
+      Claude Desktop, Cursor, OpenAI Agent SDK 등 거의 모든 최신 에이전트 클라이언트가 지원합니다.
+    </p>
+    <p>
+      The Model Context Protocol is the standard tool-calling surface for AI
+      agents. Once you wire up the snippet below, your agent can read live
+      market data, place and cancel orders, and pull a Proof-of-Liabilities
+      certificate — through the same JSON-RPC tool surface every MCP-compatible
+      client speaks. See the full spec at
+      <a href="https://modelcontextprotocol.io/specification" target="_blank" rel="noopener">modelcontextprotocol.io</a>.
+    </p>
+    <div class="conn-row">
+      <span class="conn-pill" id="conn-pill" data-state="idle">
+        <span class="conn-dot"></span>
+        <span id="conn-pill-text">아직 확인하지 않음 / Not checked yet</span>
+      </span>
+      <button class="btn-primary" type="button" id="conn-test-btn">연결 테스트 / Test connection</button>
+    </div>
+  </section>
+
+  <!-- Configurator -->
+  <section class="mcp-card">
+    <h2>클라이언트 설정<span class="en">Client setup</span></h2>
+    <p>
+      어떤 에이전트를 사용하시나요? 탭을 선택하면 해당 클라이언트가 요구하는 정확한 설정 스니펫을 보여드립니다.
+      / Pick your agent client below — each tab shows the exact config it expects.
+    </p>
+
+    <div class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="claude" type="button" role="tab">Claude Desktop</button>
+      <button class="tab-btn" data-tab="cursor" type="button" role="tab">Cursor</button>
+      <button class="tab-btn" data-tab="http" type="button" role="tab">Custom HTTP</button>
+    </div>
+
+    <!-- Claude Desktop -->
+    <div class="tab-panel active" data-panel="claude">
+      <p>
+        설정 파일에 아래 내용을 추가하세요. 위치 / Save to:
+        <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>
+        (macOS) 또는 <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows). 저장 후
+        Claude Desktop 을 재시작하면 모든 채팅에서 <code>zkcex</code> 도구를 사용할 수 있습니다.
+        After saving, restart Claude Desktop and the <code>zkcex</code> tools become available
+        in any chat.
+      </p>
+<pre class="code-block" data-snippet="claude"><button class="copy-btn" type="button" data-copy-target="claude">복사 / Copy</button>{
+  "mcpServers": {
+    "zkcex": {
+      "command": "python3",
+      "args": ["/Users/hoh/Documents/Projects/zkCEX/core/tools/mcp_server.py", "--transport", "stdio"],
+      "env": {
+        "MCP_API_KEY": "&lt;paste_your_zkcex_api_key&gt;",
+        "MCP_API_SECRET": "&lt;paste_your_zkcex_api_secret&gt;"
+      }
+    }
+  }
+}</pre>
+      <p>
+        API 키는 <a href="wallet.html">계정 페이지</a> 에서 발급할 수 있습니다.
+        API keys are issued from your account page; trading and chain
+        scopes are bound to the key, so an agent with a read-only key
+        can list balances but receives a structured scope error if it
+        attempts to place an order.
+      </p>
+    </div>
+
+    <!-- Cursor -->
+    <div class="tab-panel" data-panel="cursor">
+      <p>
+        Cursor 는 워크스페이스 또는 글로벌 MCP 설정을 지원합니다.
+        Cursor reads MCP servers from <code>~/.cursor/mcp.json</code> (global)
+        or <code>.cursor/mcp.json</code> in your project root. Cursor restarts
+        the server when this file changes.
+      </p>
+<pre class="code-block" data-snippet="cursor"><button class="copy-btn" type="button" data-copy-target="cursor">복사 / Copy</button>{
+  "mcpServers": {
+    "zkcex": {
+      "command": "python3",
+      "args": ["/Users/hoh/Documents/Projects/zkCEX/core/tools/mcp_server.py", "--transport", "stdio"],
+      "env": {
+        "MCP_API_KEY": "&lt;paste_your_zkcex_api_key&gt;",
+        "MCP_API_SECRET": "&lt;paste_your_zkcex_api_secret&gt;"
+      }
+    }
+  }
+}</pre>
+      <p>
+        설정 후 <code>Cmd-Shift-P</code> &rarr; <em>MCP: Restart Servers</em>.
+        After saving, run <em>MCP: Restart Servers</em> from the command palette.
+      </p>
+    </div>
+
+    <!-- Custom HTTP -->
+    <div class="tab-panel" data-panel="http">
+      <p>
+        원격 / 셀프-호스팅 / 서버리스 환경에선 HTTP+SSE 트랜스포트를 사용하세요.
+        For remote agents, hosted runners, or anything that can't spawn a
+        local subprocess, use the HTTP+SSE transport on port 5560.
+        JSON-RPC envelopes go to <code>POST /mcp/</code>; the same path also
+        accepts <code>GET /mcp/health</code> for liveness and
+        <code>GET /mcp/stream</code> for an SSE notification channel.
+      </p>
+<pre class="code-block" data-snippet="http"><button class="copy-btn" type="button" data-copy-target="http"># Start the server (any host).
+python3 tools/mcp_server.py --transport http --port 5560 --auth bearer
+
+# Initialize handshake
+curl -X POST -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer &lt;your_zkcex_session_token&gt;' \
+  https://your-zkcex-host.example.com/mcp/ \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":1,
+    "method":"initialize",
+    "params":{
+      "protocolVersion":"2024-11-05",
+      "capabilities":{},
+      "clientInfo":{"name":"my-agent","version":"1.0"}
+    }
+  }'
+
+# Listen for server-initiated notifications via SSE
+curl -N -H 'Authorization: Bearer &lt;your_zkcex_session_token&gt;' \
+  https://your-zkcex-host.example.com/mcp/stream</pre>
+      <p>
+        보호 모드 / Auth modes: <code>--auth none</code> (로컬 신뢰),
+        <code>--auth bearer</code> (세션 토큰), <code>--auth api-key</code>
+        (X-MCP-API-KEY + X-MCP-API-SECRET 헤더).
+      </p>
+    </div>
+  </section>
+
+  <!-- Scopes -->
+  <section class="mcp-card">
+    <h2>권한 범위<span class="en">Scopes</span></h2>
+    <p>각 도구는 다음 권한 중 하나를 요구합니다 / Each tool requires one of these scopes:</p>
+    <div class="scope-row">
+      <code>read</code>
+      <span>잔고, 주문 내역, 거래 내역, PoL 증명 / Balances, order history, trade history, PoL proofs.</span>
+      <code>trade</code>
+      <span>주문 생성 및 취소 / Place and cancel orders.</span>
+      <code>withdraw</code>
+      <span>온체인 출금은 MCP 에서 노출하지 않습니다. 웹 UI 에서만 가능합니다. / On-chain withdraw is intentionally NOT exposed via MCP — use the web UI.</span>
+    </div>
+    <p>
+      도구 호출시 권한이 부족하면 JSON-RPC 코드 <code>-32001</code> 에러가 반환되어
+      에이전트가 사용자에게 키 업그레이드를 안내할 수 있습니다.
+      If your key lacks a required scope, the call returns a JSON-RPC error
+      with code <code>-32001</code> listing the scopes you DO have, so the agent
+      can ask the user to issue a new key.
+    </p>
+  </section>
+
+  <!-- Tool catalog -->
+  <section class="mcp-card">
+    <h2>제공되는 도구<span class="en">Available tools</span></h2>
+    <p>총 19 개의 도구가 노출됩니다 / 19 tools are exposed:</p>
+    <div class="tool-list">
+      <code>list_markets</code>
+      <code>get_ticker</code>
+      <code>get_orderbook</code>
+      <code>get_recent_trades</code>
+      <code>get_klines</code>
+      <code>get_balance</code>
+      <code>get_open_orders</code>
+      <code>get_order</code>
+      <code>get_my_trades</code>
+      <code>place_order</code>
+      <code>cancel_order</code>
+      <code>cancel_all_orders</code>
+      <code>get_chain_info</code>
+      <code>get_chain_balance</code>
+      <code>list_deposits</code>
+      <code>list_withdraws</code>
+      <code>get_pol_my_proof</code>
+      <code>get_pol_reserves</code>
+      <code>export_trades_csv</code>
+    </div>
+    <p style="margin-top: 14px;">
+      각 도구의 정확한 입력 스키마는 <code>tools/list</code> JSON-RPC 호출로 확인할 수 있습니다.
+      The full JSON Schema for every tool is returned by the <code>tools/list</code>
+      JSON-RPC method — your agent will discover and validate it at startup.
+    </p>
+  </section>
+
+  <!-- Footer -->
+  <div id="app-footer"></div>
+</main>
+
+<script type="module">
+  import { renderHeader, renderFooter } from "./app.js";
+  renderHeader({ active: "" });
+  renderFooter();
+
+  // --- Tab switcher
+  const tabs = document.querySelectorAll(".tab-btn");
+  const panels = document.querySelectorAll(".tab-panel");
+  tabs.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.tab;
+      tabs.forEach(t => t.classList.toggle("active", t === btn));
+      panels.forEach(p => p.classList.toggle("active", p.dataset.panel === target));
+    });
+  });
+
+  // --- Copy buttons. We extract the inner text minus the button label,
+  // unescape the angle brackets that we HTML-encoded for safety, and pop
+  // it onto the clipboard.
+  document.querySelectorAll(".copy-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const pre = btn.parentElement;
+      const clone = pre.cloneNode(true);
+      const innerBtn = clone.querySelector(".copy-btn");
+      if (innerBtn) innerBtn.remove();
+      const text = clone.textContent.trimEnd();
+      try {
+        await navigator.clipboard.writeText(text);
+        const orig = btn.textContent;
+        btn.classList.add("copied");
+        btn.textContent = "복사됨 / Copied";
+        setTimeout(() => {
+          btn.classList.remove("copied");
+          btn.textContent = orig;
+        }, 1400);
+      } catch (e) {
+        btn.textContent = "복사 실패 / Failed";
+      }
+    });
+  });
+
+  // --- Live connection test. Hits /mcp/health and updates the pill.
+  const pill = document.getElementById("conn-pill");
+  const pillText = document.getElementById("conn-pill-text");
+  const btn = document.getElementById("conn-test-btn");
+
+  async function testConnection() {
+    pill.dataset.state = "idle";
+    pillText.textContent = "확인 중… / Checking…";
+    try {
+      const res = await fetch("/mcp/health", { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error("status " + res.status);
+      const body = await res.json();
+      pill.dataset.state = "ok";
+      pillText.textContent = `연결됨 / Connected: ${body.name} v${body.version} (auth=${body.auth_mode})`;
+    } catch (err) {
+      pill.dataset.state = "bad";
+      pillText.textContent = "연결 실패 / Not reachable. Run: python3 tools/mcp_server.py --transport http --port 5560";
+    }
+  }
+
+  btn.addEventListener("click", testConnection);
+  // Auto-check once on load so the user gets immediate feedback.
+  testConnection();
+</script>
+</body>
+</html>

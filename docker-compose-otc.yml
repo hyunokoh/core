@@ -12,7 +12,6 @@ x-postgres-db: &postgres-db
     restart_policy:
       condition: on-failure
 
-version: '3.8'
 services:
   postgres-wallet:
     <<: *postgres-db

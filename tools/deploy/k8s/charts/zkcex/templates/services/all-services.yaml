@@ -1,0 +1,163 @@
+{{/*
+Generic service template — renders Deployment + Service for every entry in
+.Values.services that is not specialized in its own templates/services/<name>.yaml.
+
+Specialized templates (auth.yaml, mm-bot.yaml) define their own Deployment and
+mark themselves rendered by checking the same "enabled" flag; the generic loop
+below skips names listed in $.skipNames so we don't double-render.
+*/}}
+{{- $skipNames := list "auth" "mm-bot" -}}
+{{- range $name, $cfg := .Values.services }}
+{{- if and $cfg.enabled (not (has $name $skipNames)) }}
+{{- $svc := $cfg }}
+{{- $replicas := default 1 $svc.replicas }}
+{{- $port := default 8080 $svc.port }}
+{{- $healthPath := default "/health" $svc.healthPath }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "zkcex.labels" (dict "name" $name "Values" $.Values "Release" $.Release "Chart" $.Chart) | nindent 4 }}
+spec:
+  replicas: {{ $replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: {{ if eq ($replicas | int) 1 }}0{{ else }}1{{ end }}
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "zkcex.selectorLabels" (dict "name" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zkcex.selectorLabels" (dict "name" $name) | nindent 8 }}
+        zkcex.io/region: {{ $.Values.region | quote }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $port | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ $name }}
+      terminationGracePeriodSeconds: 30
+      # Distroless image runs as uid 65532 (nonroot). The matching uid here is
+      # important so volumes/emptyDir end up writable. Override per service via
+      # services.<name>.runAsUser if a service legitimately needs a different uid.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ default 65532 $.Values.image.runAsUser }}
+        runAsGroup: {{ default 65532 $.Values.image.runAsGroup }}
+        fsGroup: {{ default 65532 $.Values.image.fsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        {{- include "zkcex.podAntiAffinity" (dict "name" $name) | nindent 8 }}
+      topologySpreadConstraints:
+        {{- include "zkcex.topologySpreadConstraints" (dict "name" $name) | nindent 8 }}
+      containers:
+        - name: {{ $name }}
+          image: "{{ include "zkcex.image" (dict "name" $name "Values" $.Values) }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $port }}
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: {{ $name | quote }}
+            - name: SERVICE_PORT
+              value: {{ $port | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- if $svc.singleton }}
+            - name: LEADER_ELECT
+              value: "true"
+            - name: LEADER_LEASE_NAME
+              value: {{ printf "zkcex-%s-leader" $name | quote }}
+            - name: ACTIVE_ROLE
+              value: {{ if hasKey $svc "active" }}{{ $svc.active | quote }}{{ else }}"true"{{ end }}
+            {{- end }}
+            {{- range $k, $v := $svc.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: zkcex-app-config
+          readinessProbe:
+            httpGet:
+              path: {{ $healthPath }}
+              port: http
+            initialDelaySeconds: {{ $.Values.defaults.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $.Values.defaults.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ $.Values.defaults.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ $.Values.defaults.readinessProbe.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ $healthPath }}
+              port: http
+            initialDelaySeconds: {{ $.Values.defaults.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $.Values.defaults.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ $.Values.defaults.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ $.Values.defaults.livenessProbe.failureThreshold }}
+          resources:
+            {{- include "zkcex.resources" (dict "svc" $svc "Values" $.Values) | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "zkcex.labels" (dict "name" $name "Values" $.Values "Release" $.Release "Chart" $.Chart) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "zkcex.selectorLabels" (dict "name" $name) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $port }}
+      targetPort: http
+      protocol: TCP
+{{- if $svc.singleton }}
+---
+# Leader-election Lease for singleton service: only the holder is active.
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: {{ printf "zkcex-%s-leader" $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: zkcex
+spec:
+  leaseDurationSeconds: {{ $.Values.crossRegion.leaseDurationSeconds }}
+  holderIdentity: ""
+{{- end }}
+---
+{{- end }}
+{{- end }}

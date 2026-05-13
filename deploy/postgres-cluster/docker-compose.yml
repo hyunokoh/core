@@ -1,0 +1,74 @@
+services:
+  postgres-primary:
+    image: postgres:16
+    container_name: zkcex-pg-primary
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: zkcex_auth
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app-password
+      POSTGRES_INITDB_ARGS: "-c wal_level=replica -c max_wal_senders=10 -c max_replication_slots=10 -c hot_standby=on"
+    volumes:
+      - primary-data:/var/lib/postgresql/data
+      - ./primary-init:/docker-entrypoint-initdb.d:ro
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    command:
+      - postgres
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - hot_standby=on
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=/bin/true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d zkcex_auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-replica:
+    image: postgres:16
+    container_name: zkcex-pg-replica
+    ports:
+      - "5435:5432"
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    environment:
+      POSTGRES_PASSWORD: app-password
+      PGUSER: app
+    volumes:
+      - replica-data:/var/lib/postgresql/data
+    user: "0:0"
+    entrypoint:
+      - /bin/bash
+      - -c
+    command:
+      - |
+        set -e
+        if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+          echo "Bootstrapping replica via pg_basebackup..."
+          export PGPASSWORD=replicator-password
+          rm -rf /var/lib/postgresql/data/*
+          until su postgres -c "pg_basebackup -h postgres-primary -p 5432 -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R -S replica_a_slot"; do
+            echo "waiting for primary..."
+            sleep 2
+          done
+          touch /var/lib/postgresql/data/standby.signal
+          chown -R postgres:postgres /var/lib/postgresql/data
+          chmod 0700 /var/lib/postgresql/data
+        fi
+        exec docker-entrypoint.sh postgres -c hot_standby=on -c primary_slot_name=replica_a_slot
+
+volumes:
+  primary-data:
+  replica-data:

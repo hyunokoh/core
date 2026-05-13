@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1.7
+FROM zkcex-base:latest AS final
+ARG SERVICE=perp
+
+COPY --chown=65532:65532 tools/perp_engine.py /app/tools/perp_engine.py
+
+ENV PORT=5590
+EXPOSE 5590
+# perp_engine speaks /fapi/v1/ping for liveness; there is no dedicated /health.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s \
+    CMD ["python", "/app/healthcheck.py", "5590", "/fapi/v1/ping"]
+CMD ["-u", "/app/tools/perp_engine.py", "5590"]

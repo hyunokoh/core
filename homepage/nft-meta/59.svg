@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#0a0f1e"/><ellipse cx="250" cy="130" rx="58" ry="121" fill="#fde047" opacity="0.57" transform="rotate(0.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="35" ry="105" fill="#22c55e" opacity="0.69" transform="rotate(45.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="33" ry="73" fill="#22c55e" opacity="0.82" transform="rotate(90.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="41" ry="89" fill="#2563eb" opacity="0.61" transform="rotate(135.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="50" ry="90" fill="#fde047" opacity="0.58" transform="rotate(180.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="57" ry="121" fill="#fde047" opacity="0.81" transform="rotate(225.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="37" ry="63" fill="#22c55e" opacity="0.77" transform="rotate(270.0 250 250)"/>
+<ellipse cx="250" cy="130" rx="49" ry="93" fill="#2563eb" opacity="0.84" transform="rotate(315.0 250 250)"/>
+<circle cx="250" cy="250" r="32" fill="#22c55e"/><text x="480" y="490" font-family="JetBrains Mono, monospace" font-size="22" fill="#fde047" text-anchor="end" opacity="0.9">#59</text><text x="20" y="490" font-family="JetBrains Mono, monospace" font-size="14" fill="#22c55e" opacity="0.8">zkCEX</text></svg>

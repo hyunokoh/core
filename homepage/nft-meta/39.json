@@ -1,0 +1,24 @@
+{
+  "name": "zkCEX Genesis #39",
+  "description": "Genesis-set NFT minted on the zkCEX hardhat demo chain. Art is deterministically derived from the token id.",
+  "image": "/nft-meta/39.svg",
+  "external_url": "/app/nft.html?token=39",
+  "attributes": [
+    {
+      "trait_type": "Pattern",
+      "value": "ribbons"
+    },
+    {
+      "trait_type": "Palette",
+      "value": 3
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Rare"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "Genesis"
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+# Canary traffic shifting for `proxy` (the public entrypoint).
+#
+# Routing rules:
+#   1. Requests carrying `x-canary: true` -> 100% canary subset.
+#      Use this for internal testing / smoke verification against a new build.
+#   2. All other requests -> 95% stable, 5% canary.
+#
+# The DestinationRule defines the two subsets (label selector `version=stable`
+# vs `version=canary`) and the circuit-breaker policy:
+#   - connectionPool caps per-host connection / stream counts.
+#   - outlierDetection ejects hosts returning 5 consecutive 5xx within 30s;
+#     ejection lasts 30s and at most 50% of the pool can be ejected at once
+#     (so we never blackhole the whole service).
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: proxy-canary
+  namespace: zkcex
+spec:
+  hosts:
+    - proxy
+  http:
+    - match:
+        - headers:
+            x-canary:
+              exact: "true"
+      route:
+        - destination:
+            host: proxy
+            subset: canary
+          weight: 100
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: connect-failure,refused-stream,reset
+      timeout: 10s
+    - route:
+        - destination:
+            host: proxy
+            subset: stable
+          weight: 95
+        - destination:
+            host: proxy
+            subset: canary
+          weight: 5
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: connect-failure,refused-stream,reset
+      timeout: 10s
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: proxy
+  namespace: zkcex
+spec:
+  host: proxy
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http2MaxRequests: 100
+        maxRequestsPerConnection: 10
+        http1MaxPendingRequests: 100
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary

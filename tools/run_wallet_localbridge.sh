@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 ROOT="/Users/hoh/Documents/Projects/zkCEX/core"

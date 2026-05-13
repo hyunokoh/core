@@ -1,0 +1,28 @@
+# proxy authorization.
+# The proxy is the public entrypoint; the ingress gateway (istio-system) and
+# ingress-nginx forward to it. We accept traffic from those plus health
+# checks from in-cluster monitoring.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: proxy-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: proxy
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - istio-system
+              - ingress-nginx
+              - zkcex
+              - monitoring
+    # Catch-all: also allow any principal from the istio ingress gateway SA,
+    # which lives in istio-system.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account

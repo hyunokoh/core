@@ -1,0 +1,45 @@
+name: deploy-staging
+on:
+  workflow_run:
+    workflows: [build]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: azure/setup-helm@v4
+        with:
+          version: '3.16.1'
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.0'
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+      - name: Helm upgrade
+        run: |
+          helm upgrade --install zkcex \
+            tools/deploy/k8s/charts/zkcex \
+            --namespace zkcex-staging --create-namespace \
+            -f tools/deploy/k8s/charts/zkcex/values-region-a.yaml \
+            --set image.tag="$IMAGE_TAG" \
+            --wait --timeout 10m
+      - name: Post-deploy smoke
+        run: |
+          kubectl rollout status -n zkcex-staging deployment/auth --timeout=5m
+          kubectl rollout status -n zkcex-staging deployment/chain --timeout=5m
+          kubectl rollout status -n zkcex-staging deployment/proxy --timeout=5m
+          kubectl run smoke --rm -i --restart=Never --image=curlimages/curl -- \
+            curl -fsS http://proxy.zkcex-staging.svc.cluster.local:5500/auth/health

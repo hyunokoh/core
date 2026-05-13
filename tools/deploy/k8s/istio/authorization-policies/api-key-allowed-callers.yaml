@@ -1,0 +1,44 @@
+# api-key service authorization.
+# Issues + verifies programmatic API keys. The proxy verifies on every
+# request; only ops may create / revoke.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: api-key-allowed-callers
+  namespace: zkcex
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-key
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            paths:
+              - /apikey/verify
+              - /apikey/lookup
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/proxy
+              - cluster.local/ns/zkcex/sa/ws-feed
+              - cluster.local/ns/zkcex/sa/order-engine
+              - cluster.local/ns/zkcex/sa/perp
+    - to:
+        - operation:
+            paths:
+              - /apikey/create
+              - /apikey/revoke
+              - /apikey/list
+              - /apikey/rotate
+      from:
+        - source:
+            principals:
+              - cluster.local/ns/zkcex/sa/proxy
+              - cluster.local/ns/zkcex/sa/ops
+    - to:
+        - operation:
+            paths: ["/apikey/health"]
+      from:
+        - source:
+            namespaces: ["istio-system", "monitoring", "zkcex"]

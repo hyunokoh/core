@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>온체인 / On-chain trace — zkCEX</title>
+  <meta name="description" content="zkPoL BulletinBoard에 저장된 본인 계정의 Pedersen 커밋 변경 이력을 온체인 트랜잭션과 함께 확인합니다." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+  <style>
+    .anc-shell { max-width: 1100px; margin: 0 auto; padding: 16px 24px 64px; display: flex; flex-direction: column; gap: 18px; }
+    .anc-card {
+      padding: 22px 26px; border-radius: var(--radius);
+      background: var(--panel); border: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .anc-card h3 {
+      margin: 0; font-size: 14px; color: #fff; letter-spacing: -0.01em;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .anc-card h3 .en { color: var(--ink-dim); font-weight: 500; font-size: 12px; margin-left: 8px; }
+    .anc-hero-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;
+    }
+    .anc-stat {
+      padding: 12px 14px; border-radius: var(--radius-sm);
+      background: var(--panel-2); border: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .anc-stat .lbl { color: var(--ink-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .anc-stat .val { color: #fff; font-family: var(--font-mono); font-size: 15px; word-break: break-all; }
+    .anc-stat .sub { color: var(--ink-mute); font-size: 11px; font-family: var(--font-mono); }
+    .anc-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px; border-radius: var(--pill);
+      font-family: var(--font-sans); font-size: 11px; font-weight: 600;
+    }
+    .anc-pill.ok    { background: rgba(46,229,155,0.16); color: #2ee59b; border: 1px solid rgba(46,229,155,0.42); }
+    .anc-pill.warn  { background: rgba(240,180,41,0.14); color: #f0b429; border: 1px solid rgba(240,180,41,0.42); }
+    .anc-pill.bad   { background: rgba(255,77,99,0.16);  color: #ff6b85; border: 1px solid rgba(255,77,99,0.42); }
+    .anc-pill.muted { background: var(--panel-3); color: var(--ink-dim); border: 1px solid var(--line); }
+    .anc-pill .dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: currentColor;
+    }
+
+    .anc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .anc-table th, .anc-table td {
+      padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line);
+    }
+    .anc-table th { color: var(--ink-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .anc-table td { color: var(--ink); font-family: var(--font-mono); }
+    .anc-table td.num { text-align: right; }
+    .anc-table tbody tr { cursor: pointer; }
+    .anc-table tbody tr:hover td { background: rgba(255,255,255,0.02); }
+    .anc-table tbody tr:last-child td { border-bottom: none; }
+    .anc-mono { font-family: var(--font-mono); }
+    .anc-mono-trunc {
+      font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; max-width: 200px; display: inline-block; vertical-align: middle;
+    }
+    .anc-copy {
+      background: var(--panel-3); border: 1px solid var(--line); color: var(--ink-mute);
+      border-radius: 4px; font-size: 10px; padding: 2px 6px; cursor: pointer;
+      font-family: var(--font-mono); margin-left: 4px;
+    }
+    .anc-copy:hover { color: #fff; border-color: var(--line-strong); }
+    .anc-copy.ok { color: #2ee59b; border-color: rgba(0,184,124,0.32); }
+    .anc-empty { color: var(--ink-mute); font-size: 12px; padding: 14px 0; text-align: center; font-style: italic; }
+    .anc-modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50;
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .anc-modal {
+      background: var(--panel); border: 1px solid var(--line-strong);
+      border-radius: var(--radius); max-width: 820px; width: 100%;
+      max-height: 86vh; overflow: auto; padding: 22px 24px;
+    }
+    .anc-modal h4 { margin: 0 0 10px; font-size: 14px; color: #fff; }
+    .anc-modal .close-row { display: flex; justify-content: flex-end; margin-top: 12px; }
+    .anc-explain {
+      background: var(--panel-2); border: 1px solid var(--line);
+      border-radius: var(--radius-sm); padding: 16px 18px;
+      color: var(--ink-mute); font-size: 12px; line-height: 1.65;
+    }
+    .anc-explain p { margin: 0 0 10px; }
+    .anc-explain p:last-child { margin: 0; }
+    .anc-explain strong { color: #fff; }
+    .anc-pending {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .anc-pending-row {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+      background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+      font-family: var(--font-mono); font-size: 12px;
+    }
+    .anc-pending-row .asset { color: #fff; font-weight: 600; }
+    .anc-pending-row .delta { color: var(--ink-mute); }
+    .anc-pending-row.resolved { opacity: 0.75; }
+    .anc-pending-row .age { color: var(--ink-dim); font-size: 11px; margin-left: auto; }
+    .anc-degraded {
+      padding: 14px 16px; border-radius: var(--radius-sm);
+      background: rgba(240,180,41,0.07); border: 1px solid rgba(240,180,41,0.36);
+      color: #f0b429; font-size: 12px; line-height: 1.55;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app-header"></div>
+
+<section class="page-heading">
+  <h1 data-i18n="anchor.title">온체인 / On-chain trace<span class="en">BulletinBoard contract</span></h1>
+  <p data-i18n="anchor.subtitle">잔고 변경이 zkPoL BulletinBoard 컨트랙트에 익명 Pedersen 커밋으로 기록되는 과정을 실시간으로 보여줍니다.<br/>
+     Every balance change becomes an anonymous Pedersen commitment posted to the zkPoL BulletinBoard contract.</p>
+</section>
+
+<main class="anc-shell">
+
+  <!-- Degraded banner (only shown when BulletinBoard not configured) -->
+  <div class="anc-degraded" id="degraded-banner" hidden>
+    <strong data-i18n="anchor.degraded.title">BulletinBoard 컨트랙트가 아직 배포되지 않았습니다.</strong>
+    <span data-i18n="anchor.degraded.body"><br/>The indexer is running in degraded mode. Live data appears once a contract address is configured.</span>
+  </div>
+
+  <!-- Hero: aggregate stats -->
+  <section class="anc-card">
+    <h3 data-i18n="anchor.hero.title">전체 상태<span class="en">/ Overview</span></h3>
+    <div class="anc-hero-grid" id="hero-grid">
+      <div class="anc-stat"><span class="lbl" data-i18n="anchor.hero.total_liability">총 부채 / Total liability</span><span class="val" id="hero-liability">—</span><span class="sub" data-i18n="anchor.hero.per_token">토큰별 합계 / sum across all tokens</span></div>
+      <div class="anc-stat"><span class="lbl" data-i18n="anchor.hero.batches">배치 / Batches mirrored</span><span class="val" id="hero-batches">—</span><span class="sub" id="hero-commitments">—</span></div>
+      <div class="anc-stat"><span class="lbl" data-i18n="anchor.hero.head">체인 헤드 / Chain head</span><span class="val" id="hero-head">—</span><span class="sub" id="hero-lag">—</span></div>
+      <div class="anc-stat"><span class="lbl" data-i18n="anchor.hero.latest_hash">최신 배치 해시 / Latest batch hash</span><span class="val anc-mono-trunc" id="hero-latest-hash" title="">—</span><span class="sub"><button class="anc-copy" id="hero-latest-copy" type="button">Copy</button></span></div>
+    </div>
+  </section>
+
+  <!-- Recent batches -->
+  <section class="anc-card">
+    <h3 data-i18n="anchor.recent.title">최근 배치<span class="en">/ Recent batches</span></h3>
+    <div style="overflow-x: auto;">
+      <table class="anc-table" id="batches-table">
+        <thead>
+          <tr>
+            <th data-i18n="anchor.recent.col.epoch">#</th>
+            <th data-i18n="anchor.recent.col.batch">Batch</th>
+            <th data-i18n="anchor.recent.col.token">Token key</th>
+            <th class="num" data-i18n="anchor.recent.col.delta">ΔL</th>
+            <th class="num" data-i18n="anchor.recent.col.new">New L</th>
+            <th data-i18n="anchor.recent.col.tx">Tx</th>
+            <th class="num" data-i18n="anchor.recent.col.block">Block</th>
+            <th data-i18n="anchor.recent.col.time">Time</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="anc-empty" id="batches-empty" hidden data-i18n="anchor.recent.empty">아직 배치가 인덱싱되지 않았습니다. / No batches indexed yet.</div>
+    </div>
+  </section>
+
+  <!-- My commitment history -->
+  <section class="anc-card">
+    <h3 data-i18n="anchor.mine.title">내 커밋 이력<span class="en">/ My commitment history</span></h3>
+    <div id="mine-meta" class="anc-mono" style="font-size:12px; color: var(--ink-mute);"></div>
+    <div style="overflow-x: auto;">
+      <table class="anc-table" id="mine-table">
+        <thead>
+          <tr>
+            <th data-i18n="anchor.mine.col.token">Token key</th>
+            <th data-i18n="anchor.mine.col.x">Commitment x</th>
+            <th data-i18n="anchor.mine.col.y">Commitment y</th>
+            <th data-i18n="anchor.mine.col.tx">Tx</th>
+            <th class="num" data-i18n="anchor.mine.col.block">Block</th>
+            <th data-i18n="anchor.mine.col.time">Time</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="anc-empty" id="mine-empty" hidden data-i18n="anchor.mine.empty">본인의 커밋이 아직 올라오지 않았습니다. / Your commitments will appear here once posted on-chain.</div>
+    </div>
+  </section>
+
+  <!-- Pending changes -->
+  <section class="anc-card">
+    <h3 data-i18n="anchor.pending.title">대기 중<span class="en">/ Pending changes</span></h3>
+    <div id="pending-body" class="anc-pending">
+      <div class="anc-empty" data-i18n="anchor.pending.empty">대기 중인 변경 사항이 없습니다. / No pending wallet changes.</div>
+    </div>
+  </section>
+
+  <!-- How this works -->
+  <section class="anc-card">
+    <h3 data-i18n="anchor.how.title">동작 방식<span class="en">/ How this works</span></h3>
+    <div class="anc-explain">
+      <p data-i18n="anchor.how.p1"><strong>1.</strong> 거래소에서 입출금, 거래, 정산 같은 잔고 변경이 발생하면 지갑 API → zkpol-bridge → zkPoL Rust 코어로 전달됩니다.
+        <br/><span style="color:var(--ink-dim);">Balance changes (deposit / withdraw / trade settlement) flow from the wallet API through the bridge into zkPoL's Rust core.</span></p>
+      <p data-i18n="anchor.how.p2"><strong>2.</strong> zkPoL는 변경 이벤트를 배치로 묶어 Groth16 zkSNARK 증명을 생성한 뒤 <code>BulletinBoard.appendBatch(...)</code> 트랜잭션으로 EVM에 게시합니다.
+        <br/><span style="color:var(--ink-dim);">zkPoL packages events into batches, generates a Groth16 zkSNARK over each batch, then publishes via <code>BulletinBoard.appendBatch(...)</code>.</span></p>
+      <p data-i18n="anchor.how.p3"><strong>3.</strong> 컨트랙트는 계정별 Pedersen 커밋(타원곡선 점)을 저장하고 토큰별 총 부채를 누적하며, 모든 배치는 <code>prevBatchHash</code>로 연결되어 운영자가 과거 기록을 다시 쓸 수 없습니다.
+        <br/><span style="color:var(--ink-dim);">The contract stores per-account Pedersen commitments (curve points), tracks total liability per token, and chains each batch via <code>prevBatchHash</code> so the operator cannot rewrite history.</span></p>
+    </div>
+  </section>
+
+</main>
+
+<div id="app-footer"></div>
+
+<!-- Batch details modal target -->
+<div id="modal-host"></div>
+
+<script type="module">
+  import { renderHeader, renderFooter, getSession, requireSession,
+           authedFetch, escapeHtml, fmtRelative, toast } from "./app.js";
+
+  renderHeader("anchor");
+  renderFooter();
+
+  const session = requireSession();
+  if (!session) { /* requireSession will redirect */ }
+
+  // --- DOM refs ---
+  const degradedBanner = document.getElementById("degraded-banner");
+  const heroLiability  = document.getElementById("hero-liability");
+  const heroBatches    = document.getElementById("hero-batches");
+  const heroCommits    = document.getElementById("hero-commitments");
+  const heroHead       = document.getElementById("hero-head");
+  const heroLag        = document.getElementById("hero-lag");
+  const heroLatest     = document.getElementById("hero-latest-hash");
+  const heroLatestCopy = document.getElementById("hero-latest-copy");
+  const batchesTbody   = document.querySelector("#batches-table tbody");
+  const batchesEmpty   = document.getElementById("batches-empty");
+  const mineMeta       = document.getElementById("mine-meta");
+  const mineTbody      = document.querySelector("#mine-table tbody");
+  const mineEmpty      = document.getElementById("mine-empty");
+  const pendingBody    = document.getElementById("pending-body");
+  const modalHost      = document.getElementById("modal-host");
+
+  let degraded = false;
+  let pendingAges = []; // computed each refresh
+
+  // --- helpers ---
+  function shortHash(h) {
+    if (!h) return "—";
+    if (h.length <= 14) return h;
+    return h.slice(0, 10) + "…" + h.slice(-6);
+  }
+
+  function copyBtn(value, label = "Copy") {
+    const btn = document.createElement("button");
+    btn.className = "anc-copy";
+    btn.type = "button";
+    btn.textContent = label;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      navigator.clipboard?.writeText(value).then(() => {
+        btn.textContent = "✓";
+        btn.classList.add("ok");
+        setTimeout(() => { btn.textContent = label; btn.classList.remove("ok"); }, 900);
+      }).catch(() => { toast("Copy failed"); });
+    });
+    return btn;
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return "—";
+    const d = new Date(ts * 1000);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString();
+  }
+
+  function fmtRelativeAge(ts) {
+    if (!ts) return "—";
+    const sec = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+    if (sec < 60) return `${sec}s ago`;
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+    if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+    return `${Math.floor(sec / 86400)}d ago`;
+  }
+
+  // --- data fetchers ---
+  async function fetchAnchor(path, opts = {}) {
+    const url = path.startsWith("/anchor/") ? path : `/anchor${path}`;
+    return authedFetch(url, opts);
+  }
+
+  async function loadOverview() {
+    try {
+      const health = await fetchAnchor("/anchor/health").then(r => r.json());
+      degraded = !!health.degraded;
+      degradedBanner.hidden = !degraded;
+      heroBatches.textContent = degraded ? "—" : String(health.batches_count ?? 0);
+      heroCommits.textContent = degraded ? "—" : `${health.commitments_count ?? 0} commitment updates`;
+      heroHead.textContent = degraded ? "—" : String(health.head_block ?? 0);
+      heroLag.textContent  = degraded ? "—" : `lag ${health.lag_blocks ?? 0} block(s)`;
+    } catch (exc) {
+      degraded = true;
+      degradedBanner.hidden = false;
+      heroBatches.textContent = "—";
+      heroCommits.textContent = "—";
+      heroHead.textContent = "—";
+      heroLag.textContent  = "—";
+    }
+    if (degraded) {
+      heroLiability.textContent = "—";
+      heroLatest.textContent = "—";
+      heroLatest.title = "";
+      return;
+    }
+    try {
+      const latest = await fetchAnchor("/anchor/latest").then(r => r.json());
+      if (latest?.latest_batch_hash) {
+        heroLatest.textContent = shortHash(latest.latest_batch_hash);
+        heroLatest.title = latest.latest_batch_hash;
+        heroLatestCopy.onclick = () => {
+          navigator.clipboard?.writeText(latest.latest_batch_hash)
+            .then(() => toast("Copied")).catch(() => toast("Copy failed"));
+        };
+      }
+    } catch { /* tolerated */ }
+  }
+
+  async function loadBatches() {
+    if (degraded) {
+      batchesTbody.innerHTML = "";
+      batchesEmpty.hidden = false;
+      heroLiability.textContent = "—";
+      return;
+    }
+    let payload;
+    try {
+      payload = await fetchAnchor("/anchor/batches?limit=20").then(r => r.json());
+    } catch (exc) {
+      batchesEmpty.textContent = "Failed to load batches: " + String(exc.message || exc);
+      batchesEmpty.hidden = false;
+      return;
+    }
+    const batches = payload?.batches || [];
+    const totalsByToken = payload?.totals_by_token || {};
+    // hero total = sum across all tokens
+    let total = 0n;
+    for (const k of Object.keys(totalsByToken)) {
+      try { total += BigInt(totalsByToken[k] ?? 0); } catch { /* keep going */ }
+    }
+    heroLiability.textContent = total.toString();
+    batchesTbody.innerHTML = "";
+    if (batches.length === 0) {
+      batchesEmpty.hidden = false;
+      return;
+    }
+    batchesEmpty.hidden = true;
+    for (const b of batches) {
+      const tr = document.createElement("tr");
+      tr.dataset.batchHash = b.batch_hash;
+      const cells = [
+        String(b.epoch ?? 0),
+        shortHash(b.batch_hash),
+        shortHash(b.token_key),
+        b.delta,
+        b.liability_new,
+        shortHash(b.tx_hash),
+        String(b.block_number),
+        fmtTime(b.block_timestamp),
+      ];
+      for (let i = 0; i < cells.length; i++) {
+        const td = document.createElement("td");
+        if (i === 3 || i === 4 || i === 6) td.classList.add("num");
+        td.textContent = cells[i];
+        tr.appendChild(td);
+      }
+      tr.addEventListener("click", () => openBatchModal(b.batch_hash));
+      batchesTbody.appendChild(tr);
+    }
+  }
+
+  async function openBatchModal(batchHash) {
+    let payload;
+    try {
+      payload = await fetchAnchor(`/anchor/batch/${encodeURIComponent(batchHash)}`).then(r => r.json());
+    } catch (exc) {
+      toast("Batch lookup failed");
+      return;
+    }
+    const batch = payload?.batch;
+    const commitments = payload?.commitments || [];
+    if (!batch) { toast("Batch not found"); return; }
+    const html = `
+      <div class="anc-modal-bg" id="anc-modal-bg">
+        <div class="anc-modal" role="dialog" aria-modal="true">
+          <h4>Batch ${shortHash(batch.batch_hash)}</h4>
+          <div style="display:grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size:12px;">
+            <span style="color:var(--ink-dim);">Hash</span><span class="anc-mono" style="word-break: break-all;">${escapeHtml(batch.batch_hash)}</span>
+            <span style="color:var(--ink-dim);">Epoch</span><span class="anc-mono">${escapeHtml(String(batch.epoch))}</span>
+            <span style="color:var(--ink-dim);">Token key</span><span class="anc-mono" style="word-break: break-all;">${escapeHtml(batch.token_key)}</span>
+            <span style="color:var(--ink-dim);">Liability old</span><span class="anc-mono">${escapeHtml(String(batch.liability_old))}</span>
+            <span style="color:var(--ink-dim);">Liability new</span><span class="anc-mono">${escapeHtml(String(batch.liability_new))}</span>
+            <span style="color:var(--ink-dim);">Δ</span><span class="anc-mono">${escapeHtml(String(batch.delta))}</span>
+            <span style="color:var(--ink-dim);">Tx</span><span class="anc-mono" style="word-break: break-all;">${escapeHtml(batch.tx_hash)}</span>
+            <span style="color:var(--ink-dim);">Block</span><span class="anc-mono">${escapeHtml(String(batch.block_number))}</span>
+            <span style="color:var(--ink-dim);">Time</span><span class="anc-mono">${escapeHtml(fmtTime(batch.block_timestamp))}</span>
+          </div>
+          <h4 style="margin-top:16px;">${commitments.length} commitment update(s)</h4>
+          <div style="overflow-x: auto;">
+            <table class="anc-table">
+              <thead><tr><th>addr_key</th><th>x</th><th>y</th></tr></thead>
+              <tbody>
+                ${commitments.map(c => `
+                  <tr>
+                    <td class="anc-mono" style="word-break: break-all;">${escapeHtml(shortHash(c.addr_key))}</td>
+                    <td class="anc-mono" style="word-break: break-all;">${escapeHtml(shortHash(c.commitment_x))}</td>
+                    <td class="anc-mono" style="word-break: break-all;">${escapeHtml(shortHash(c.commitment_y))}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+          <div class="close-row">
+            <button class="btn btn-secondary" id="anc-modal-close" type="button">닫기 / Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+    modalHost.innerHTML = html;
+    const bg = document.getElementById("anc-modal-bg");
+    const close = () => { modalHost.innerHTML = ""; };
+    document.getElementById("anc-modal-close").addEventListener("click", close);
+    bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  }
+
+  function deriveAddrKey(opexUser) {
+    // We can't compute SHA-256 synchronously without SubtleCrypto, and
+    // SubtleCrypto.digest is async — so we resolve a promise.
+    const enc = new TextEncoder().encode(opexUser);
+    return crypto.subtle.digest("SHA-256", enc).then(buf => {
+      const arr = new Uint8Array(buf);
+      let hex = "0x";
+      for (const b of arr) hex += b.toString(16).padStart(2, "0");
+      return hex;
+    });
+  }
+
+  async function loadMine() {
+    if (degraded) {
+      mineTbody.innerHTML = "";
+      mineEmpty.hidden = false;
+      mineMeta.textContent = "";
+      pendingBody.innerHTML = `<div class="anc-empty">대기 중인 변경 사항이 없습니다. / No pending wallet changes.</div>`;
+      return;
+    }
+    const opexUser = session?.user?.opex_user;
+    if (!opexUser) {
+      mineMeta.textContent = "(sign in to see your commitments)";
+      return;
+    }
+    let addrKey;
+    try {
+      addrKey = await deriveAddrKey(opexUser);
+    } catch {
+      mineMeta.textContent = "Failed to derive addr_key";
+      return;
+    }
+    mineMeta.innerHTML = `addr_key = sha256("${escapeHtml(opexUser)}") = <span class="anc-mono">${escapeHtml(shortHash(addrKey))}</span>`;
+    const copy = copyBtn(addrKey, "Copy");
+    mineMeta.appendChild(copy);
+
+    let payload;
+    try {
+      const resp = await fetchAnchor(`/anchor/account/${encodeURIComponent(addrKey)}?limit=10`);
+      if (!resp.ok) {
+        if (resp.status === 401) {
+          mineEmpty.textContent = "세션 만료 — 다시 로그인하세요. / Session expired, please sign in again.";
+        } else if (resp.status === 503) {
+          mineEmpty.textContent = "BulletinBoard 미설정. / BulletinBoard not configured.";
+        } else {
+          mineEmpty.textContent = "Lookup failed (HTTP " + resp.status + ")";
+        }
+        mineEmpty.hidden = false;
+        mineTbody.innerHTML = "";
+        return;
+      }
+      payload = await resp.json();
+    } catch (exc) {
+      mineEmpty.textContent = "Lookup failed: " + String(exc.message || exc);
+      mineEmpty.hidden = false;
+      mineTbody.innerHTML = "";
+      return;
+    }
+    const history = payload?.history || [];
+    mineTbody.innerHTML = "";
+    if (history.length === 0) {
+      mineEmpty.hidden = false;
+    } else {
+      mineEmpty.hidden = true;
+      for (const h of history) {
+        const tr = document.createElement("tr");
+        const cells = [
+          shortHash(h.token_key),
+          shortHash(h.commitment_x),
+          shortHash(h.commitment_y),
+          shortHash(h.tx_hash),
+          String(h.block_number),
+          fmtTime(h.block_timestamp),
+        ];
+        for (let i = 0; i < cells.length; i++) {
+          const td = document.createElement("td");
+          if (i === 4) td.classList.add("num");
+          td.textContent = cells[i];
+          tr.appendChild(td);
+        }
+        if (h.batch_hash) {
+          tr.style.cursor = "pointer";
+          tr.addEventListener("click", () => openBatchModal(h.batch_hash));
+        }
+        mineTbody.appendChild(tr);
+      }
+    }
+    // Pending changes
+    const pending = payload?.pending || [];
+    const open = pending.filter(p => !p.resolved_at);
+    const recentResolved = pending.filter(p => p.resolved_at).slice(0, 3);
+    pendingBody.innerHTML = "";
+    if (open.length === 0 && recentResolved.length === 0) {
+      pendingBody.innerHTML = `<div class="anc-empty">대기 중인 변경 사항이 없습니다. / No pending wallet changes.</div>`;
+      return;
+    }
+    for (const p of open) {
+      const row = document.createElement("div");
+      row.className = "anc-pending-row";
+      row.innerHTML = `
+        <span class="anc-pill warn"><span class="dot"></span> pending</span>
+        <span class="asset">${escapeHtml(p.asset || "?")}</span>
+        <span class="delta">Δ ${escapeHtml(String(p.delta || "0"))}</span>
+        <span class="age">${escapeHtml(fmtRelativeAge(p.inserted_at))}</span>
+      `;
+      pendingBody.appendChild(row);
+    }
+    for (const p of recentResolved) {
+      const row = document.createElement("div");
+      row.className = "anc-pending-row resolved";
+      const lag = (p.resolved_at && p.inserted_at) ? (p.resolved_at - p.inserted_at) : null;
+      row.innerHTML = `
+        <span class="anc-pill ok"><span class="dot"></span> confirmed</span>
+        <span class="asset">${escapeHtml(p.asset || "?")}</span>
+        <span class="delta">Δ ${escapeHtml(String(p.delta || "0"))}</span>
+        <span class="age">${lag != null ? `+${lag}s` : ""} · ${escapeHtml(shortHash(p.resolved_tx_hash || ""))}</span>
+      `;
+      pendingBody.appendChild(row);
+    }
+  }
+
+  async function refresh() {
+    await loadOverview();
+    await loadBatches();
+    await loadMine();
+  }
+
+  refresh();
+  setInterval(refresh, 6000);
+</script>
+
+</body>
+</html>

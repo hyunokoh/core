@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>로그인 / Sign in — zkCEX</title>
+  <meta name="description" content="zkCEX 로그인. 이메일과 비밀번호로 안전하게 시작하세요." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b3aff" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="zkCEX" />
+</head>
+<body class="signin-page">
+<a class="skip-link" href="#main">본문으로 건너뛰기 / Skip to content</a>
+
+<div id="app-header"></div>
+
+<main id="main" class="signin-shell">
+  <!-- Geo-block apology card. Hidden by default; revealed by the inline
+       script below when /auth/geo/whoami returns blocked=true. The whole
+       <section.signin-card> stays in the DOM so we can swap visibility
+       client-side without a server round-trip. -->
+  <section class="signin-card geo-blocked-card" id="geo-blocked-card" hidden role="alert" aria-live="polite">
+    <a class="brand brand-lg" href="../">
+      <span class="brand-mark"></span>
+      <span>zkCEX</span>
+    </a>
+    <h1 class="auth-h1" style="text-align:center;">서비스 미제공 지역 <span class="en">/ Service not available in your region</span></h1>
+    <p class="signin-foot" id="geo-blocked-body" style="margin-top:14px;">
+      현재 IP에서 감지된 국가는 <strong id="geo-blocked-country">—</strong>입니다.<br/>
+      본 거래소는 해당 지역에서 서비스를 제공하지 않습니다.<br/>
+      <span class="muted">Our service is not available from <strong id="geo-blocked-country-en">—</strong> at this time.</span>
+    </p>
+    <div class="signin-banner demo-mode" role="note" style="margin-top:18px;">
+      <strong>서비스 미제공 지역 / Restricted regions</strong>
+      <span id="geo-blocked-list" class="muted">—</span>
+      <span class="muted" style="margin-top:6px;">If you believe this is an error, please contact support. (HTTP 451)</span>
+    </div>
+  </section>
+
+  <section class="signin-card" id="signin-card-main">
+    <a class="brand brand-lg" href="../">
+      <span class="brand-mark"></span>
+      <span>zkCEX</span>
+    </a>
+
+    <div class="auth-tabs" role="tablist">
+      <button class="auth-tab active" type="button" data-tab="signin" role="tab" aria-selected="true">
+        로그인 <span class="en">/ Sign in</span>
+      </button>
+      <button class="auth-tab" type="button" data-tab="signup" role="tab" aria-selected="false">
+        회원가입 <span class="en">/ Sign up</span>
+      </button>
+    </div>
+
+    <!-- Sign-in -->
+    <form id="signin-form" class="auth-form" novalidate>
+      <h1 class="auth-h1">다시 만나서 반갑습니다 <span class="en">/ Welcome back</span></h1>
+
+      <!-- Passkey CTA. Visible whenever the browser advertises WebAuthn
+           support. If the user has not yet typed an email we send an empty
+           email to /authenticate/begin and the browser shows every available
+           discoverable credential. -->
+      <button class="btn btn-primary signin-btn" type="button" id="passkey-btn"
+              style="margin-bottom: 10px; display: none;">
+        <span aria-hidden="true" style="margin-right:6px;">&#x1F511;</span>
+        패스키로 로그인 <span class="btn-en">/ Sign in with passkey</span>
+      </button>
+      <div id="passkey-divider" class="field-help"
+           style="text-align:center; margin: 4px 0 12px; display:none;">
+        — 또는 / or —
+      </div>
+
+      <label class="field-label" for="si-email">이메일 / Email</label>
+      <div class="signin-input">
+        <input id="si-email" name="email" type="email" placeholder="you@example.com"
+               autocomplete="email webauthn" required />
+      </div>
+
+      <label class="field-label" for="si-password">비밀번호 / Password</label>
+      <div class="signin-input">
+        <input id="si-password" name="password" type="password" placeholder="••••••••"
+               autocomplete="current-password" minlength="8" required />
+      </div>
+
+      <div class="field-help" id="si-help">8자 이상 / At least 8 characters</div>
+
+      <button class="btn btn-primary signin-btn" type="submit" id="si-submit">
+        로그인 <span class="btn-en">/ Sign in</span>
+      </button>
+    </form>
+
+    <!-- TOTP step (shown after password succeeds when 2FA is enrolled) -->
+    <form id="totp-form" class="auth-form" novalidate hidden>
+      <h2 class="auth-h1">2단계 인증 <span class="en">/ Two-factor authentication</span></h2>
+      <p style="font-size:13px;color:var(--ink-dim,#7e8ba2);margin:0 0 14px;">
+        인증 앱에 표시된 6자리 코드를 입력하세요. / Enter the 6-digit code from your authenticator app.
+      </p>
+      <label class="field-label" for="ti-code">코드 / Code</label>
+      <div class="signin-input">
+        <input id="ti-code" name="code" type="text" inputmode="numeric"
+               pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"
+               placeholder="000000" required
+               style="text-align:center;letter-spacing:6px;font-family:'JetBrains Mono',monospace;" />
+      </div>
+      <div class="field-help" id="ti-help">6자리 숫자 / 6 digits</div>
+      <button class="btn btn-primary signin-btn" type="submit" id="ti-submit">
+        확인 <span class="btn-en">/ Verify</span>
+      </button>
+      <p class="signin-foot" style="margin-top:8px;">
+        <a href="#" id="use-recovery" style="color:#7cc1ff;">복구 코드 사용 / Use a recovery code</a>
+        ·
+        <a href="#" id="back-to-password" style="color:#7cc1ff;">비밀번호 다시 입력 / Back to password</a>
+      </p>
+    </form>
+
+    <!-- Sign-up -->
+    <form id="signup-form" class="auth-form" novalidate hidden>
+      <h2 class="auth-h1">계정을 만드세요 <span class="en">/ Create your account</span></h2>
+
+      <label class="field-label" for="su-email">이메일 / Email</label>
+      <div class="signin-input">
+        <input id="su-email" name="email" type="email" placeholder="you@example.com"
+               autocomplete="email" required />
+      </div>
+
+      <label class="field-label" for="su-password">비밀번호 / Password</label>
+      <div class="signin-input">
+        <input id="su-password" name="password" type="password" placeholder="••••••••"
+               autocomplete="new-password" minlength="8" required />
+      </div>
+      <div class="strength-bar" aria-hidden="true">
+        <span class="strength-fill" id="su-strength"></span>
+      </div>
+      <div class="field-help" id="su-strength-text">
+        영문 + 숫자 포함 8자 이상 / 8+ chars with letters and digits
+      </div>
+
+      <label class="field-label" for="su-name">이름 / Name</label>
+      <div class="signin-input">
+        <input id="su-name" name="name" type="text" placeholder="홍길동"
+               autocomplete="name" maxlength="32" required />
+      </div>
+
+      <label class="field-label" for="su-ref">리퍼럴 코드 <span style="color:var(--ink-dim);font-weight:400;">(선택 / Optional)</span></label>
+      <div class="signin-input">
+        <input id="su-ref" name="referral_code" type="text" placeholder="ABC12345"
+               autocomplete="off" maxlength="12" pattern="[A-Za-z0-9]{4,12}"
+               style="text-transform:uppercase;letter-spacing:0.1em;" />
+      </div>
+      <div class="field-help" style="margin-bottom:8px;">
+        친구의 코드를 입력하면 둘 다 보너스를 받습니다 / Both you and your friend get a bonus.
+      </div>
+
+      <div class="field-help" id="su-help" style="margin-top:8px;">
+        다음 단계에서 본인인증을 진행합니다 / KYC verification follows on the next screen
+      </div>
+
+      <button class="btn btn-primary signin-btn" type="submit" id="su-submit">
+        회원가입 <span class="btn-en">/ Sign up</span>
+      </button>
+    </form>
+
+    <div class="signin-banner demo-mode" role="note">
+      <strong>데모 모드 안내 / Demo mode notice</strong>
+      <span>이 거래소는 시연용입니다. 비밀번호는 안전하게 해시되어 저장됩니다 (Argon2-grade scrypt). KYC는 시뮬레이션입니다.</span>
+      <span class="muted">Demo build. Passwords are hashed (Argon2-grade scrypt). KYC is simulated.</span>
+    </div>
+
+    <p class="signin-foot">
+      서비스 이용은 곧 개시됩니다. 이 데모는 기능 미리보기 용도입니다.<br/>
+      <span class="muted">Service launch is coming soon. This demo is a feature preview.</span>
+    </p>
+  </section>
+</main>
+
+<div id="app-footer"></div>
+
+<script type="module">
+  import {
+    renderHeader, renderFooter,
+    setSession, getSession, toast, escapeHtml,
+  } from "./app.js";
+
+  renderHeader();
+  renderFooter();
+
+  // ---- Geo-block gate -------------------------------------------------
+  // Hit /auth/geo/whoami on page load. If the user's IP resolves to a
+  // blocked region, replace the form with the apology card BEFORE we
+  // attach any submit handlers. Failure-mode is open: if /auth/geo/whoami
+  // is down we just show the normal form (consistent with how the server
+  // itself fails open when enforcement is disabled).
+  (async function gateOnGeo() {
+    const card  = document.getElementById("geo-blocked-card");
+    const main  = document.getElementById("signin-card-main");
+    try {
+      const r = await fetch("/auth/geo/whoami", { cache: "no-store" });
+      if (!r.ok) return;
+      const v = await r.json();
+      if (!v.blocked) return;
+      // Reveal apology card, hide form.
+      document.getElementById("geo-blocked-country").textContent =
+        v.country_name || v.country || "—";
+      document.getElementById("geo-blocked-country-en").textContent =
+        v.country_name || v.country || "—";
+      // Populate the supported-vs-blocked list from /auth/geo/blocklist.
+      try {
+        const lr = await fetch("/auth/geo/blocklist", { cache: "no-store" });
+        if (lr.ok) {
+          const lb = await lr.json();
+          const names = (lb.countries || []).map(c => c.name).join(", ");
+          if (names) {
+            document.getElementById("geo-blocked-list").textContent =
+              `미국, 이란, 북한, 쿠바, 시리아 등 / ${names} (subject to change)`;
+          }
+        }
+      } catch (_) { /* fall through with default text */ }
+      main.hidden = true;
+      card.hidden = false;
+    } catch (_) {
+      // network / parse error — fall through to normal form
+    }
+  })();
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const PWD_RE   = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+
+  // Tab switching
+  const tabs = document.querySelectorAll(".auth-tab");
+  const signinForm = document.getElementById("signin-form");
+  const signupForm = document.getElementById("signup-form");
+
+  function switchTo(name) {
+    tabs.forEach(t => {
+      const on = t.dataset.tab === name;
+      t.classList.toggle("active", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    signinForm.hidden = name !== "signin";
+    signupForm.hidden = name !== "signup";
+    setTimeout(() => {
+      const focus = name === "signin"
+        ? document.getElementById("si-email")
+        : document.getElementById("su-email");
+      focus?.focus();
+    }, 30);
+  }
+  tabs.forEach(t => t.addEventListener("click", () => switchTo(t.dataset.tab)));
+
+  // Default tab — but allow ?tab=signup to deeplink there.
+  const initialTab = new URLSearchParams(location.search).get("tab") === "signup"
+    ? "signup" : "signin";
+  switchTo(initialTab);
+
+  // ---- Already-signed-in fast-forward ---------------------------------
+  (async function maybeRedirectExisting() {
+    const s = getSession();
+    if (!s) return;
+    // If session is real, take user to /app/ (or KYC if unverified).
+    const next = sanitizedNext();
+    try {
+      const r = await fetch("/auth/me", {
+        headers: { Authorization: `Bearer ${s.token}` },
+      });
+      if (r.ok) {
+        const body = await r.json();
+        const u = body.user;
+        setSession({ token: s.token, user: u });
+        if ((u.kyc_status || "none") !== "verified") {
+          location.replace(`/app/kyc.html?next=${encodeURIComponent(next)}`);
+        } else {
+          location.replace(next);
+        }
+      }
+      // 401: drop the bad cache and stay on signin
+    } catch { /* offline — stay on signin */ }
+  })();
+
+  function sanitizedNext() {
+    const next = new URLSearchParams(location.search).get("next");
+    if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+    return "/app/";
+  }
+
+  // ---- Sign in ---------------------------------------------------------
+  const siHelp   = document.getElementById("si-help");
+  const siSubmit = document.getElementById("si-submit");
+  function setSiError(msg) { siHelp.classList.add("error"); siHelp.textContent = msg; }
+  function clearSiError()  { siHelp.classList.remove("error"); siHelp.textContent = "8자 이상 / At least 8 characters"; }
+
+  // 2FA UI state: when we get {step:"totp_required"} from /auth/login we
+  // stash the password locally so we can re-submit via /auth/2fa/verify.
+  const totpForm = document.getElementById("totp-form");
+  const tiCode = document.getElementById("ti-code");
+  const tiHelp = document.getElementById("ti-help");
+  const tiSubmit = document.getElementById("ti-submit");
+  let totpUseRecovery = false;
+  const pendingLogin = { email: "", password: "" };
+
+  function setTiError(msg) { tiHelp.classList.add("error"); tiHelp.textContent = msg; }
+  function clearTiError()  { tiHelp.classList.remove("error"); tiHelp.textContent = totpUseRecovery
+      ? "복구 코드 입력 / Enter a recovery code" : "6자리 숫자 / 6 digits"; }
+
+  function showTotpStep() {
+    signinForm.hidden = true;
+    signupForm.hidden = true;
+    document.querySelector('.auth-tabs').style.display = 'none';
+    totpForm.hidden = false;
+    setTimeout(() => tiCode.focus(), 30);
+  }
+  function backToPassword() {
+    totpForm.hidden = true;
+    document.querySelector('.auth-tabs').style.display = '';
+    signinForm.hidden = false;
+    tiCode.value = "";
+    totpUseRecovery = false;
+    tiCode.setAttribute("inputmode", "numeric");
+    tiCode.setAttribute("pattern", "[0-9]{6}");
+    tiCode.setAttribute("maxlength", "6");
+    tiCode.placeholder = "000000";
+    clearTiError();
+  }
+
+  document.getElementById("use-recovery").addEventListener("click", (e) => {
+    e.preventDefault();
+    totpUseRecovery = !totpUseRecovery;
+    if (totpUseRecovery) {
+      tiCode.removeAttribute("pattern");
+      tiCode.setAttribute("inputmode", "text");
+      tiCode.setAttribute("maxlength", "20");
+      tiCode.placeholder = "ABCDE12345";
+      tiCode.value = "";
+    } else {
+      tiCode.setAttribute("inputmode", "numeric");
+      tiCode.setAttribute("pattern", "[0-9]{6}");
+      tiCode.setAttribute("maxlength", "6");
+      tiCode.placeholder = "000000";
+      tiCode.value = "";
+    }
+    clearTiError();
+    tiCode.focus();
+  });
+  document.getElementById("back-to-password").addEventListener("click", (e) => {
+    e.preventDefault();
+    backToPassword();
+  });
+
+  signinForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearSiError();
+    const email = document.getElementById("si-email").value.trim().toLowerCase();
+    const password = document.getElementById("si-password").value;
+    if (!EMAIL_RE.test(email)) { setSiError("이메일 형식을 확인해 주세요 / Check email format"); return; }
+    if (password.length < 8)   { setSiError("비밀번호는 8자 이상이어야 합니다 / Password too short"); return; }
+
+    siSubmit.disabled = true;
+    siSubmit.textContent = "로그인 중… / Signing in…";
+    try {
+      const res = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.step === "totp_required") {
+        // 2FA step-up: ask for the 6-digit code.
+        pendingLogin.email = email;
+        pendingLogin.password = password;
+        showTotpStep();
+        return;
+      }
+      if (res.ok && body.step === "webauthn_required") {
+        // Account has a passkey enrolled -- steer the user at the passkey UI.
+        toast("패스키 사용 필요", "Use your passkey to continue");
+        await startPasskeySignin(email);
+        return;
+      }
+      if (!res.ok) {
+        if (body.error === "invalid_credentials") {
+          setSiError("이메일 또는 비밀번호가 올바르지 않습니다 / Invalid email or password");
+        } else {
+          setSiError(`로그인 실패 / Sign-in failed: ${body.error || res.status}`);
+        }
+        return;
+      }
+      setSession({ token: body.token, user: body.user });
+      toast(`환영합니다, ${body.user.name}`, `Welcome, ${body.user.name}`);
+      const next = sanitizedNext();
+      const dest = (body.user.kyc_status || "none") !== "verified"
+        ? `/app/kyc.html?next=${encodeURIComponent(next)}`
+        : next;
+      setTimeout(() => location.replace(dest), 280);
+    } catch (e) {
+      setSiError(`네트워크 오류 / Network error: ${e.message || e}`);
+    } finally {
+      siSubmit.disabled = false;
+      siSubmit.innerHTML = '로그인 <span class="btn-en">/ Sign in</span>';
+    }
+  });
+
+  totpForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearTiError();
+    const raw = tiCode.value.trim();
+    if (!raw) { setTiError("코드를 입력하세요 / Enter the code"); return; }
+    const payload = { email: pendingLogin.email, password: pendingLogin.password };
+    if (totpUseRecovery) payload.recovery_code = raw.toUpperCase();
+    else {
+      if (!/^\d{6}$/.test(raw)) { setTiError("6자리 숫자 / Need 6 digits"); return; }
+      payload.code = raw;
+    }
+    tiSubmit.disabled = true;
+    tiSubmit.textContent = "확인 중… / Verifying…";
+    try {
+      const res = await fetch("/auth/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (body.error === "totp_locked") setTiError("시도 초과로 잠금됨. 잠시 후 다시 시도 / Locked from too many attempts. Try again later.");
+        else if (body.error === "totp_replay") setTiError("이 코드는 이미 사용되었습니다 / Code already used");
+        else if (body.error === "invalid_credentials") setTiError("비밀번호 변경됨. 처음부터 / Password changed; start over");
+        else setTiError(`코드 오류 / Code rejected: ${body.error || res.status}`);
+        return;
+      }
+      setSession({ token: body.token, user: body.user });
+      toast(`환영합니다, ${body.user.name}`, `Welcome, ${body.user.name}`);
+      const next = sanitizedNext();
+      const dest = (body.user.kyc_status || "none") !== "verified"
+        ? `/app/kyc.html?next=${encodeURIComponent(next)}`
+        : next;
+      setTimeout(() => location.replace(dest), 280);
+    } catch (e) {
+      setTiError(`네트워크 오류 / Network error: ${e.message || e}`);
+    } finally {
+      tiSubmit.disabled = false;
+      tiSubmit.innerHTML = '확인 <span class="btn-en">/ Verify</span>';
+    }
+  });
+
+  // ---- Sign up ---------------------------------------------------------
+  const suHelp     = document.getElementById("su-help");
+  const suSubmit   = document.getElementById("su-submit");
+  const suStrength = document.getElementById("su-strength");
+  const suStrengthText = document.getElementById("su-strength-text");
+  const suPwInput  = document.getElementById("su-password");
+
+  function pwStrength(p) {
+    if (!p) return { score: 0, label: "" };
+    let score = 0;
+    if (p.length >= 8) score += 1;
+    if (p.length >= 12) score += 1;
+    if (/[A-Za-z]/.test(p) && /\d/.test(p)) score += 1;
+    if (/[^A-Za-z0-9]/.test(p)) score += 1;
+    const labels = ["매우 약함 / Very weak", "약함 / Weak", "보통 / OK", "좋음 / Good", "강함 / Strong"];
+    return { score, label: labels[Math.min(score, labels.length - 1)] };
+  }
+  suPwInput.addEventListener("input", () => {
+    const { score, label } = pwStrength(suPwInput.value);
+    suStrength.style.width = `${(score / 4) * 100}%`;
+    suStrength.dataset.score = String(score);
+    suStrengthText.textContent = label
+      ? `${label}`
+      : "영문 + 숫자 포함 8자 이상 / 8+ chars with letters and digits";
+  });
+
+  function setSuError(msg) { suHelp.classList.add("error"); suHelp.textContent = msg; }
+  function clearSuError()  { suHelp.classList.remove("error"); suHelp.textContent = "다음 단계에서 본인인증을 진행합니다 / KYC verification follows on the next screen"; }
+
+  // Prefill referral code from ?ref=
+  try {
+    const refParam = new URLSearchParams(location.search).get("ref");
+    if (refParam) {
+      const cleaned = refParam.trim().toUpperCase();
+      if (/^[A-Z0-9]{4,12}$/.test(cleaned)) {
+        const refEl = document.getElementById("su-ref");
+        if (refEl) refEl.value = cleaned;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  signupForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearSuError();
+    const email    = document.getElementById("su-email").value.trim().toLowerCase();
+    const password = suPwInput.value;
+    const name     = document.getElementById("su-name").value.trim();
+    const refCode  = (document.getElementById("su-ref")?.value || "").trim().toUpperCase();
+    if (!EMAIL_RE.test(email)) { setSuError("이메일 형식을 확인해 주세요 / Check email format"); return; }
+    if (!PWD_RE.test(password)){ setSuError("비밀번호는 영문+숫자 포함 8자 이상이어야 합니다 / Password must be 8+ chars with letters and digits"); return; }
+    if (name.length < 1 || name.length > 32) { setSuError("이름은 1–32자입니다 / Name must be 1–32 chars"); return; }
+    if (refCode && !/^[A-Z0-9]{4,12}$/.test(refCode)) {
+      setSuError("리퍼럴 코드 형식이 올바르지 않습니다 / Invalid referral code format");
+      return;
+    }
+
+    suSubmit.disabled = true;
+    suSubmit.textContent = "처리 중… / Creating account…";
+    try {
+      const payload = { email, password, name };
+      if (refCode) payload.referral_code = refCode;
+      const res = await fetch("/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (body.error === "email_taken") {
+          setSuError("이미 가입된 이메일입니다 / Email already registered");
+        } else if (body.error === "invalid_email") {
+          setSuError("이메일 형식을 확인해 주세요 / Check email format");
+        } else if (body.error === "invalid_password") {
+          setSuError("비밀번호는 영문+숫자 포함 8자 이상이어야 합니다 / Password too weak");
+        } else if (body.error === "invalid_name") {
+          setSuError("이름은 1–32자입니다 / Name must be 1–32 chars");
+        } else {
+          setSuError(`회원가입 실패 / Sign-up failed: ${body.error || res.status}`);
+        }
+        return;
+      }
+      setSession({ token: body.token, user: body.user });
+      toast("계정이 만들어졌습니다", "Account created");
+      // Force users into KYC right after signup.
+      const next = sanitizedNext();
+      setTimeout(() => location.replace(`/app/kyc.html?next=${encodeURIComponent(next)}`), 280);
+    } catch (e) {
+      setSuError(`네트워크 오류 / Network error: ${e.message || e}`);
+    } finally {
+      suSubmit.disabled = false;
+      suSubmit.innerHTML = '회원가입 <span class="btn-en">/ Sign up</span>';
+    }
+  });
+
+  // =====================================================================
+  // Passkey / WebAuthn sign-in
+  // =====================================================================
+  // Two entry points:
+  //   1) The "Sign in with passkey" button at the top of the form.
+  //      Calls /authenticate/begin with whatever email is in the field
+  //      (or none — discoverable credentials show all available passkeys).
+  //   2) The /auth/login response with step:"webauthn_required" — used
+  //      when the server detects the account has a passkey enrolled and
+  //      we'd rather steer the user away from password entry.
+  function b64urlToBytes(s) {
+    s = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function bytesToB64url(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  }
+
+  const passkeyBtn     = document.getElementById("passkey-btn");
+  const passkeyDivider = document.getElementById("passkey-divider");
+  const passkeySupported = !!(window.PublicKeyCredential && navigator.credentials &&
+                              typeof navigator.credentials.get === "function");
+  if (passkeySupported) {
+    passkeyBtn.style.display = "";
+    passkeyDivider.style.display = "";
+  }
+
+  async function startPasskeySignin(emailHint) {
+    if (!passkeySupported) {
+      setSiError("이 브라우저는 패스키를 지원하지 않습니다 / Passkeys not supported in this browser");
+      return;
+    }
+    siSubmit.disabled = true;
+    passkeyBtn.disabled = true;
+    try {
+      // 1. Get options from the server.
+      const beginRes = await fetch("/auth/webauthn/authenticate/begin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(emailHint ? { email: emailHint } : {}),
+      });
+      if (!beginRes.ok) {
+        const body = await beginRes.json().catch(() => ({}));
+        setSiError(`패스키 시작 실패 / Passkey start failed: ${body.error || beginRes.status}`);
+        return;
+      }
+      const opts = await beginRes.json();
+      // 2. Build the .get() request.
+      const requestOptions = {
+        challenge: b64urlToBytes(opts.challenge),
+        timeout: opts.timeout,
+        rpId: opts.rpId,
+        userVerification: opts.userVerification || "preferred",
+        allowCredentials: (opts.allowCredentials || []).map(c => ({
+          type: c.type,
+          id: b64urlToBytes(c.id),
+          transports: c.transports,
+        })),
+      };
+      const assertion = await navigator.credentials.get({ publicKey: requestOptions });
+      if (!assertion) {
+        setSiError("패스키가 응답하지 않았습니다 / No passkey returned");
+        return;
+      }
+      const finishBody = {
+        id: assertion.id,
+        rawId: bytesToB64url(assertion.rawId),
+        type: assertion.type,
+        response: {
+          authenticatorData: bytesToB64url(assertion.response.authenticatorData),
+          clientDataJSON:    bytesToB64url(assertion.response.clientDataJSON),
+          signature:         bytesToB64url(assertion.response.signature),
+          userHandle: assertion.response.userHandle
+            ? bytesToB64url(assertion.response.userHandle)
+            : "",
+        },
+      };
+      const finRes = await fetch("/auth/webauthn/authenticate/finish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(finishBody),
+      });
+      const body = await finRes.json().catch(() => ({}));
+      if (!finRes.ok) {
+        if (finRes.status === 501) {
+          setSiError("패스키 인증이 서버에서 비활성화되어 있습니다 (cryptography 미설치) / Passkey verification disabled on server (cryptography missing)");
+        } else {
+          setSiError(`패스키 로그인 실패 / Passkey sign-in failed: ${body.error || finRes.status}`);
+        }
+        return;
+      }
+      setSession({ token: body.token, user: body.user });
+      toast(`환영합니다, ${body.user.name}`, `Welcome, ${body.user.name}`);
+      const next = sanitizedNext();
+      const dest = (body.user.kyc_status || "none") !== "verified"
+        ? `/app/kyc.html?next=${encodeURIComponent(next)}`
+        : next;
+      setTimeout(() => location.replace(dest), 280);
+    } catch (e) {
+      if (e && e.name === "NotAllowedError") {
+        setSiError("취소되었거나 패스키를 찾을 수 없습니다 / Cancelled or no passkey found");
+      } else {
+        setSiError(`패스키 오류 / Passkey error: ${e.message || e}`);
+      }
+    } finally {
+      siSubmit.disabled = false;
+      passkeyBtn.disabled = false;
+    }
+  }
+
+  passkeyBtn.addEventListener("click", () => {
+    const email = document.getElementById("si-email").value.trim().toLowerCase();
+    startPasskeySignin(email || "");
+  });
+</script>
+
+</body>
+</html>

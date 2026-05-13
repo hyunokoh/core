@@ -1,0 +1,42 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 1000
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    # NOTE: brought up via the sibling ``tempo-compose.yml`` file. The
+    # main observability stack works fine even if Tempo isn't running —
+    # Grafana will just show the datasource as unhealthy.
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      # Allow correlating a Loki log line that contains a trace_id field
+      # straight to the Tempo trace tree in Explore.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -1h
+        spanEndTimeShift: 1h
+        filterByTraceID: true
+        filterBySpanID: false
+        customQuery: true
+        query: '{service_name="$${__span.tags.service.name}"} |= "$${__span.traceId}"'
+      nodeGraph:
+        enabled: true
