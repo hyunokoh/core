@@ -264,6 +264,25 @@ def _scale(balance_raw: Any) -> int:
     return max(n, 0)
 
 
+def _wallet_liability_scaled(wallet: dict) -> int:
+    """Return total customer liability for one wallet row.
+
+    The wallet API exposes available, locked, and pending-withdraw balances
+    separately. zkPoL must track the user's total claim, so locked order funds
+    and pending withdraws remain part of liabilities until they actually leave
+    custody.
+    """
+    total = Decimal(0)
+    for key in ("balance", "locked", "withdraw"):
+        try:
+            value = Decimal(str(wallet.get(key, 0) or 0))
+        except (InvalidOperation, ValueError, TypeError):
+            value = Decimal(0)
+        if value > 0:
+            total += value
+    return _scale(total)
+
+
 # --------------------------------------------------------------------------
 # zkPoL DB writes (via docker exec mariadb CLI)
 # --------------------------------------------------------------------------
@@ -462,7 +481,7 @@ def _tick(stats_target: TickStats | None = None) -> TickStats:
                 if token_id is None:
                     continue
                 assets_seen.add(token_id)
-                bal_scaled = _scale(w.get("balance", 0))
+                bal_scaled = _wallet_liability_scaled(w)
                 key = (opex, token_id)
                 prev = state.get(key)
                 if prev is None:
@@ -486,17 +505,15 @@ def _tick(stats_target: TickStats | None = None) -> TickStats:
                 if mariadb_dead:
                     continue
                 trace = f"bridge-{int(time.time()*1000)}-{opex}-{token_id}"
-                # zkPoL test fixtures (and the assemble pipeline) treat `delta`
-                # as the magnitude of the change; the sign is conveyed by
-                # event_type. e.g. withdrawal uses (balance=100, delta=100,
-                # event_type='withdrawal'). We mirror that convention.
-                magnitude = abs(delta)
+                # zkPoL derives the previous value as `balance - delta`.
+                # Deposits therefore use a positive delta and withdrawals use
+                # a negative delta; event_type is kept for audit readability.
                 try:
                     ev_id = _mariadb_insert_event(
                         account_id=opex,
                         token_id=token_id,
                         balance_scaled=bal_scaled,
-                        delta=magnitude,
+                        delta=delta,
                         event_type=event_type,
                         occurred_at_iso=_now_iso_3(),
                         transaction_trace_id=trace,

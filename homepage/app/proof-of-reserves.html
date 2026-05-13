@@ -335,6 +335,7 @@
     }
     .zkpol-pill.ok    { background: rgba(46,229,155,0.16); color: #2ee59b; border: 1px solid rgba(46,229,155,0.42); }
     .zkpol-pill.bad   { background: rgba(255,77,99,0.16);  color: #ff6b85; border: 1px solid rgba(255,77,99,0.42); }
+    .zkpol-pill.pending { background: rgba(240,180,41,0.14); color: #f0b429; border: 1px solid rgba(240,180,41,0.42); }
     .zkpol-pill.muted { background: var(--panel-3); color: var(--ink-dim); border: 1px solid var(--line); }
   </style>
 </head>
@@ -733,7 +734,14 @@
     try { body = await resp.json(); } catch { return null; }
     let scaled;
     try { scaled = BigInt(body.current_liability ?? "0"); } catch { return null; }
-    return { scaled, n_accounts: Number(body.account_count ?? 0) };
+    return {
+      scaled,
+      n_accounts: Number(body.account_count ?? 0),
+      claimed_event_id: Number(body.claimed_event_id ?? -1),
+      final_event_id: Number(body.final_event_id ?? -1),
+      final_batch_seq: Number(body.final_batch_seq ?? -1),
+      recent_batches: Array.isArray(body.recent_batches) ? body.recent_batches : [],
+    };
   }
 
   function zkpolDecimalFromScaled(b) {
@@ -766,7 +774,11 @@
     if (ok) {
       return `<span class="zkpol-pill ok" title="${tip.replace(/"/g, '&quot;')}">✓ matched</span>`;
     }
-    return `<span class="zkpol-pill bad" title="${tip.replace(/"/g, '&quot;')}">✗ Δ=${zkpolDecimalFromScaled(diff)}</span>`;
+    const chainPending =
+      zkpolResult.claimed_event_id > zkpolResult.final_event_id ||
+      (zkpolResult.recent_batches || []).some((b) => !["finalized", "archived"].includes(String(b.status || "").toLowerCase()));
+    const label = chainPending ? "⏳ syncing" : "live Δ";
+    return `<span class="zkpol-pill pending" title="${tip.replace(/"/g, '&quot;')}">${label}=${zkpolDecimalFromScaled(diff)}</span>`;
   }
 
   function renderAssetTable(b) {

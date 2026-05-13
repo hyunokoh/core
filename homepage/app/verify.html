@@ -213,6 +213,7 @@
     }
     .zkpol-pill.ok  { background: rgba(46,229,155,0.16); color: #2ee59b; border: 1px solid rgba(46,229,155,0.42); }
     .zkpol-pill.bad { background: rgba(255,77,99,0.16);  color: #ff6b85; border: 1px solid rgba(255,77,99,0.42); }
+    .zkpol-pill.pending { background: rgba(240,180,41,0.14); color: #f0b429; border: 1px solid rgba(240,180,41,0.42); }
     .zkpol-pill.muted { background: var(--panel-3); color: var(--ink-dim); border: 1px solid var(--line); }
     .zkpol-comm { font-family: var(--font-mono); cursor: pointer; }
     .zkpol-comm:hover { color: #fff; }
@@ -819,6 +820,27 @@
     });
   }
 
+  async function zkpolFetchSummary(tokenId) {
+    try {
+      const r = await fetch(`/zkpol/tokens/${encodeURIComponent(tokenId)}/summary`, { cache: "no-store" });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+
+  function zkpolHasPendingChainWork(summary, acc) {
+    if (!summary) return false;
+    const updatedBatch = Number(acc?.updated_batch_seq ?? -1);
+    const finalizedBatch = Number(summary.final_batch_seq ?? -1);
+    const claimedEvent = Number(summary.claimed_event_id ?? -1);
+    const finalizedEvent = Number(summary.final_event_id ?? -1);
+    if (Number.isFinite(updatedBatch) && Number.isFinite(finalizedBatch) && updatedBatch > finalizedBatch) return true;
+    if (Number.isFinite(claimedEvent) && Number.isFinite(finalizedEvent) && claimedEvent > finalizedEvent) return true;
+    return (summary.recent_batches || []).some((b) => !["finalized", "archived"].includes(String(b.status || "").toLowerCase()));
+  }
+
   async function zkpolRender() {
     if (zkpolInflight) return;
     zkpolInflight = true;
@@ -857,7 +879,7 @@
       const rowsHtml = [];
       const verifyResponses = {};
       for (const [tid, sym] of tokens) {
-        let acc = null, ver = null;
+        let acc = null, ver = null, summary = null;
         try {
           const r = await fetch(`/zkpol/tokens/${encodeURIComponent(tid)}/accounts/${encodeURIComponent(opex)}`, { cache: "no-store" });
           if (r.ok) acc = await r.json();
@@ -866,6 +888,7 @@
           const r = await fetch(`/zkpol/tokens/${encodeURIComponent(tid)}/accounts/${encodeURIComponent(opex)}/verify`, { cache: "no-store" });
           if (r.ok) ver = await r.json();
         } catch {}
+        summary = await zkpolFetchSummary(tid);
         verifyResponses[tid] = ver;
 
         if (!acc) {
@@ -879,9 +902,17 @@
         }
 
         const matched = ver?.matched === true;
+        const pending = !matched && zkpolHasPendingChainWork(summary, acc);
+        const pendingTitle = summary
+          ? `latest batch #${acc.updated_batch_seq ?? "?"} / finalized #${summary.final_batch_seq ?? "?"}`
+          : "waiting for on-chain finalization";
         const matchPill = ver == null
           ? `<span class="zkpol-pill muted">verify ?</span>`
-          : (matched ? `<span class="zkpol-pill ok">✓ matched</span>` : `<span class="zkpol-pill bad">✗ mismatch</span>`);
+          : (matched
+              ? `<span class="zkpol-pill ok">✓ matched</span>`
+              : (pending
+                  ? `<span class="zkpol-pill pending" title="${escapeHtml(pendingTitle)}">⏳ pending</span>`
+                  : `<span class="zkpol-pill bad">✗ mismatch</span>`));
         const commitment = acc.commitment || "—";
         rowsHtml.push(`
           <tr data-tid="${escapeHtml(tid)}">

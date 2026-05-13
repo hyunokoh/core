@@ -276,14 +276,6 @@
     document.getElementById("done-continue").href = sanitizedNext();
     document.getElementById("kyc-cancel").href = sanitizedNext();
 
-    // Initial screen is the method picker. If already verified, jump to done.
-    showScreen("method");
-    refreshSelf().then(s => {
-      if (s && (s.user?.kyc_status || "none") === "verified") {
-        showScreen("done");
-      }
-    });
-
     async function refreshSelf() {
       try {
         const r = await fetch("/auth/me", {
@@ -310,6 +302,14 @@
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
+
+    // Initial screen is the method picker. If already verified, jump to done.
+    showScreen("method");
+    refreshSelf().then(s => {
+      if (s && (s.user?.kyc_status || "none") === "verified") {
+        showScreen("done");
+      }
+    });
 
     // ---- 0. Method tabs (PASS vs Sumsub) ------------------------------
     let sumsubMounted = null;   // { stop, refresh }

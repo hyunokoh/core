@@ -128,6 +128,13 @@ LIVE_BAL_TTL_S = 30  # max staleness for cached per-user balance even when "unch
 LIVE_RING_MAX = 1000
 LIVE_MAX_SUBSCRIBERS = 200
 LIVE_TICK_BUDGET_MS = 800  # warn + skip-next-tick threshold
+DEMO_RESERVES = os.environ.get("POL_DEMO_RESERVES", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+DEMO_RESERVE_RATIO = Decimal(os.environ.get("POL_DEMO_RESERVE_RATIO", "1.25"))
 
 # Mapping: on-chain test token symbol -> what the wallet API/ticker calls it.
 # The hardhat ZETH/ZUSDT are stand-ins for real ETH/USDT; valuation looks up
@@ -1280,6 +1287,36 @@ def build_porl_snapshot() -> dict:
                 row["source_addresses"].append(custodial_addr)
             row["tokens"].append({"symbol": "ETH (native)", "address": None, "decimals": 18})
 
+    # Demo mode: when a VM does not run the custody chain/RPC, make the
+    # reserves page presentation-safe by publishing explicitly marked synthetic
+    # reserves above liabilities. This is intentionally opt-in via env.
+    if DEMO_RESERVES:
+        for asset, liab in liabilities.items():
+            owed = liab["total_owed"]
+            if owed <= 0:
+                continue
+            target = (owed * DEMO_RESERVE_RATIO).quantize(Decimal("0.00000001"))
+            row = reserves.setdefault(
+                asset,
+                {
+                    "on_chain_balance": Decimal(0),
+                    "source_addresses": [],
+                    "tokens": [],
+                },
+            )
+            if row["on_chain_balance"] < target:
+                row["on_chain_balance"] = target
+            if "demo-reserve-ledger" not in row["source_addresses"]:
+                row["source_addresses"].append("demo-reserve-ledger")
+            row["tokens"].append(
+                {
+                    "symbol": f"{asset} demo reserve",
+                    "address": None,
+                    "decimals": 8,
+                    "demo": True,
+                }
+            )
+
     # ---- merge into per-asset rows --------------------------------------
     all_assets = set(reserves) | set(liabilities)
     by_asset_rows: list[dict] = []
@@ -1395,6 +1432,7 @@ def build_porl_snapshot() -> dict:
         "sig_scheme": sig_scheme,
         "hash": HASH_NAME,
         "asset_breakdown_hash": asset_breakdown_hash,
+        "demo_reserves": DEMO_RESERVES,
         "verification_recipe": [
             "1. Fetch /pol/server-info to get pubkey + sig_scheme.",
             "2. Recompute asset_breakdown_hash: SHA-256 of canonical JSON of by_asset (sorted keys, no whitespace, asset rows in alphabetical order by 'asset').",
@@ -1756,6 +1794,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with _otel_server_span(self):
             parsed = urllib.parse.urlsplit(self.path)
             path = parsed.path
+            if path == "/pol/health":
+                return self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "service": "pol",
+                        "demo_reserves": DEMO_RESERVES,
+                        "epoch_seconds": EPOCH_SECONDS,
+                    },
+                )
             if path == "/pol/server-info":
                 return self.h_server_info()
             if path == "/pol/latest-epoch":

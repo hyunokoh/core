@@ -1547,6 +1547,7 @@ button:focus:not(:focus-visible) {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   background: var(--panel-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
@@ -1565,6 +1566,7 @@ button:focus:not(:focus-visible) {
 }
 .signin-input input {
   flex: 1;
+  min-width: 0;
   font-size: 16px;
   color: #fff;
   font-family: var(--font-mono);
@@ -1983,10 +1985,12 @@ button:focus:not(:focus-visible) {
   display: flex;
   align-items: stretch;
   gap: 8px;
+  min-width: 0;
 }
-.rrn-front { flex: 2; }
+.rrn-front { flex: 1 1 0; }
 .rrn-back  {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   position: relative;
 }
 .rrn-back input {
@@ -2079,6 +2083,9 @@ button:focus:not(:focus-visible) {
 @media (max-width: 540px) {
   .carrier-grid { grid-template-columns: 1fr 1fr; }
   .kyc-card { padding: 24px 18px 28px; }
+  .rrn-row { gap: 6px; }
+  .rrn-back input { padding-right: 52px; letter-spacing: 0.25em; }
+  .rrn-back .rrn-mask { right: 10px; letter-spacing: 0.08em; }
 }
 
 /* =====================================================================

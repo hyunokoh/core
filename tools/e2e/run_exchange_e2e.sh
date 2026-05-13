@@ -533,8 +533,13 @@ wait_container_stable() {
   local stable_since=""
 
   while true; do
-    local state
-    state="$(docker -H "$DOCKER_SOCK" inspect -f '{{.RestartCount}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.Status}}' "core-${service}-1" 2>/dev/null || true)"
+    local container_id state
+    container_id="$("${COMPOSE[@]}" ps -q "$service" 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$container_id" ]]; then
+      state="$(docker -H "$DOCKER_SOCK" inspect -f '{{.RestartCount}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.Status}}' "$container_id" 2>/dev/null || true)"
+    else
+      state=""
+    fi
     if [[ -n "$state" && "$state" == "$previous" ]]; then
       if [[ -z "$stable_since" ]]; then
         stable_since="$SECONDS"
@@ -549,7 +554,11 @@ wait_container_stable() {
 
     if (( SECONDS > deadline )); then
       echo "Timed out waiting for $label" >&2
-      docker -H "$DOCKER_SOCK" inspect -f '{{.Name}} restart={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} status={{.State.Status}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' "core-${service}-1" >&2 || true
+      if [[ -n "$container_id" ]]; then
+        docker -H "$DOCKER_SOCK" inspect -f '{{.Name}} restart={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} status={{.State.Status}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' "$container_id" >&2 || true
+      else
+        "${COMPOSE[@]}" ps "$service" >&2 || true
+      fi
       exit 1
     fi
     sleep 2
