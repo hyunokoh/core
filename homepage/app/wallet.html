@@ -25,7 +25,7 @@
 
 <section class="page-heading">
   <h1>지갑<span class="en">Wallet</span><span class="wallet-display-name" id="wallet-name">@—</span></h1>
-  <p>자산 잔고, 입출금, 그리고 5분 주기 PoL 잔고 검증 / Assets, transfers, and verifiable balances every 5 minutes</p>
+  <p>자산 잔고, 입출금, 그리고 실시간 PoL 추적 + 60초 공식 스냅샷 / Assets, transfers, live PoL tracking + 60-second official snapshots</p>
 </section>
 
 <main id="main" class="wallet-shell">
@@ -185,12 +185,12 @@
 
   <section class="pol-card">
     <h3>잔고를 직접 검증하세요 — Proof-of-Liabilities</h3>
-    <p>거래소가 보관하는 자산이 실제로 사용자 잔고를 충분히 커버한다는 사실을, 5분마다 갱신되는 Merkle-sum 인증서로 직접 확인할 수 있습니다.<br/>Verify that the exchange holds enough assets to cover every user balance, with a fresh Merkle-sum certificate every 5 minutes.</p>
+    <p>거래소가 보관하는 자산이 실제로 사용자 잔고를 충분히 커버한다는 사실을, 실시간 잔고 추적과 60초 공식 Merkle-sum 인증서로 직접 확인할 수 있습니다.<br/>Verify that the exchange holds enough assets to cover every user balance with live balance tracking and an official Merkle-sum certificate every 60 seconds.</p>
     <ol class="pol-steps">
       <li class="pol-step">
         <span class="num">STEP 01</span>
         <strong>인증서 발급 / Get certificate</strong>
-        <span>로그인 상태에서 잔고 스냅샷이 매 5분마다 자동으로 발급됩니다.</span>
+        <span>로그인 상태에서 잔고 변화는 실시간으로 추적되고, 공식 잔고 스냅샷은 60초마다 자동으로 발급됩니다.</span>
       </li>
       <li class="pol-step">
         <span class="num">STEP 02</span>
